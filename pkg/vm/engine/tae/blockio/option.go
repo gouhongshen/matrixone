@@ -14,22 +14,24 @@
 
 package blockio
 
-type Option func(*IoPipeline)
+type Option func(impl *IoPipelineImpl)
 
-func WithFetchParallism(num int) Option {
-	return func(p *IoPipeline) {
-		p.options.fetchParallism = num
+func WithFetchParallelism(num int) Option {
+	return func(p *IoPipelineImpl) {
+		p.options.parallelism = num
 	}
 }
 
-func WithPrefetchParallism(num int) Option {
-	return func(p *IoPipeline) {
-		p.options.prefetchParallism = num
+func WithPrefetchParallelism(num int) Option {
+	return func(p *IoPipelineImpl) {
+		p.options.parallelism = num
 	}
 }
 
 func WithJobFactory(factory IOJobFactory) Option {
-	return func(p *IoPipeline) {
+	return func(p *IoPipelineImpl) {
+		p.jobFactory = factory
+		p.jobFactory = factory
 		p.jobFactory = factory
 	}
 }
