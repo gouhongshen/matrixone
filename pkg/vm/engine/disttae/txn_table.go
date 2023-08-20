@@ -804,6 +804,60 @@ func (tbl *txnTable) rangesOnePart(
 	return
 }
 
+func (tbl *txnTable) extractCompositePKValueFromEqualExprs(
+	exprs []*plan.Expr,
+	pkDef *plan.PrimaryKeyDef,
+) (val []byte) {
+	var packer *types.Packer
+	put := tbl.db.txn.engine.packerPool.Get(&packer)
+	for _, expr := range exprs {
+		vals := make([]*plan.Const, len(pkDef.Names))
+
+		// if any composite pk value is null, skip all exprs check
+		if _, hasNull := getCompositPKVals(
+			expr, pkDef.Names, vals, tbl.proc,
+		); hasNull {
+			break
+		}
+
+		// check all composite pk values are exist
+		// if not, check next expr
+		cnt := getValidCompositePKCnt(vals)
+		if cnt != len(vals) {
+			continue
+		}
+
+		// serialize composite pk values into bytes as the pk value
+		// and break the loop
+		for i := 0; i < cnt; i++ {
+			serialTupleByConstExpr(vals[i], packer)
+		}
+		val = packer.Bytes()
+		break
+	}
+	put.Put()
+	return
+}
+
+func (tbl *txnTable) extractPKValueFromEqualExprs(
+	exprs []*plan.Expr,
+) (val []byte) {
+	pkDef := tbl.tableDef.Pkey
+	if pkDef.CompPkeyCol != nil {
+		return tbl.extractCompositePKValueFromEqualExprs(exprs, pkDef)
+	}
+	pkColumn := tbl.tableDef.Cols[tbl.primaryIdx]
+	pkName := pkColumn.Name
+	pkType := types.T(pkColumn.Typ.Id)
+	for _, expr := range exprs {
+		if ok, _, v := getPkValueByExpr(expr, pkName, pkType, tbl.proc); ok {
+			val = types.EncodeValue(v, pkType)
+			break
+		}
+	}
+	return
+}
+
 func (tbl *txnTable) tryFastRanges(
 	exprs []*plan.Expr,
 	blks []catalog.BlockInfo,
@@ -815,22 +869,29 @@ func (tbl *txnTable) tryFastRanges(
 		done = false
 		return
 	}
-	pkColumn := tbl.tableDef.Cols[tbl.primaryIdx]
-	pkName := pkColumn.Name
-	pkType := types.T(pkColumn.Typ.Id)
-	var pkVal any
-	for _, expr := range exprs {
-		ok, _, v := getPkValueByExpr(expr, pkName, pkType, tbl.proc)
-		if ok {
-			pkVal = v
-			break
-		}
-	}
-	if pkVal == nil {
+	// pkColumn := tbl.tableDef.Cols[tbl.primaryIdx]
+	// pkName := pkColumn.Name
+	// pkType := types.T(pkColumn.Typ.Id)
+	// var pkVal any
+	// for _, expr := range exprs {
+	// 	ok, _, v := getPkValueByExpr(expr, pkName, pkType, tbl.proc)
+	// 	if ok {
+	// 		pkVal = v
+	// 		break
+	// 	}
+	// }
+	// if pkVal == nil {
+	// 	done = false
+	// 	return
+	// }
+	// val := types.EncodeValue(pkVal, pkType)
+
+	val := tbl.extractPKValueFromEqualExprs(exprs)
+	if len(val) == 0 {
 		done = false
 		return
 	}
-	val := types.EncodeValue(pkVal, pkType)
+
 	hasDeletes := len(dirtyBlks) > 0
 
 	var (
