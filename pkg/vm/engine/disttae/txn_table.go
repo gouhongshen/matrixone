@@ -810,32 +810,37 @@ func (tbl *txnTable) extractCompositePKValueFromEqualExprs(
 ) (val []byte) {
 	var packer *types.Packer
 	put := tbl.db.txn.engine.packerPool.Get(&packer)
+	defer put.Put()
+
+	vals := make([]*plan.Const, len(pkDef.Names))
 	for _, expr := range exprs {
-		vals := make([]*plan.Const, len(pkDef.Names))
-
-		// if any composite pk value is null, skip all exprs check
+		tmpVals := make([]*plan.Const, len(pkDef.Names))
 		if _, hasNull := getCompositPKVals(
-			expr, pkDef.Names, vals, tbl.proc,
+			expr, pkDef.Names, tmpVals, tbl.proc,
 		); hasNull {
-			break
+			return
 		}
-
-		// check all composite pk values are exist
-		// if not, check next expr
-		cnt := getValidCompositePKCnt(vals)
-		if cnt != len(vals) {
-			continue
+		for i := range tmpVals {
+			if tmpVals[i] == nil {
+				continue
+			}
+			vals[i] = tmpVals[i]
 		}
-
-		// serialize composite pk values into bytes as the pk value
-		// and break the loop
-		for i := 0; i < cnt; i++ {
-			serialTupleByConstExpr(vals[i], packer)
-		}
-		val = packer.Bytes()
-		break
 	}
-	put.Put()
+
+	// check all composite pk values are exist
+	// if not, check next expr
+	cnt := getValidCompositePKCnt(vals)
+	if cnt != len(vals) {
+		return
+	}
+
+	// serialize composite pk values into bytes as the pk value
+	// and break the loop
+	for i := 0; i < cnt; i++ {
+		serialTupleByConstExpr(vals[i], packer)
+	}
+	val = packer.Bytes()
 	return
 }
 
