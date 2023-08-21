@@ -449,6 +449,8 @@ func (s *S3FS) Read(ctx context.Context, vector *IOVector) (err error) {
 			}
 			err = s.memCache.Update(ctx, vector, s.asyncUpdate)
 		}()
+	} else {
+		logutil.Infof("S3FileSystem has no memCache")
 	}
 
 	if s.diskCache != nil {
@@ -461,6 +463,8 @@ func (s *S3FS) Read(ctx context.Context, vector *IOVector) (err error) {
 			}
 			err = s.diskCache.Update(ctx, vector, s.asyncUpdate)
 		}()
+	} else {
+		logutil.Infof("S3FileSystem has no diskCache")
 	}
 
 	if err := s.read(ctx, vector); err != nil {

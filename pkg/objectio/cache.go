@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/perfcounter"
 	"sync"
 
 	"github.com/matrixorigin/matrixone/pkg/container/types"
@@ -43,6 +44,30 @@ type CacheConfig struct {
 type mataCacheKey [cacheKeyLen]byte
 
 var metaCache *lrucache.LRU[mataCacheKey, fileservice.Bytes]
+
+type BlockReadStats struct {
+	// the mem cache statistics info for each block
+	BlkMemCacheHitStats hitStats
+	// the mem cache statistics info for each entry
+	EntryMemCacheHitStats hitStats
+	BlksByReaderStats     hitStats
+	CounterSet            *perfcounter.CounterSet
+}
+
+const (
+	BlkReadStatsExporterName = "block read stats exporter"
+)
+
+func newBlockReadStats() *BlockReadStats {
+	s := BlockReadStats{
+		CounterSet: new(perfcounter.CounterSet),
+	}
+	return &s
+}
+
+var BlkReadStats = newBlockReadStats()
+
+// var metaCache *lrucache.LRU[ObjectNameShort, fileservice.Bytes]
 var onceInit sync.Once
 var metaCacheStats hitStats
 var metaCacheHitStats hitStats
@@ -70,11 +95,12 @@ func ExportMetaCacheStats() string {
 	ht, htt := metaCacheHitStats.Export()
 	w, wt := metaCacheStats.ExportW()
 	t, tt := metaCacheStats.Export()
+
 	fmt.Fprintf(
 		&buf,
-		"MetaCacheWindow: %d/%d | %d/%d, MetaCacheTotal: %d/%d | %d/%d",
-		hw, hwt, w, wt, ht, htt, t, tt,
+		"MetaCacheWindow: %d/%d | %d/%d, MetaCacheTotal: %d/%d | %d/%d", hw, hwt, w, wt, ht, htt, t, tt,
 	)
+
 	return buf.String()
 }
 
