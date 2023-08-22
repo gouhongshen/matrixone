@@ -14,7 +14,11 @@
 
 package fileservice
 
-import "sync"
+import (
+	"context"
+	"runtime/trace"
+	"sync"
+)
 
 type IOLockKey struct {
 	File string
@@ -30,7 +34,9 @@ func (i *IOLocks) Lock(key IOLockKey) (unlock func(), wait func()) {
 	if loaded {
 		// not locked
 		wait = func() {
+			probe := trace.StartRegion(context.Background(), "IOLocks.Wait")
 			<-v.(chan struct{})
+			probe.End()
 		}
 		return
 	}

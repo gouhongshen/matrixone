@@ -22,6 +22,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	gotrace "runtime/trace"
 	"strings"
 	"sync"
 	"time"
@@ -100,6 +101,8 @@ func (d *DiskCache) Read(
 	if vector.CachePolicy.Any(SkipDiskReads) {
 		return nil
 	}
+	probe := gotrace.StartRegion(ctx, "DiskCache.Read")
+	defer probe.End()
 
 	var numHit, numRead, numOpen, numError int64
 	defer func() {
@@ -176,6 +179,8 @@ func (d *DiskCache) Update(
 	if vector.CachePolicy.Any(SkipDiskWrites) {
 		return nil
 	}
+	probe := gotrace.StartRegion(ctx, "DiskCache.Update")
+	defer probe.End()
 
 	var numOpen, numStat, numError, numWrite int64
 	defer func() {

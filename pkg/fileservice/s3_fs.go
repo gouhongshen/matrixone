@@ -429,6 +429,9 @@ func (s *S3FS) Read(ctx context.Context, vector *IOVector) (err error) {
 		return moerr.NewEmptyVectorNoCtx()
 	}
 
+	probe := gotrace.StartRegion(ctx, "S3FS.Read")
+	defer probe.End()
+
 	unlock, wait := s.ioLocks.Lock(IOLockKey{
 		File: vector.FilePath,
 	})
@@ -473,6 +476,9 @@ func (s *S3FS) read(ctx context.Context, vector *IOVector) error {
 	if vector.allDone() {
 		return nil
 	}
+
+	probe := gotrace.StartRegion(ctx, "S3FS.readFromRemote")
+	defer probe.End()
 
 	ctx, span := trace.Start(ctx, "S3FS.read")
 	defer span.End()
