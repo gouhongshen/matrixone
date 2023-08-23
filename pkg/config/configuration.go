@@ -139,7 +139,8 @@ var (
 	defaultCleanKillQueueInterval = 60
 
 	// defaultLongSpanTime default: 10 s
-	defaultLongSpanTime = 10 * time.Second
+	//defaultLongSpanTime = 10 * time.Second
+	defaultLongSpanTime = 50 * time.Millisecond
 
 	defaultAggregationWindow = 5 * time.Second
 
