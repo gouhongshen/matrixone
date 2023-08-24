@@ -24,6 +24,12 @@ package trace
 import (
 	"context"
 	"sync/atomic"
+	"time"
+)
+
+const (
+	LocalFSReadLongTimeThreshold = time.Millisecond * 50
+	S3FSReadLongTimeThreshold    = LocalFSReadLongTimeThreshold
 )
 
 // Start a span entity

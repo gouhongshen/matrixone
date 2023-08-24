@@ -22,34 +22,12 @@ import (
 
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
 	"github.com/matrixorigin/matrixone/pkg/fileservice/lrucache"
-	"github.com/matrixorigin/matrixone/pkg/perfcounter"
 	"github.com/matrixorigin/matrixone/pkg/util/toml"
 )
 
 type CacheConfig struct {
 	MemoryCapacity toml.ByteSize `toml:"memory-capacity"`
 }
-
-// BlockReadStats collect blk read related cache statistics,
-// include mem and disk
-type BlockReadStats struct {
-	// using this we can collect the number of blks have read and hit among them
-	BlkCacheHitStats hitStats
-	// using this we can collect the number of entries have read and hit among them
-	EntryCacheHitStats hitStats
-	// using this we can collect the number of blks each reader will read
-	BlksByReaderStats hitStats
-	CounterSet        *perfcounter.CounterSet
-}
-
-func newBlockReadStats() *BlockReadStats {
-	s := BlockReadStats{
-		CounterSet: new(perfcounter.CounterSet),
-	}
-	return &s
-}
-
-var BlkReadStats = newBlockReadStats()
 
 var metaCache *lrucache.LRU[ObjectNameShort, fileservice.Bytes]
 var onceInit sync.Once

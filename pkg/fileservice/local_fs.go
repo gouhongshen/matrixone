@@ -269,7 +269,7 @@ func (l *LocalFS) Read(ctx context.Context, vector *IOVector) (err error) {
 	default:
 	}
 
-	ctx, span := trace.Start(ctx, "LocalFS.Read")
+	ctx, span := trace.Start(ctx, "LocalFS.Read", trace.WithLongTimeThreshold(trace.LocalFSReadLongTimeThreshold))
 	defer span.End()
 
 	if len(vector.Entries) == 0 {

@@ -17,6 +17,8 @@ package objectio
 import (
 	"bytes"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/perfcounter"
+	"go.uber.org/zap"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/util/metric/stats"
@@ -150,4 +152,60 @@ func (s *Stats) ExportString() string {
 	rtotal, rread, rbisect, rcnt := s.ExportReadDel()
 	fmt.Fprintf(&w, "RDD[%v/%v/%v/%v]", rtotal, rread, rbisect, rcnt)
 	return w.String()
+}
+
+// BlockReadStats collect blk read related cache statistics,
+// include mem and disk
+type BlockReadStats struct {
+	// using this we can collect the number of blks have read and hit among them
+	BlkCacheHitStats hitStats
+	// using this we can collect the number of entries have read and hit among them
+	EntryCacheHitStats hitStats
+	// using this we can collect the number of blks each reader will read
+	BlksByReaderStats hitStats
+	CounterSet        *perfcounter.CounterSet
+}
+
+const BlkReadStatsName string = "block read stats"
+
+func newBlockReadStats() *BlockReadStats {
+	s := BlockReadStats{
+		CounterSet: new(perfcounter.CounterSet),
+	}
+	return &s
+}
+
+var BlkReadStats = newBlockReadStats()
+
+func (b *BlockReadStats) Export() []zap.Field {
+	fields := make([]zap.Field, 0)
+
+	blkHit, blkTotal := BlkReadStats.BlkCacheHitStats.ExportW()
+	blkHitRate := float32(1)
+	if blkTotal != 0 {
+		blkHitRate = float32(blkHit) / float32(blkTotal)
+	}
+	fields = append(fields, zap.Int64("blk read num", blkTotal))
+	fields = append(fields, zap.Int64("blk hit num", blkHit))
+	fields = append(fields, zap.Float32("blk hit rate", blkHitRate))
+
+	entryHit, entryTotal := BlkReadStats.EntryCacheHitStats.ExportW()
+	entryHitRate := float32(1)
+	if entryTotal != 0 {
+		entryHitRate = float32(entryHit) / float32(entryTotal)
+	}
+	fields = append(fields, zap.Int64("entry read num", entryTotal))
+	fields = append(fields, zap.Int64("entry hit num", entryHit))
+	fields = append(fields, zap.Float32("entry hit rate", entryHitRate))
+
+	readerNum, blkNum := BlkReadStats.BlksByReaderStats.ExportW()
+	blksInEachReader := float32(1)
+	if readerNum != 0 {
+		blksInEachReader = float32(blkNum) / float32(readerNum)
+	}
+	fields = append(fields, zap.Int64("reader num", readerNum))
+	fields = append(fields, zap.Int64("blk num", blkNum))
+	fields = append(fields, zap.Float32("(average) blks in each reader", blksInEachReader))
+
+	return fields
 }
