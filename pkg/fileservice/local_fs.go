@@ -17,6 +17,8 @@ package fileservice
 import (
 	"bytes"
 	"context"
+	"github.com/matrixorigin/matrixone/pkg/fileservice/EvoSwap"
+	"github.com/matrixorigin/matrixone/pkg/fileservice/checks/interval"
 	"io"
 	"io/fs"
 	"os"
@@ -102,8 +104,38 @@ func (l *LocalFS) initCaches(ctx context.Context, config CacheConfig) error {
 	config.setDefaults()
 
 	if *config.MemoryCapacity > DisableCacheCapacity { // 1 means disable
+		var overlapChecker *interval.OverlapChecker
+		overlapChecker = interval.NewOverlapChecker("MemCache_LRU")
+
+		c := EvoSwap.Config[CacheKey, CacheData]{
+			Lru2Conf: &EvoSwap.LRU2Config[CacheKey, CacheData]{
+				Capacity: int64(*config.MemoryCapacity),
+				PostGet: func(key CacheKey, value CacheData) {
+					value.Retain()
+				},
+				PostSet: func(key CacheKey, value CacheData) {
+					value.Retain()
+
+					if overlapChecker != nil {
+						if err := overlapChecker.Insert(key.Path, key.Offset, key.Offset+key.Size); err != nil {
+							panic(err)
+						}
+					}
+				},
+				PostEvict: func(key CacheKey, value CacheData) {
+					value.Release()
+
+					if overlapChecker != nil {
+						if err := overlapChecker.Remove(key.Path, key.Offset, key.Offset+key.Size); err != nil {
+							panic(err)
+						}
+					}
+				},
+			},
+		}
 		l.memCache = NewMemCache(
-			NewLRUCache(int64(*config.MemoryCapacity), true, &config.CacheCallbacks),
+			EvoSwap.NewCache[CacheKey, CacheData](&c),
+			//NewLRUCache(int64(*config.MemoryCapacity), true, &config.CacheCallbacks),
 			l.perfCounterSets,
 		)
 		logutil.Info("fileservice: memory cache initialized",

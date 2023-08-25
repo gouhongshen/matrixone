@@ -17,6 +17,7 @@ package fileservice
 import (
 	"context"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/fileservice/EvoSwap"
 	"testing"
 
 	"github.com/matrixorigin/matrixone/pkg/perfcounter"
@@ -59,8 +60,9 @@ func BenchmarkMemoryFSWithMemoryCache(b *testing.B) {
 	benchmarkFileService(ctx, b, func() FileService {
 		fs, err := NewMemoryFS("memory", DisabledCacheConfig, nil)
 		assert.Nil(b, err)
+		c := makEvoSwapCacheConfig(128 * 1024 * 1024)
 		fs.caches = append(fs.caches, NewMemCache(
-			NewLRUCache(128*1024*1024, true, nil),
+			EvoSwap.NewCache(c),
 			nil,
 		))
 		return fs
@@ -81,8 +83,9 @@ func BenchmarkMemoryFSWithMemoryCacheLowCapacity(b *testing.B) {
 	benchmarkFileService(ctx, b, func() FileService {
 		fs, err := NewMemoryFS("memory", DisabledCacheConfig, nil)
 		assert.Nil(b, err)
+		c := makEvoSwapCacheConfig(2 * 1024 * 1024)
 		fs.caches = append(fs.caches, NewMemCache(
-			NewLRUCache(2*1024*1024, true, nil),
+			EvoSwap.NewCache(c),
 			nil,
 		))
 		return fs

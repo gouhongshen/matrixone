@@ -16,6 +16,7 @@ package fileservice
 
 import (
 	"context"
+	"github.com/matrixorigin/matrixone/pkg/fileservice/EvoSwap"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/fileservice/checks/interval"
@@ -24,12 +25,12 @@ import (
 )
 
 type MemCache struct {
-	cache       DataCache
+	cache       EvoSwap.Cache[CacheKey, CacheData]
 	counterSets []*perfcounter.CounterSet
 }
 
 func NewMemCache(
-	dataCache DataCache,
+	dataCache EvoSwap.Cache[CacheKey, CacheData],
 	counterSets []*perfcounter.CounterSet,
 ) *MemCache {
 	ret := &MemCache{
@@ -137,7 +138,7 @@ func (m *MemCache) Read(
 		}
 		bs, ok := m.cache.Get(ctx, key)
 		numRead++
-		if ok {
+		if ok != EvoSwap.GetNotExist {
 			vector.Entries[i].CachedData = bs
 			vector.Entries[i].done = true
 			vector.Entries[i].fromCache = m
@@ -182,7 +183,7 @@ func (m *MemCache) Update(
 			Size:   entry.Size,
 		}
 
-		m.cache.Set(ctx, key, entry.CachedData)
+		m.cache.Set(ctx, key, entry.CachedData, int64(len(entry.CachedData.Bytes())))
 	}
 	return nil
 }

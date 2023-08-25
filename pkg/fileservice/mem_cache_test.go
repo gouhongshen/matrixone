@@ -17,6 +17,8 @@ package fileservice
 import (
 	"context"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/fileservice/EvoSwap"
+	"github.com/matrixorigin/matrixone/pkg/fileservice/checks/interval"
 	"io"
 	"sync"
 	"testing"
@@ -24,6 +26,37 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/perfcounter"
 	"github.com/stretchr/testify/assert"
 )
+
+func makEvoSwapCacheConfig(cap int) *EvoSwap.Config[CacheKey, CacheData] {
+	var overlapChecker *interval.OverlapChecker
+	c := EvoSwap.Config[CacheKey, CacheData]{
+		Lru2Conf: &EvoSwap.LRU2Config[CacheKey, CacheData]{
+			Capacity: int64(cap),
+			PostGet: func(key CacheKey, value CacheData) {
+				value.Retain()
+			},
+			PostSet: func(key CacheKey, value CacheData) {
+				value.Retain()
+
+				if overlapChecker != nil {
+					if err := overlapChecker.Insert(key.Path, key.Offset, key.Offset+key.Size); err != nil {
+						panic(err)
+					}
+				}
+			},
+			PostEvict: func(key CacheKey, value CacheData) {
+				value.Release()
+
+				if overlapChecker != nil {
+					if err := overlapChecker.Remove(key.Path, key.Offset, key.Offset+key.Size); err != nil {
+						panic(err)
+					}
+				}
+			},
+		},
+	}
+	return &c
+}
 
 func TestMemCacheLeak(t *testing.T) {
 	ctx := context.Background()
@@ -43,7 +76,8 @@ func TestMemCacheLeak(t *testing.T) {
 	})
 	assert.Nil(t, err)
 
-	m := NewMemCache(NewLRUCache(4, true, nil), nil)
+	c := makEvoSwapCacheConfig(4)
+	m := NewMemCache(EvoSwap.NewCache[CacheKey, CacheData](c), nil)
 
 	vec := &IOVector{
 		FilePath: "foo",
@@ -97,7 +131,8 @@ func TestMemCacheLeak(t *testing.T) {
 // TestHighConcurrency this test is to mainly test concurrency issue in objectCache
 // and dataOverlap-checker.
 func TestHighConcurrency(t *testing.T) {
-	m := NewMemCache(NewLRUCache(2, true, nil), nil)
+	c := makEvoSwapCacheConfig(2)
+	m := NewMemCache(EvoSwap.NewCache[CacheKey, CacheData](c), nil)
 	ctx := context.Background()
 
 	n := 10

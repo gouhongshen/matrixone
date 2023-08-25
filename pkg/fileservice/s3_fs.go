@@ -142,10 +142,11 @@ func (s *S3FS) initCaches(ctx context.Context, config CacheConfig) error {
 
 	// memory cache
 	if *config.MemoryCapacity > DisableCacheCapacity {
-		s.memCache = NewMemCache(
-			NewLRUCache(int64(*config.MemoryCapacity), true, &config.CacheCallbacks),
-			s.perfCounterSets,
-		)
+		//s.memCache = NewMemCache(
+		//	EvoSwap.NewCache[CacheKey, CacheData](&EvoSwap.Config{Capacity: int64(*config.MemoryCapacity)}),
+		//	//NewLRUCache(int64(*config.MemoryCapacity), true, &config.CacheCallbacks),
+		//	s.perfCounterSets,
+		//)
 		logutil.Info("fileservice: memory cache initialized",
 			zap.Any("fs-name", s.name),
 			zap.Any("capacity", config.MemoryCapacity),

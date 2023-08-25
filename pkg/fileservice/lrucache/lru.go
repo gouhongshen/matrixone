@@ -91,6 +91,8 @@ func (l *LRU[K, V]) Set(ctx context.Context, key K, value V) {
 		}
 		item.Value = value
 
+		l.evicts.MoveToFront(l.kv[key])
+
 	} else {
 		// insert
 		size := int64(len(value.Bytes()))
@@ -161,6 +163,7 @@ func (l *LRU[K, V]) Get(ctx context.Context, key K) (value V, ok bool) {
 		if l.postGet != nil {
 			l.postGet(key, item.Value)
 		}
+		l.evicts.MoveToFront(l.kv[key])
 		return item.Value, true
 	}
 	return
