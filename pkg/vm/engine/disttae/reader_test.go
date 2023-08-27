@@ -30,7 +30,7 @@ func TestGatherStats(t *testing.T) {
 	defer cancel()
 
 	r.ctx = ctx
-	r.ctx, _, _ = r.prepareGatherStats()
+	r.ctx = r.prepareGatherStats()
 
 	hitNum, readNum := rand.Int63(), rand.Int63()
 	perfcounter.Update(r.ctx, func(c *perfcounter.CounterSet) {
@@ -40,7 +40,7 @@ func TestGatherStats(t *testing.T) {
 		c.FileService.Cache.Memory.Hit.Add(hitNum)
 	}, nil)
 
-	r.gatherStats(0, 0)
+	r.gatherStats()
 
 	hit, total := objectio.BlkReadStats.BlkCacheHitStats.Export()
 	if hitNum < readNum {

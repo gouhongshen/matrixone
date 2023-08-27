@@ -180,32 +180,19 @@ var BlkReadStats = newBlockReadStats()
 func (b *BlockReadStats) Export() []zap.Field {
 	fields := make([]zap.Field, 0)
 
-	blkHit, blkTotal := BlkReadStats.BlkCacheHitStats.ExportW()
-	blkHitRate := float32(1)
-	if blkTotal != 0 {
-		blkHitRate = float32(blkHit) / float32(blkTotal)
-	}
-	fields = append(fields, zap.Int64("blk read num", blkTotal))
-	fields = append(fields, zap.Int64("blk hit num", blkHit))
-	fields = append(fields, zap.Float32("blk hit rate", blkHitRate))
+	keys := []string{"blk", "entry", "blksInReader"}
+	ss := []*hitStats{&b.BlkCacheHitStats, &b.EntryCacheHitStats, &b.BlksByReaderStats}
 
-	entryHit, entryTotal := BlkReadStats.EntryCacheHitStats.ExportW()
-	entryHitRate := float32(1)
-	if entryTotal != 0 {
-		entryHitRate = float32(entryHit) / float32(entryTotal)
+	for id, key := range keys {
+		hit, total := ss[id].ExportW()
+		rate := float32(1)
+		if total != 0 {
+			rate = float32(hit) / float32(total)
+		}
+		fields = append(fields, zap.Int64(key+" total", total))
+		fields = append(fields, zap.Int64(key+" hit", hit))
+		fields = append(fields, zap.Float32(key+" hit rate", rate))
 	}
-	fields = append(fields, zap.Int64("entry read num", entryTotal))
-	fields = append(fields, zap.Int64("entry hit num", entryHit))
-	fields = append(fields, zap.Float32("entry hit rate", entryHitRate))
-
-	readerNum, blkNum := BlkReadStats.BlksByReaderStats.ExportW()
-	blksInEachReader := float32(1)
-	if readerNum != 0 {
-		blksInEachReader = float32(blkNum) / float32(readerNum)
-	}
-	fields = append(fields, zap.Int64("reader num", readerNum))
-	fields = append(fields, zap.Int64("blk num", blkNum))
-	fields = append(fields, zap.Float32("(average) blks in each reader", blksInEachReader))
 
 	return fields
 }
