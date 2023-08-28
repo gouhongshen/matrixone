@@ -196,3 +196,36 @@ func (b *BlockReadStats) Export() []zap.Field {
 
 	return fields
 }
+
+const BlkHeatmapStatsName string = "block heatmap stats"
+
+type BlockHeatmap struct {
+	Collector map[[20]byte]struct {
+		ReadStats  stats.Counter
+		WriteStats stats.Counter
+	}
+}
+
+func NewBlkHeatmap() *BlockHeatmap {
+	h := BlockHeatmap{
+		Collector: make(map[[20]byte]struct {
+			ReadStats  stats.Counter
+			WriteStats stats.Counter
+		}, 0),
+	}
+	return &h
+}
+
+var BlkHeatmap = NewBlkHeatmap()
+
+func (h *BlockHeatmap) Export() []zap.Field {
+	var fields []zap.Field
+
+	for blkId, info := range h.Collector {
+		fields = append(fields, zap.Int64(string(blkId[:]),
+			info.ReadStats.Load()+info.WriteStats.Load()))
+		info.WriteStats.Swap(0)
+		info.ReadStats.Swap(0)
+	}
+	return fields
+}

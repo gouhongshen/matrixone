@@ -16,6 +16,7 @@ package perfcounter
 
 import (
 	"fmt"
+	"go.uber.org/zap"
 	"reflect"
 
 	"github.com/matrixorigin/matrixone/pkg/util/metric/stats"
@@ -169,4 +170,39 @@ func iterFields(v reflect.Value, path []string, fn IterFieldsFunc) error {
 	}
 
 	return nil
+}
+
+type S3VisStats struct {
+	S3 struct {
+		List        stats.Counter
+		Head        stats.Counter
+		Put         stats.Counter
+		Get         stats.Counter
+		Delete      stats.Counter
+		DeleteMulti stats.Counter
+	}
+}
+
+func NewS3VisStats() *S3VisStats {
+	return new(S3VisStats)
+}
+
+const S3VisStatsName = "s3 vis stats"
+
+var S3Vis = NewS3VisStats()
+
+func (s *S3VisStats) Export() []zap.Field {
+	var fields []zap.Field
+
+	tmp := map[string]*stats.Counter{
+		"List": &s.S3.List, "Head": &s.S3.Head, "Put": &s.S3.Put,
+		"Get": &s.S3.Get, "Delete": &s.S3.Delete, "DeleteMulti": &s.S3.DeleteMulti,
+	}
+
+	for name, obj := range tmp {
+		fields = append(fields, zap.Int64(name, obj.Load()))
+		obj.Reset()
+	}
+
+	return fields
 }

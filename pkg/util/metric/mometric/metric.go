@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
 	"github.com/matrixorigin/matrixone/pkg/pb/metadata"
+	"github.com/matrixorigin/matrixone/pkg/perfcounter"
 	"net/http"
 	"strings"
 	"sync"
@@ -206,6 +207,9 @@ func registerAllMetrics(role string) {
 	if role == LaunchMode || role == metadata.ServiceType_CN.String() {
 		stats.Register(objectio.BlkReadStatsName, stats.WithLogExporter(objectio.BlkReadStats))
 	}
+	stats.Register(objectio.BlkHeatmapStatsName, stats.WithLogExporter(objectio.BlkHeatmap))
+	stats.Register(perfcounter.S3VisStatsName, stats.WithLogExporter(perfcounter.S3Vis))
+
 }
 
 func initConfigByParameterUnit(SV *config.ObservabilityParameters) {
