@@ -1091,9 +1091,9 @@ func (s *S3FS) s3ListObjects(ctx context.Context, params *s3.ListObjectsInput, o
 	defer func() {
 		FSProfileHandler.AddSample(time.Since(t0))
 	}()
+	perfcounter.S3Vis.S3.List.Add(1)
 	perfcounter.Update(ctx, func(counter *perfcounter.CounterSet) {
 		counter.FileService.S3.List.Add(1)
-		perfcounter.S3Vis.S3.List.Add(1)
 	}, s.perfCounterSets...)
 	return doWithRetry(
 		"s3 list objects",
@@ -1125,9 +1125,9 @@ func (s *S3FS) s3HeadObject(ctx context.Context, params *s3.HeadObjectInput, opt
 	defer func() {
 		FSProfileHandler.AddSample(time.Since(t0))
 	}()
+	perfcounter.S3Vis.S3.Head.Add(1)
 	perfcounter.Update(ctx, func(counter *perfcounter.CounterSet) {
 		counter.FileService.S3.Head.Add(1)
-		perfcounter.S3Vis.S3.Head.Add(1)
 	}, s.perfCounterSets...)
 	return doWithRetry(
 		"s3 head object",
@@ -1146,9 +1146,9 @@ func (s *S3FS) s3PutObject(ctx context.Context, params *s3.PutObjectInput, optFn
 	defer func() {
 		FSProfileHandler.AddSample(time.Since(t0))
 	}()
+	perfcounter.S3Vis.S3.Put.Add(1)
 	perfcounter.Update(ctx, func(counter *perfcounter.CounterSet) {
 		counter.FileService.S3.Put.Add(1)
-		perfcounter.S3Vis.S3.Put.Add(1)
 	}, s.perfCounterSets...)
 	// not retryable because Reader may be half consumed
 	return s.s3Client.PutObject(ctx, params, optFns...)
@@ -1161,9 +1161,9 @@ func (s *S3FS) s3GetObject(ctx context.Context, min int64, max int64, params *s3
 	defer func() {
 		FSProfileHandler.AddSample(time.Since(t0))
 	}()
+	perfcounter.S3Vis.S3.Get.Add(1)
 	perfcounter.Update(ctx, func(counter *perfcounter.CounterSet) {
 		counter.FileService.S3.Get.Add(1)
-		perfcounter.S3Vis.S3.Get.Add(1)
 	}, s.perfCounterSets...)
 	r, err := newRetryableReader(
 		func(offset int64) (io.ReadCloser, error) {
@@ -1203,9 +1203,9 @@ func (s *S3FS) s3DeleteObjects(ctx context.Context, params *s3.DeleteObjectsInpu
 	defer func() {
 		FSProfileHandler.AddSample(time.Since(t0))
 	}()
+	perfcounter.S3Vis.S3.DeleteMulti.Add(1)
 	perfcounter.Update(ctx, func(counter *perfcounter.CounterSet) {
 		counter.FileService.S3.DeleteMulti.Add(1)
-		perfcounter.S3Vis.S3.DeleteMulti.Add(1)
 	}, s.perfCounterSets...)
 	return doWithRetry(
 		"s3 delete objects",
@@ -1224,9 +1224,9 @@ func (s *S3FS) s3DeleteObject(ctx context.Context, params *s3.DeleteObjectInput,
 	defer func() {
 		FSProfileHandler.AddSample(time.Since(t0))
 	}()
+	perfcounter.S3Vis.S3.Delete.Add(1)
 	perfcounter.Update(ctx, func(counter *perfcounter.CounterSet) {
 		counter.FileService.S3.Delete.Add(1)
-		perfcounter.S3Vis.S3.Delete.Add(1)
 	}, s.perfCounterSets...)
 	return doWithRetry(
 		"s3 delete object",
