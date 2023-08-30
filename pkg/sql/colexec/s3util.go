@@ -34,8 +34,6 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/options"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 	"go.uber.org/zap"
-	"log"
-	"reflect"
 )
 
 // S3Writer is used to write table data to S3 and package a series of `BlockWriter` write operations
@@ -562,12 +560,6 @@ func (w *S3Writer) generateWriter(proc *process.Process) (objectio.ObjectName, e
 	// TODO: multiple 64m file in one segment
 	obj := Srv.GenerateObject()
 	s3, err := fileservice.Get[fileservice.FileService](proc.FileService, defines.SharedFileServiceName)
-
-	realType := reflect.TypeOf(proc.FileService)
-	log.Printf("the real type of proc.FileService is %s, and its name is %s\n", realType, proc.FileService.Name())
-	realType = reflect.TypeOf(s3)
-	log.Printf("the real type of s3 is %s, and its name is %s\n", realType, s3.Name())
-	
 	if err != nil {
 		return nil, err
 	}

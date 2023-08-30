@@ -209,6 +209,7 @@ func registerAllMetrics(role string) {
 	}
 	stats.Register(objectio.BlkHeatmapStatsName, stats.WithLogExporter(objectio.BlkHeatmap))
 	stats.Register(perfcounter.S3VisStatsName, stats.WithLogExporter(perfcounter.S3Vis))
+	stats.Register(perfcounter.S3ObjVisName, stats.WithLogExporter(perfcounter.S3ObjVis))
 
 }
 

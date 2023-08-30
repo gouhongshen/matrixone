@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"go.uber.org/zap"
 	"reflect"
+	"sync"
 
 	"github.com/matrixorigin/matrixone/pkg/util/metric/stats"
 )
@@ -203,6 +204,76 @@ func (s *S3VisStats) Export() []zap.Field {
 		fields = append(fields, zap.Int64(name, obj.Load()))
 		obj.Reset()
 	}
+
+	return fields
+}
+
+type S3ObjectVisStats struct {
+	// object name =>
+	PutStats map[string]struct {
+		Cnt  *stats.Counter
+		Rows *stats.Counter
+		Lens *stats.Counter
+	}
+
+	GetStats map[string]struct {
+		Cnt  *stats.Counter
+		Rows *stats.Counter
+	}
+	sync.Mutex
+}
+
+func NewS3ObjectVisStats() *S3ObjectVisStats {
+	return &S3ObjectVisStats{
+		PutStats: make(map[string]struct {
+			Cnt  *stats.Counter
+			Rows *stats.Counter
+			Lens *stats.Counter
+		}),
+		GetStats: make(map[string]struct {
+			Cnt  *stats.Counter
+			Rows *stats.Counter
+		}),
+	}
+}
+
+const S3ObjVisName = "s3 object vis stats"
+
+var S3ObjVis = NewS3ObjectVisStats()
+
+func (s *S3ObjectVisStats) Export() []zap.Field {
+	s.Lock()
+	defer s.Unlock()
+
+	var fields []zap.Field
+	val := ""
+	for name, st := range s.PutStats {
+		val += fmt.Sprintf("%s, %d, %d, %d;", name, st.Cnt.Load(), st.Rows.Load(), st.Lens.Load())
+		st.Cnt.Reset()
+		st.Rows.Reset()
+		st.Lens.Reset()
+	}
+	s.PutStats = make(map[string]struct {
+		Cnt  *stats.Counter
+		Rows *stats.Counter
+		Lens *stats.Counter
+	})
+
+	fields = append(fields, zap.String("s3 put stats", val))
+
+	val = ""
+	for name, st := range s.GetStats {
+		val += fmt.Sprintf("%s, %d, %d;", name, st.Cnt.Load(), st.Rows.Load())
+		st.Cnt.Reset()
+		st.Rows.Reset()
+	}
+
+	s.GetStats = make(map[string]struct {
+		Cnt  *stats.Counter
+		Rows *stats.Counter
+	})
+
+	fields = append(fields, zap.String("s3 get stats", val))
 
 	return fields
 }

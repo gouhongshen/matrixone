@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/util/metric/stats"
 	"io"
 	"math"
 	"net"
@@ -502,6 +503,17 @@ func (s *S3FS) read(ctx context.Context, vector *IOVector) error {
 	if vector.allDone() {
 		return nil
 	}
+
+	perfcounter.S3ObjVis.Lock()
+	if _, ok := perfcounter.S3ObjVis.GetStats[vector.FilePath]; !ok {
+		perfcounter.S3ObjVis.GetStats[vector.FilePath] = struct {
+			Cnt  *stats.Counter
+			Rows *stats.Counter
+		}{Cnt: new(stats.Counter), Rows: new(stats.Counter)}
+	}
+	perfcounter.S3ObjVis.Unlock()
+
+	perfcounter.S3ObjVis.GetStats[vector.FilePath].Cnt.Add(1)
 
 	ctx, span := trace.Start(ctx, "S3FS.read")
 	defer span.End()
@@ -1161,6 +1173,7 @@ func (s *S3FS) s3GetObject(ctx context.Context, min int64, max int64, params *s3
 	defer func() {
 		FSProfileHandler.AddSample(time.Since(t0))
 	}()
+
 	perfcounter.S3Vis.S3.Get.Add(1)
 	perfcounter.Update(ctx, func(counter *perfcounter.CounterSet) {
 		counter.FileService.S3.Get.Add(1)

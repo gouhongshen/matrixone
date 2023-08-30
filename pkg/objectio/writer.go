@@ -18,6 +18,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/perfcounter"
+	"github.com/matrixorigin/matrixone/pkg/util/metric/stats"
 	"sync"
 
 	"github.com/matrixorigin/matrixone/pkg/compress"
@@ -481,6 +483,32 @@ func (w *objectWriterV1) Sync(ctx context.Context, items ...WriteOptions) error 
 	// if a compact task is rollbacked, it may leave a written file in fs
 	// here we just delete it and write again
 	err := w.object.fs.Write(ctx, w.buffer.GetData())
+
+	if _, ok := w.object.fs.(*fileservice.S3FS); ok && err == nil {
+		name := w.name.String()
+
+		perfcounter.S3ObjVis.Lock()
+		if _, ok2 := perfcounter.S3ObjVis.PutStats[name]; !ok2 {
+			perfcounter.S3ObjVis.PutStats[name] = struct {
+				Cnt  *stats.Counter
+				Rows *stats.Counter
+				Lens *stats.Counter
+			}{Cnt: new(stats.Counter), Rows: new(stats.Counter), Lens: new(stats.Counter)}
+		}
+		perfcounter.S3ObjVis.Unlock()
+
+		perfcounter.S3ObjVis.PutStats[name].Cnt.Add(1)
+		perfcounter.S3ObjVis.PutStats[name].Rows.Add(int64(w.totalRow))
+
+		size := int64(0)
+		for idx := range w.buffer.vector.Entries {
+			size += w.buffer.vector.Entries[idx].Size
+		}
+
+		perfcounter.S3ObjVis.PutStats[name].Lens.Add(size)
+
+	}
+
 	if moerr.IsMoErrCode(err, moerr.ErrFileAlreadyExists) {
 		if err = w.object.fs.Delete(ctx, w.fileName); err != nil {
 			return err
