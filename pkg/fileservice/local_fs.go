@@ -353,6 +353,17 @@ func (l *LocalFS) read(ctx context.Context, vector *IOVector) error {
 		return nil
 	}
 
+	//perfcounter.S3ObjVis.Lock()
+	//if _, ok := perfcounter.S3ObjVis.GetStats[vector.FilePath]; !ok {
+	//	perfcounter.S3ObjVis.GetStats[vector.FilePath] = struct {
+	//		Cnt  *stats.Counter
+	//		Rows *stats.Counter
+	//	}{Cnt: new(stats.Counter), Rows: new(stats.Counter)}
+	//}
+	//perfcounter.S3ObjVis.Unlock()
+	//
+	//perfcounter.S3ObjVis.GetStats[vector.FilePath].Cnt.Add(1)
+
 	t0 := time.Now()
 	defer func() {
 		FSProfileHandler.AddSample(time.Since(t0))

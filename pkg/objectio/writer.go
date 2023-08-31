@@ -485,7 +485,7 @@ func (w *objectWriterV1) Sync(ctx context.Context, items ...WriteOptions) error 
 	err := w.object.fs.Write(ctx, w.buffer.GetData())
 
 	if _, ok := w.object.fs.(*fileservice.S3FS); ok && err == nil {
-		name := w.name.String()
+		name := w.object.name
 
 		perfcounter.S3ObjVis.Lock()
 		if _, ok2 := perfcounter.S3ObjVis.PutStats[name]; !ok2 {
