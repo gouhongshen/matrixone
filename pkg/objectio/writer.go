@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/matrixorigin/matrixone/pkg/compress"
@@ -480,6 +481,15 @@ func (w *objectWriterV1) Sync(ctx context.Context, items ...WriteOptions) error 
 	w.buffer.SetDataOptions(items...)
 	// if a compact task is rollbacked, it may leave a written file in fs
 	// here we just delete it and write again
+
+	if _, ok := w.object.fs.(*fileservice.S3FS); ok {
+		str := "table ids: "
+		for _, blkData := range w.blocks[SchemaData] {
+			str += fmt.Sprintf("%d;", blkData.meta.BlockHeader().TableID())
+		}
+		log.Println(str)
+	}
+
 	err := w.object.fs.Write(ctx, w.buffer.GetData())
 	if moerr.IsMoErrCode(err, moerr.ErrFileAlreadyExists) {
 		if err = w.object.fs.Delete(ctx, w.fileName); err != nil {
