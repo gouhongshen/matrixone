@@ -1185,8 +1185,14 @@ func (s *S3FS) s3GetObject(ctx context.Context, min int64, max int64, params *s3
 			params.Range = &rang
 			output, err := doWithRetry(
 				"s3 get object",
-				func() (*s3.GetObjectOutput, error) {
-					return s.s3Client.GetObject(ctx, params, optFns...)
+				func() (output *s3.GetObjectOutput, err error) {
+					ctx, span := trace.Start(ctx, "s3Client.GetObject", trace.WithKind(trace.SpanKindS3FSVis))
+					defer func() {
+						span.End(trace.WithFSReadWriteExtra(s.keyToPath(*params.Key), err, offset))
+					}()
+
+					output, err = s.s3Client.GetObject(ctx, params, optFns...)
+					return
 				},
 				maxRetryAttemps,
 				isRetryableError,
