@@ -1167,6 +1167,10 @@ func (s *S3FS) s3PutObject(ctx context.Context, params *s3.PutObjectInput, optFn
 func (s *S3FS) s3GetObject(ctx context.Context, min int64, max int64, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (io.ReadCloser, error) {
 	ctx, task := gotrace.NewTask(ctx, "S3FS.s3GetObject")
 	defer task.End()
+
+	ctx, span := trace.Start(ctx, "S3FS.s3GetObject", trace.WithKind(trace.SpanKindS3FSVis))
+	defer span.End(trace.WithFSReadWriteExtra(s.keyToPath(*params.Key), nil, min))
+
 	t0 := time.Now()
 	defer func() {
 		FSProfileHandler.AddSample(time.Since(t0))
