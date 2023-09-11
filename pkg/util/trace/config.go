@@ -216,8 +216,10 @@ func (c *SpanConfig) Reset() {
 }
 
 var MOCtledSpanEnableConfig struct {
-	EnableS3FSSpan    atomic.Bool
-	EnableLocalFSSpan atomic.Bool
+	EnableS3FSSpan      atomic.Bool
+	EnableLocalFSSpan   atomic.Bool
+	EnableMemCacheSpan  atomic.Bool
+	EnableDiskCacheSpan atomic.Bool
 }
 
 func (c *SpanConfig) NeedRecord(duration time.Duration) bool {
@@ -229,6 +231,10 @@ func (c *SpanConfig) NeedRecord(duration time.Duration) bool {
 		return MOCtledSpanEnableConfig.EnableS3FSSpan.Load()
 	case SpanKindLocalFSVis:
 		return MOCtledSpanEnableConfig.EnableLocalFSSpan.Load()
+	case SpanKindMemCacheVis:
+		return MOCtledSpanEnableConfig.EnableMemCacheSpan.Load()
+	case SpanKindDiskCacheVis:
+		return MOCtledSpanEnableConfig.EnableDiskCacheSpan.Load()
 	default:
 		return duration >= c.LongTimeThreshold
 	}
@@ -465,7 +471,9 @@ const (
 	SpanKindS3FSVis SpanKind = 4
 	// SpanKindLocalFSVis is a SpanKind for a Span that needs to collect info of
 	// local object operation
-	SpanKindLocalFSVis SpanKind = 5
+	SpanKindLocalFSVis   SpanKind = 5
+	SpanKindMemCacheVis  SpanKind = 6
+	SpanKindDiskCacheVis SpanKind = 7
 )
 
 func (k SpanKind) String() string {
@@ -482,6 +490,10 @@ func (k SpanKind) String() string {
 		return "s3FSOperation"
 	case SpanKindLocalFSVis:
 		return "localFSOperation"
+	case SpanKindMemCacheVis:
+		return "memCacheOperation"
+	case SpanKindDiskCacheVis:
+		return "diskCacheOperation"
 	default:
 		return "unknown"
 	}

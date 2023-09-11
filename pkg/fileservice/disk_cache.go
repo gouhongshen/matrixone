@@ -17,6 +17,7 @@ package fileservice
 import (
 	"context"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/util/trace"
 	"io"
 	"io/fs"
 	"math"
@@ -101,6 +102,11 @@ func (d *DiskCache) Read(
 		return nil
 	}
 
+	ctx, span := trace.Start(ctx, "DiskCache.Read", trace.WithKind(trace.SpanKindDiskCacheVis))
+	defer func() {
+		span.End(trace.WithFSReadWriteExtra(vector.FilePath, err, vector.EntriesSize()))
+	}()
+
 	var numHit, numRead, numOpen, numError int64
 	defer func() {
 		perfcounter.Update(ctx, func(c *perfcounter.CounterSet) {
@@ -176,6 +182,11 @@ func (d *DiskCache) Update(
 	if vector.CachePolicy.Any(SkipDiskWrites) {
 		return nil
 	}
+
+	ctx, span := trace.Start(ctx, "DiskCache.Update", trace.WithKind(trace.SpanKindDiskCacheVis))
+	defer func() {
+		span.End(trace.WithFSReadWriteExtra(vector.FilePath, err, vector.EntriesSize()))
+	}()
 
 	var numOpen, numStat, numError, numWrite int64
 	defer func() {
