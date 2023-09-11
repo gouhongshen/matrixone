@@ -16,6 +16,7 @@ package fileservice
 
 import (
 	"context"
+	"github.com/matrixorigin/matrixone/pkg/util/trace"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/fileservice/checks/interval"
@@ -108,6 +109,11 @@ func (m *MemCache) Read(
 		return nil
 	}
 
+	ctx, span := trace.Start(ctx, "MemCache.Read", trace.WithKind(trace.SpanKindMemCacheVis))
+	defer func() {
+		span.End(trace.WithFSReadWriteExtra(vector.FilePath, err, vector.EntriesSize()))
+	}()
+
 	var numHit, numRead int64
 	defer func() {
 		perfcounter.Update(ctx, func(c *perfcounter.CounterSet) {
@@ -157,11 +163,16 @@ func (m *MemCache) Update(
 	ctx context.Context,
 	vector *IOVector,
 	async bool,
-) error {
+) (err error) {
 
 	if vector.CachePolicy.Any(SkipMemoryWrites) {
 		return nil
 	}
+
+	ctx, span := trace.Start(ctx, "MemCache.Update", trace.WithKind(trace.SpanKindMemCacheVis))
+	defer func() {
+		span.End(trace.WithFSReadWriteExtra(vector.FilePath, err, vector.EntriesSize()))
+	}()
 
 	path, err := ParsePath(vector.FilePath)
 	if err != nil {

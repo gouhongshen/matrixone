@@ -126,6 +126,10 @@ func (t *MOTracer) IsEnable(opts ...trace.SpanStartOption) bool {
 		return enable && trace.MOCtledSpanEnableConfig.EnableS3FSSpan.Load()
 	case trace.SpanKindLocalFSVis:
 		return enable && trace.MOCtledSpanEnableConfig.EnableLocalFSSpan.Load()
+	case trace.SpanKindMemCacheVis:
+		return enable && trace.MOCtledSpanEnableConfig.EnableMemCacheSpan.Load()
+	case trace.SpanKindDiskCacheVis:
+		return enable && trace.MOCtledSpanEnableConfig.EnableDiskCacheSpan.Load()
 	default:
 		return enable
 	}

@@ -55,11 +55,15 @@ var supportedSpans = map[string]func(state bool){
 	// enable or disable s3 file service read and write span
 	"s3": func(s bool) { trace.MOCtledSpanEnableConfig.EnableS3FSSpan.Store(s) },
 	// enable or disable local file service read and write span
-	"local": func(s bool) { trace.MOCtledSpanEnableConfig.EnableLocalFSSpan.Store(s) },
+	"local":      func(s bool) { trace.MOCtledSpanEnableConfig.EnableLocalFSSpan.Store(s) },
+	"mem_cache":  func(s bool) { trace.MOCtledSpanEnableConfig.EnableMemCacheSpan.Store(s) },
+	"disk_cache": func(s bool) { trace.MOCtledSpanEnableConfig.EnableDiskCacheSpan.Store(s) },
 	// enable or disable all span
 	"all": func(s bool) {
 		trace.MOCtledSpanEnableConfig.EnableS3FSSpan.Store(s)
 		trace.MOCtledSpanEnableConfig.EnableLocalFSSpan.Store(s)
+		trace.MOCtledSpanEnableConfig.EnableMemCacheSpan.Store(s)
+		trace.MOCtledSpanEnableConfig.EnableDiskCacheSpan.Store(s)
 	},
 }
 
