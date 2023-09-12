@@ -365,6 +365,11 @@ func (s *S3FS) Read(ctx context.Context, vector *IOVector) (err error) {
 		return moerr.NewEmptyVectorNoCtx()
 	}
 
+	ctx, span := trace.Start(ctx, "S3FS.Read", trace.WithKind(trace.SpanKindS3FSVis))
+	defer func() {
+		span.End(trace.WithFSReadWriteExtra(vector.FilePath, err, vector.EntriesSize()))
+	}()
+
 	unlock, wait := s.ioLocks.Lock(IOLockKey{
 		File: vector.FilePath,
 	})
