@@ -386,6 +386,13 @@ func (s *S3FS) read(ctx context.Context, vector *IOVector) (err error) {
 		max = nil
 	}
 
+	// for span to collect the real size of s3 request
+	if max == nil {
+		size = size - *min + 1
+	} else {
+		size = *max - *min + 1
+	}
+
 	// a function to get an io.ReadCloser
 	getReader := func(ctx context.Context, min *int64, max *int64) (io.ReadCloser, error) {
 		ctx, spanR := trace.Start(ctx, "S3FS.read.getReader")
