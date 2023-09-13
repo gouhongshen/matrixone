@@ -28,6 +28,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"runtime/debug"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -412,10 +414,28 @@ func WithProfileTraceSecs(d time.Duration) SpanStartOption {
 
 func WithFSReadWriteExtra(fileName string, status error, size int64) SpanEndOption {
 	return spanOptionFunc(func(cfg *SpanConfig) {
+		var stacks []string
+		raw := strings.Split(string(debug.Stack()), "\n")
+		for i, _ := range raw {
+			if strings.Contains(raw[i], ".go:") {
+				continue
+			}
+			can := strings.TrimPrefix(raw[i], "\t")
+			tmp := strings.Split(can, "/")
+			can = tmp[len(tmp)-1]
+			can = strings.Split(can, "(0x")[0]
+			can = strings.Split(can, "({")[0]
+			stacks = append(stacks, can)
+		}
+
+		stacks = stacks[5:]
+
 		cfg.Extra = append(cfg.Extra,
 			zap.String("name", fileName),
 			zap.String("status", fmt.Sprintf("%v", status)),
-			zap.Int64("size", size))
+			zap.Int64("size", size),
+			zap.String("stack", strings.Join(stacks, "->")))
+
 	})
 }
 
