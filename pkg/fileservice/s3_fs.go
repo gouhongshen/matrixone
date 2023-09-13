@@ -20,6 +20,7 @@ import (
 	"io"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -562,11 +563,14 @@ func (s *S3FS) read(ctx context.Context, vector *IOVector) (err error) {
 	return nil
 }
 
-func (s *S3FS) Delete(ctx context.Context, filePaths ...string) error {
-	ctx, span := trace.Start(ctx, "S3FS.Delete")
-	defer span.End()
+func (s *S3FS) Delete(ctx context.Context, filePaths ...string) (err error) {
+	ctx, span := trace.Start(ctx, "S3FS.Delete", trace.WithKind(trace.SpanKindS3FSVis))
+	defer func() {
+		span.End(trace.WithFSReadWriteExtra(strings.Join(filePaths, ";"), err, 0))
+	}()
 
-	return s.storage.Delete(ctx, filePaths...)
+	err = s.storage.Delete(ctx, filePaths...)
+	return
 }
 
 var _ ETLFileService = new(S3FS)
