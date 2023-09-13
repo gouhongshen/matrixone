@@ -17,6 +17,8 @@ package objectio
 import (
 	"bytes"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/perfcounter"
+	"go.uber.org/zap"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/util/metric/stats"
@@ -150,4 +152,47 @@ func (s *Stats) ExportString() string {
 	rtotal, rread, rbisect, rcnt := s.ExportReadDel()
 	fmt.Fprintf(&w, "RDD[%v/%v/%v/%v]", rtotal, rread, rbisect, rcnt)
 	return w.String()
+}
+
+const BlkReadStatsName string = "block read stats"
+
+// BlockReadStats collect blk read related cache statistics,
+// include mem and disk
+type BlockReadStats struct {
+	// using this we can collect the number of blks have read and hit among them
+	BlkCacheHitStats hitStats
+	// using this we can collect the number of entries have read and hit among them
+	EntryCacheHitStats hitStats
+	// using this we can collect the number of blks each reader will read
+	BlksByReaderStats hitStats
+	CounterSet        *perfcounter.CounterSet
+}
+
+func newBlockReadStats() *BlockReadStats {
+	s := BlockReadStats{
+		CounterSet: new(perfcounter.CounterSet),
+	}
+	return &s
+}
+
+var BlkReadStats = newBlockReadStats()
+
+func (b *BlockReadStats) Export() []zap.Field {
+	fields := make([]zap.Field, 0)
+
+	keys := []string{"blk", "entry", "blksInReader"}
+	ss := []*hitStats{&b.BlkCacheHitStats, &b.EntryCacheHitStats, &b.BlksByReaderStats}
+
+	for id, key := range keys {
+		hit, total := ss[id].ExportW()
+		rate := float32(1)
+		if total != 0 {
+			rate = float32(hit) / float32(total)
+		}
+		fields = append(fields, zap.Int64(key+" total", total))
+		fields = append(fields, zap.Int64(key+" hit", hit))
+		fields = append(fields, zap.Float32(key+" hit rate", rate))
+	}
+
+	return fields
 }

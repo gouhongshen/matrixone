@@ -17,6 +17,8 @@ package mometric
 import (
 	"context"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/objectio"
+	"github.com/matrixorigin/matrixone/pkg/pb/metadata"
 	"net/http"
 	"strings"
 	"sync"
@@ -97,7 +99,7 @@ func InitMetric(ctx context.Context, ieFactory func() ie.InternalExecutor, SV *c
 	statsLogWriter = newStatsLogWriter(stats.DefaultRegistry, runtime.ProcessLevelRuntime().Logger().Named("StatsLog"), metric.GetStatsGatherInterval())
 
 	// register metrics and create tables
-	registerAllMetrics()
+	registerAllMetrics(role)
 	if initOpts.needInitTable {
 		initTables(ctx, ieFactory)
 	}
@@ -193,12 +195,16 @@ func mustRegister(reg *prom.Registry, collector metric.Collector) {
 }
 
 // register all defined collector here
-func registerAllMetrics() {
+func registerAllMetrics(role string) {
 	for _, c := range metric.InitCollectors {
 		mustRegister(registry, c)
 	}
 	for _, c := range metric.InternalCollectors {
 		mustRegister(internalRegistry, c)
+	}
+
+	if role == LaunchMode || role == metadata.ServiceType_CN.String() {
+		stats.Register(objectio.BlkReadStatsName, stats.WithLogExporter(objectio.BlkReadStats))
 	}
 }
 

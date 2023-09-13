@@ -197,7 +197,7 @@ func (mixin *withFilterMixin) getCompositPKFilter(proc *process.Process, blkCnt 
 		mixin.filterState.colTypes = append(mixin.filterState.colTypes, mixin.columns.colTypes[pos])
 	}
 	// records how many blks one reader needs to read when having filter
-	objectio.BlkReadStats.BlksByReaderStats.Record(1, blkCnt)
+	objectio.BlkReadStats.BlksByReaderStats.Record(blkCnt, 1)
 	return
 }
 
@@ -241,7 +241,7 @@ func (mixin *withFilterMixin) getNonCompositPKFilter(proc *process.Process, blkC
 	mixin.filterState.colTypes = mixin.columns.colTypes[mixin.columns.pkPos : mixin.columns.pkPos+1]
 
 	// records how many blks one reader needs to read when having filter
-	objectio.BlkReadStats.BlksByReaderStats.Record(1, blkCnt)
+	objectio.BlkReadStats.BlksByReaderStats.Record(blkCnt, 1)
 	return searchFunc
 }
 
@@ -337,11 +337,11 @@ func (r *blockReader) Read(
 		r.steps = r.steps[1:]
 	}
 
-	statsCtx, numRead, numHit := r.ctx, int64(0), int64(0)
+	statsCtx := r.ctx
 	if filter != nil {
 		// try to store the blkReadStats CounterSet into ctx, so that
-		// it can record the mem cache hit stats when call MemCache.Read() later soon.
-		statsCtx, numRead, numHit = r.prepareGatherStats()
+		// it can record the cache hit stats when call XXX.Cache.Read() later soon.
+		statsCtx = r.prepareGatherStats()
 	}
 
 	// read the block
@@ -358,7 +358,7 @@ func (r *blockReader) Read(
 
 	if filter != nil {
 		// we collect mem cache hit related statistics info for blk read here
-		r.gatherStats(numRead, numHit)
+		r.gatherStats()
 	}
 
 	bat.SetAttributes(cols)
@@ -373,26 +373,23 @@ func (r *blockReader) Read(
 	return bat, nil
 }
 
-func (r *blockReader) prepareGatherStats() (context.Context, int64, int64) {
-	ctx := perfcounter.WithCounterSet(r.ctx, objectio.BlkReadStats.CounterSet)
-	return ctx, objectio.BlkReadStats.CounterSet.FileService.Cache.Read.Load(),
-		objectio.BlkReadStats.CounterSet.FileService.Cache.Hit.Load()
+func (r *blockReader) prepareGatherStats() context.Context {
+	objectio.BlkReadStats.CounterSet.FileService.Cache.Read.Reset()
+	objectio.BlkReadStats.CounterSet.FileService.Cache.Hit.Reset()
+	return perfcounter.WithCounterSet(r.ctx, objectio.BlkReadStats.CounterSet)
 }
 
-func (r *blockReader) gatherStats(lastNumRead, lastNumHit int64) {
+func (r *blockReader) gatherStats() {
 	numRead := objectio.BlkReadStats.CounterSet.FileService.Cache.Read.Load()
 	numHit := objectio.BlkReadStats.CounterSet.FileService.Cache.Hit.Load()
 
-	curNumRead := numRead - lastNumRead
-	curNumHit := numHit - lastNumHit
-
-	if curNumRead > curNumHit {
+	if numRead > numHit {
 		objectio.BlkReadStats.BlkCacheHitStats.Record(0, 1)
 	} else {
 		objectio.BlkReadStats.BlkCacheHitStats.Record(1, 1)
 	}
 
-	objectio.BlkReadStats.EntryCacheHitStats.Record(int(curNumHit), int(curNumRead))
+	objectio.BlkReadStats.EntryCacheHitStats.Record(int(numHit), int(numRead))
 }
 
 // -----------------------------------------------------------------
