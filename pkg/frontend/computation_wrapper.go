@@ -16,6 +16,7 @@ package frontend
 
 import (
 	"context"
+	"github.com/matrixorigin/matrixone/pkg/util/trace"
 
 	"github.com/mohae/deepcopy"
 
@@ -195,6 +196,12 @@ func (cwft *TxnComputationWrapper) GetServerStatus() uint16 {
 }
 
 func (cwft *TxnComputationWrapper) Compile(requestCtx context.Context, u interface{}, fill func(interface{}, *batch.Batch) error) (interface{}, error) {
+	stmInfo := requestCtx.Value(motrace.CurrentStmKey).(*motrace.StatementInfo)
+	//currentStmKey (0)
+	_, span := trace.Start(context.Background(), "TxnComputationWrapper.Compile",
+		trace.WithKind(trace.SpanKindStatement))
+	defer span.End(trace.WithStatementExtra(stmInfo.StatementID, stmInfo.Statement))
+
 	var err error
 	defer RecordStatementTxnID(requestCtx, cwft.ses)
 	if cwft.ses.IfInitedTempEngine() {

@@ -14,20 +14,36 @@
 
 package motrace
 
-import "context"
+import (
+	"context"
+	"sync/atomic"
+)
 
 type stmContextKeyType int
 
-const currentStmKey stmContextKeyType = iota
+const CurrentStmKey stmContextKeyType = iota
+
+type GStmInfo struct {
+	StmID [16]byte
+	Stm   string
+}
+
+var GlobalStatementInfo atomic.Value
 
 func ContextWithStatement(parent context.Context, s *StatementInfo) context.Context {
-	return context.WithValue(parent, currentStmKey, s)
+	s.mux.Lock()
+	GlobalStatementInfo.Store(&GStmInfo{
+		StmID: s.StatementID,
+		Stm:   s.Statement,
+	})
+	s.mux.Unlock()
+	return context.WithValue(parent, CurrentStmKey, s)
 }
 
 func StatementFromContext(ctx context.Context) *StatementInfo {
 	if ctx == nil {
 		return nil
-	} else if val := ctx.Value(currentStmKey); val == nil {
+	} else if val := ctx.Value(CurrentStmKey); val == nil {
 		return nil
 	} else if stm, ok := val.(*StatementInfo); !ok {
 		return nil
