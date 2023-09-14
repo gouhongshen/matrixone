@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/util/trace/impl/motrace"
 	"math"
 	"net"
 	"runtime"
@@ -347,10 +348,15 @@ func (c *Compile) run(s *Scope) error {
 
 // Run is an important function of the compute-layer, it executes a single sql according to its scope
 func (c *Compile) Run(_ uint64) (*util2.RunResult, error) {
-	//_, span := trace.Start(context.Background(), "Compile.Run", trace.WithKind(trace.SpanKindStatement))
-	//
-	//stmInfo := motrace.GlobalStatementInfo.Load().(*motrace.GStmInfo)
-	//defer span.End(trace.WithStatementExtra(stmInfo.StmID, stmInfo.Stm))
+	stmInfo := motrace.GlobalStatementInfo.Load()
+	if stmInfo != nil {
+		stmInfo := stmInfo.(*motrace.GStmInfo)
+		if stmInfo.Stm != "" {
+			_, span := trace.Start(context.Background(), "Compile.Run", trace.WithKind(trace.SpanKindStatement))
+			motrace.GlobalStatementInfo.Swap(&motrace.GStmInfo{})
+			defer span.End(trace.WithStatementExtra(stmInfo.StmID, stmInfo.Stm))
+		}
+	}
 
 	var cc *Compile
 	_, task := gotrace.NewTask(context.TODO(), "pipeline.Run")
