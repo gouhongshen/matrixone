@@ -1691,7 +1691,8 @@ func checkColModify(plan2 *plan.Plan, proc *process.Process, ses *Session) bool 
 /*
 GetComputationWrapper gets the execs from the computation engine
 */
-var GetComputationWrapper = func(db string, input *UserInput, user string, eng engine.Engine, proc *process.Process, ses *Session) ([]ComputationWrapper, error) {
+var GetComputationWrapper = func(db string, input *UserInput, user string, eng engine.Engine, proc *process.Process,
+	ses *Session) ([]ComputationWrapper, error) {
 	var cw []ComputationWrapper = nil
 	if cached := ses.getCachedPlan(input.getSql()); cached != nil {
 		modify := false
@@ -2553,6 +2554,12 @@ func (mce *MysqlCmdExecutor) executeStmt(requestCtx context.Context,
 	var mrs *MysqlResultSet
 	var loadLocalErrGroup *errgroup.Group
 	var loadLocalWriter *io.PipeWriter
+
+	motrace.GlobalStatementInfo.Store(
+		&motrace.GStmInfo{
+			StmID: [16]byte(cw.GetUUID()),
+			Stm:   ses.sql,
+		})
 
 	// per statement profiler
 	requestCtx, endStmtProfile := fileservice.NewStatementProfiler(requestCtx)
@@ -3744,6 +3751,11 @@ func (mce *MysqlCmdExecutor) ExecRequest(requestCtx context.Context, ses *Sessio
 	case COM_QUERY:
 		var query = string(req.GetData().([]byte))
 		mce.addSqlCount(1)
+
+		_, span := trace.Start(context.Background(), "MysqlCmdExecutor.ExecRequest",
+			trace.WithKind(trace.SpanKindStatement))
+		defer span.End(trace.WithStatementExtra(ses.uuid, query))
+
 		logDebug(ses, ses.GetDebugString(), "query trace", logutil.ConnectionIdField(ses.GetConnectionID()), logutil.QueryField(SubStringFromBegin(query, int(ses.GetParameterUnit().SV.LengthOfQueryPrinted))))
 		err = doComQuery(requestCtx, &UserInput{sql: query})
 		if err != nil {
