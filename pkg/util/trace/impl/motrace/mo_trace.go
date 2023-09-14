@@ -130,6 +130,8 @@ func (t *MOTracer) IsEnable(opts ...trace.SpanStartOption) bool {
 		return enable && trace.MOCtledSpanEnableConfig.EnableMemCacheSpan.Load()
 	case trace.SpanKindDiskCacheVis:
 		return enable && trace.MOCtledSpanEnableConfig.EnableDiskCacheSpan.Load()
+	case trace.SpanKindStatement:
+		return enable && trace.MOCtledSpanEnableConfig.EnableStatementSpan.Load()
 	default:
 		return enable
 	}

@@ -16,7 +16,6 @@ package frontend
 
 import (
 	"context"
-
 	"github.com/fagongzi/goetty/v2/buf"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/config"

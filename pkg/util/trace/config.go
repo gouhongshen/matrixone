@@ -222,6 +222,7 @@ var MOCtledSpanEnableConfig struct {
 	EnableLocalFSSpan   atomic.Bool
 	EnableMemCacheSpan  atomic.Bool
 	EnableDiskCacheSpan atomic.Bool
+	EnableStatementSpan atomic.Bool
 }
 
 func (c *SpanConfig) NeedRecord(duration time.Duration) bool {
@@ -237,6 +238,8 @@ func (c *SpanConfig) NeedRecord(duration time.Duration) bool {
 		return MOCtledSpanEnableConfig.EnableMemCacheSpan.Load()
 	case SpanKindDiskCacheVis:
 		return MOCtledSpanEnableConfig.EnableDiskCacheSpan.Load()
+	case SpanKindStatement:
+		return MOCtledSpanEnableConfig.EnableStatementSpan.Load()
 	default:
 		return duration >= c.LongTimeThreshold
 	}
@@ -409,6 +412,15 @@ func WithProfileTraceSecs(d time.Duration) SpanStartOption {
 	return spanOptionFunc(func(cfg *SpanConfig) {
 		cfg.profileFlag |= ProfileFlagTrace
 		cfg.profileTraceDur = d
+	})
+}
+
+func WithStatementExtra(stmID [16]byte, stm string) SpanEndOption {
+	return spanOptionFunc(func(cfg *SpanConfig) {
+		cfg.Extra = append(cfg.Extra,
+			zap.String("statementID", string(stmID[:])),
+			zap.String("statement", stm),
+		)
 	})
 }
 
