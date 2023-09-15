@@ -31,12 +31,12 @@ type GStmInfo struct {
 var GlobalStatementInfo atomic.Value
 
 func ContextWithStatement(parent context.Context, s *StatementInfo) context.Context {
-	s.mux.Lock()
-	GlobalStatementInfo.Store(&GStmInfo{
-		StmID: s.StatementID,
-		Stm:   s.Statement,
-	})
-	s.mux.Unlock()
+	//s.mux.Lock()
+	//GlobalStatementInfo.Store(&GStmInfo{
+	//	StmID: s.StatementID,
+	//	Stm:   s.Statement,
+	//})
+	//s.mux.Unlock()
 	return context.WithValue(parent, CurrentStmKey, s)
 }
 

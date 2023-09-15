@@ -16,6 +16,8 @@ package disttae
 
 import (
 	"context"
+	"github.com/matrixorigin/matrixone/pkg/util/trace"
+	"github.com/matrixorigin/matrixone/pkg/util/trace/impl/motrace"
 
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
@@ -564,8 +566,26 @@ func (r *mergeReader) Read(
 	if len(r.rds) == 0 {
 		return nil, nil
 	}
+
+	var stmInfo *motrace.GStmInfo
+	var span trace.Span
+	stmI := motrace.GlobalStatementInfo.Load()
+	if stmI != nil {
+		stmInfo = stmI.(*motrace.GStmInfo)
+	}
+
 	for len(r.rds) > 0 {
+		if stmInfo != nil {
+			_, span = trace.Start(context.Background(), "mergeReader.Read",
+				trace.WithKind(trace.SpanKindStatement))
+		}
+
 		bat, err := r.rds[0].Read(ctx, cols, expr, mp, vp)
+
+		if stmInfo != nil {
+			span.End(trace.WithStatementExtra(stmInfo.StmID, stmInfo.Stm))
+		}
+
 		if err != nil {
 			for _, rd := range r.rds {
 				rd.Close()

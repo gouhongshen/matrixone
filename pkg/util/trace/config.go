@@ -418,7 +418,7 @@ func WithProfileTraceSecs(d time.Duration) SpanStartOption {
 func WithStatementExtra(stmID [16]byte, stm string) SpanEndOption {
 	return spanOptionFunc(func(cfg *SpanConfig) {
 		cfg.Extra = append(cfg.Extra,
-			zap.String("statement_id", string(stmID[:])),
+			zap.Binary("statement_id", stmID[:]),
 			zap.String("statement", stm),
 		)
 	})
