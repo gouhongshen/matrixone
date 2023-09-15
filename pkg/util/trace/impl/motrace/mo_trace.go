@@ -298,6 +298,7 @@ func (s *MOSpan) End(options ...trace.SpanEndOption) {
 		fn()
 	}
 	deadline, hasDeadline := s.ctx.Deadline()
+	hasDeadline = false
 	s.Duration = s.EndTime.Sub(s.StartTime)
 	// check need record
 	if hasDeadline {
