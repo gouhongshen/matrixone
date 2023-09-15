@@ -351,8 +351,11 @@ func (c *Compile) Run(_ uint64) (*util2.RunResult, error) {
 		stmInfo := stmInfo.(*motrace.GStmInfo)
 		if stmInfo.Stm != "" {
 			_, span := trace.Start(context.Background(), "Compile.Run", trace.WithKind(trace.SpanKindStatement))
-			motrace.GlobalStatementInfo.Swap(&motrace.GStmInfo{})
-			defer span.End(trace.WithStatementExtra(stmInfo.StmID, stmInfo.Stm))
+
+			defer func() {
+				motrace.GlobalStatementInfo.Swap(&motrace.GStmInfo{})
+				span.End(trace.WithStatementExtra(stmInfo.StmID, stmInfo.Stm))
+			}()
 		}
 	}
 
