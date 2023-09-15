@@ -16,13 +16,11 @@ package disttae
 
 import (
 	"context"
-	"github.com/matrixorigin/matrixone/pkg/util/trace"
-	"github.com/matrixorigin/matrixone/pkg/util/trace/impl/motrace"
-
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
 	"github.com/matrixorigin/matrixone/pkg/perfcounter"
 	plan2 "github.com/matrixorigin/matrixone/pkg/sql/plan"
+	"github.com/matrixorigin/matrixone/pkg/util/trace"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 	"go.uber.org/zap"
@@ -567,24 +565,13 @@ func (r *mergeReader) Read(
 		return nil, nil
 	}
 
-	var stmInfo *motrace.GStmInfo
-	var span trace.Span
-	stmI := motrace.GlobalStatementInfo.Load()
-	if stmI != nil {
-		stmInfo = stmI.(*motrace.GStmInfo)
-	}
-
 	for len(r.rds) > 0 {
-		if stmInfo != nil {
-			_, span = trace.Start(context.Background(), "mergeReader.Read",
-				trace.WithKind(trace.SpanKindStatement))
-		}
-
+		// TODO(ghs)
+		var span trace.Span
+		ctx, span = trace.Start(ctx, "mergeReader.Read",
+			trace.WithKind(trace.SpanKindStatement))
 		bat, err := r.rds[0].Read(ctx, cols, expr, mp, vp)
-
-		if stmInfo != nil {
-			span.End(trace.WithStatementExtra(stmInfo.StmID, stmInfo.Stm))
-		}
+		span.End(trace.WithStatementExtra([16]byte{}, ""))
 
 		if err != nil {
 			for _, rd := range r.rds {

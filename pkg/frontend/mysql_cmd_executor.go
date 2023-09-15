@@ -3526,6 +3526,13 @@ func (mce *MysqlCmdExecutor) doComQuery(requestCtx context.Context, input *UserI
 	}
 	proc.SessionInfo.User = userNameOnly
 	proc.SessionInfo.QueryId = ses.getQueryId(input.isInternal())
+
+	// TODO(ghs)
+	var span trace.Span
+	proc.Ctx, span = trace.Start(proc.Ctx, "MysqlCmdExecutor.doComQuery",
+		trace.WithKind(trace.SpanKindStatement))
+	defer span.End(trace.WithStatementExtra([16]byte{}, ses.sql))
+
 	ses.txnCompileCtx.SetProcess(ses.proc)
 	ses.proc.SessionInfo = proc.SessionInfo
 	cws, err := GetComputationWrapper(ses.GetDatabaseName(),
@@ -3751,11 +3758,6 @@ func (mce *MysqlCmdExecutor) ExecRequest(requestCtx context.Context, ses *Sessio
 	case COM_QUERY:
 		var query = string(req.GetData().([]byte))
 		mce.addSqlCount(1)
-
-		_, span := trace.Start(context.Background(), "MysqlCmdExecutor.ExecRequest",
-			trace.WithKind(trace.SpanKindStatement))
-		defer span.End(trace.WithStatementExtra(ses.uuid, query))
-
 		logDebug(ses, ses.GetDebugString(), "query trace", logutil.ConnectionIdField(ses.GetConnectionID()), logutil.QueryField(SubStringFromBegin(query, int(ses.GetParameterUnit().SV.LengthOfQueryPrinted))))
 		err = doComQuery(requestCtx, &UserInput{sql: query})
 		if err != nil {

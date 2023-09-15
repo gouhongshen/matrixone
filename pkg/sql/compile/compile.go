@@ -19,7 +19,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/matrixorigin/matrixone/pkg/util/trace/impl/motrace"
 	"math"
 	"net"
 	"runtime"
@@ -194,6 +193,12 @@ func (c *Compile) SetTempEngine(ctx context.Context, te engine.Engine) {
 // Compile is the entrance of the compute-execute-layer.
 // It generates a scope (logic pipeline) for a query plan.
 func (c *Compile) Compile(ctx context.Context, pn *plan.Plan, u any, fill func(any, *batch.Batch) error) (err error) {
+	// TODO(ghs)
+	var span trace.Span
+	c.proc.Ctx, span = trace.Start(c.proc.Ctx, "Compile.Compile",
+		trace.WithKind(trace.SpanKindStatement))
+	defer span.End(trace.WithStatementExtra([16]byte{}, c.sql))
+
 	_, task := gotrace.NewTask(context.TODO(), "pipeline.Compile")
 	defer task.End()
 	defer func() {
@@ -346,18 +351,24 @@ func (c *Compile) run(s *Scope) error {
 
 // Run is an important function of the compute-layer, it executes a single sql according to its scope
 func (c *Compile) Run(_ uint64) (*util2.RunResult, error) {
-	stmInfo := motrace.GlobalStatementInfo.Load()
-	if stmInfo != nil {
-		stmInfo := stmInfo.(*motrace.GStmInfo)
-		if stmInfo.Stm != "" {
-			_, span := trace.Start(context.Background(), "Compile.Run", trace.WithKind(trace.SpanKindStatement))
+	//stmInfo := motrace.GlobalStatementInfo.Load()
+	//if stmInfo != nil {
+	//	stmInfo := stmInfo.(*motrace.GStmInfo)
+	//	if stmInfo.Stm != "" {
+	//		_, span := trace.Start(context.Background(), "Compile.Run", trace.WithKind(trace.SpanKindStatement))
+	//
+	//		defer func() {
+	//			motrace.GlobalStatementInfo.Swap(&motrace.GStmInfo{})
+	//			span.End(trace.WithStatementExtra(stmInfo.StmID, stmInfo.Stm))
+	//		}()
+	//	}
+	//}
 
-			defer func() {
-				motrace.GlobalStatementInfo.Swap(&motrace.GStmInfo{})
-				span.End(trace.WithStatementExtra(stmInfo.StmID, stmInfo.Stm))
-			}()
-		}
-	}
+	// TODO(ghs)
+	var span trace.Span
+	c.proc.Ctx, span = trace.Start(c.proc.Ctx, "Compile.Run",
+		trace.WithKind(trace.SpanKindStatement))
+	defer span.End(trace.WithStatementExtra([16]byte{}, c.sql))
 
 	var cc *Compile
 	_, task := gotrace.NewTask(context.TODO(), "pipeline.Run")
