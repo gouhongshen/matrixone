@@ -353,19 +353,6 @@ func (c *Compile) run(s *Scope) error {
 
 // Run is an important function of the compute-layer, it executes a single sql according to its scope
 func (c *Compile) Run(_ uint64) (*util2.RunResult, error) {
-	//stmInfo := motrace.GlobalStatementInfo.Load()
-	//if stmInfo != nil {
-	//	stmInfo := stmInfo.(*motrace.GStmInfo)
-	//	if stmInfo.Stm != "" {
-	//		_, span := trace.Start(context.Background(), "Compile.Run", trace.WithKind(trace.SpanKindStatement))
-	//
-	//		defer func() {
-	//			motrace.GlobalStatementInfo.Swap(&motrace.GStmInfo{})
-	//			span.End(trace.WithStatementExtra(stmInfo.StmID, stmInfo.Stm))
-	//		}()
-	//	}
-	//}
-
 	// TODO(ghs)
 	var span trace.Span
 	c.proc.Ctx, span = trace.Start(c.proc.Ctx, "Compile.Run",
