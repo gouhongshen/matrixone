@@ -16,8 +16,6 @@ package frontend
 
 import (
 	"context"
-	"github.com/mohae/deepcopy"
-
 	"github.com/google/uuid"
 	"github.com/matrixorigin/matrixone/pkg/clusterservice"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -35,9 +33,11 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/sql/util"
 	"github.com/matrixorigin/matrixone/pkg/txn/clock"
 	util2 "github.com/matrixorigin/matrixone/pkg/util"
+	trace2 "github.com/matrixorigin/matrixone/pkg/util/trace"
 	"github.com/matrixorigin/matrixone/pkg/util/trace/impl/motrace"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/memoryengine"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
+	"github.com/mohae/deepcopy"
 )
 
 var _ ComputationWrapper = &TxnComputationWrapper{}
@@ -194,11 +194,10 @@ func (cwft *TxnComputationWrapper) GetServerStatus() uint16 {
 }
 
 func (cwft *TxnComputationWrapper) Compile(requestCtx context.Context, u interface{}, fill func(interface{}, *batch.Batch) error) (interface{}, error) {
-	//stmInfo := requestCtx.Value(motrace.CurrentStmKey).(*motrace.StatementInfo)
-	////currentStmKey (0)
-	//_, span := trace.Start(context.Background(), "TxnComputationWrapper.Compile",
-	//	trace.WithKind(trace.SpanKindStatement))
-	//defer span.End(trace.WithStatementExtra(stmInfo.StatementID, stmInfo.Statement))
+	var span trace2.Span
+	cwft.proc.Ctx, span = trace2.Start(cwft.proc.Ctx, "TxnComputationWrapper.Compile",
+		trace2.WithKind(trace2.SpanKindStatement))
+	span.End(trace2.WithStatementExtra(cwft.uuid, cwft.ses.sql))
 
 	var err error
 	defer RecordStatementTxnID(requestCtx, cwft.ses)
