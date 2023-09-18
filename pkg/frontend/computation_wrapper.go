@@ -194,11 +194,6 @@ func (cwft *TxnComputationWrapper) GetServerStatus() uint16 {
 }
 
 func (cwft *TxnComputationWrapper) Compile(requestCtx context.Context, u interface{}, fill func(interface{}, *batch.Batch) error) (interface{}, error) {
-	var span trace2.Span
-	cwft.proc.Ctx, span = trace2.Start(cwft.proc.Ctx, "TxnComputationWrapper.Compile",
-		trace2.WithKind(trace2.SpanKindStatement))
-	span.End(trace2.WithStatementExtra(cwft.uuid, cwft.ses.sql))
-
 	var err error
 	defer RecordStatementTxnID(requestCtx, cwft.ses)
 	if cwft.ses.IfInitedTempEngine() {
@@ -214,6 +209,11 @@ func (cwft *TxnComputationWrapper) Compile(requestCtx context.Context, u interfa
 	if err != nil {
 		return nil, err
 	}
+
+	var span trace2.Span
+	cwft.proc.Ctx, span = trace2.Start(txnCtx, "TxnComputationWrapper.Compile",
+		trace2.WithKind(trace2.SpanKindStatement))
+	span.End(trace2.WithStatementExtra(cwft.uuid, cwft.ses.sql))
 
 	txnCtx = fileservice.EnsureStatementProfiler(txnCtx, requestCtx)
 

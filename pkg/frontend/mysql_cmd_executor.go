@@ -3525,7 +3525,7 @@ func (mce *MysqlCmdExecutor) doComQuery(requestCtx context.Context, input *UserI
 		proc.SessionInfo.UserId = rootID
 	}
 	var span trace.Span
-	proc.Ctx, span = trace.Start(proc.Ctx, "MysqlCmdExecutor.doComQuery",
+	ses.connectCtx, span = trace.Start(ses.connectCtx, "MysqlCmdExecutor.doComQuery",
 		trace.WithKind(trace.SpanKindStatement))
 	defer span.End(trace.WithStatementExtra(ses.uuid, ses.sql))
 
