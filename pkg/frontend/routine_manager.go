@@ -478,6 +478,11 @@ func (rm *RoutineManager) Handler(rs goetty.IOSession, msg interface{}, received
 	req := protocol.GetRequest(payload)
 	req.seq = seq
 
+	var span2 trace.Span
+	routine.ses.connectCtx, span2 = trace.Start(routine.ses.connectCtx, "Routine.HandleRequest",
+		trace.WithKind(trace.SpanKindStatement))
+	defer span2.End(trace.WithStatementExtra([16]byte{}, ""))
+
 	//handle request
 	err = routine.handleRequest(req)
 	if err != nil {

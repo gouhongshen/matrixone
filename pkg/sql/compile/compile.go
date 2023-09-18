@@ -195,7 +195,7 @@ func (c *Compile) SetTempEngine(ctx context.Context, te engine.Engine) {
 func (c *Compile) Compile(ctx context.Context, pn *plan.Plan, u any, fill func(any, *batch.Batch) error) (err error) {
 	// TODO(ghs)
 	var span trace.Span
-	c.proc.Ctx, span = trace.Start(c.proc.Ctx, "Compile.Compile",
+	c.ctx, span = trace.Start(c.ctx, "Compile.Compile",
 		trace.WithKind(trace.SpanKindStatement))
 	defer span.End(trace.WithStatementExtra([16]byte{}, c.sql))
 
@@ -355,7 +355,7 @@ func (c *Compile) run(s *Scope) error {
 func (c *Compile) Run(_ uint64) (*util2.RunResult, error) {
 	// TODO(ghs)
 	var span trace.Span
-	c.proc.Ctx, span = trace.Start(c.proc.Ctx, "Compile.Run",
+	c.ctx, span = trace.Start(c.ctx, "Compile.Run",
 		trace.WithKind(trace.SpanKindStatement))
 	defer span.End(trace.WithStatementExtra([16]byte{}, c.sql))
 
