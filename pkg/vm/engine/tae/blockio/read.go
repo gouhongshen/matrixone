@@ -16,6 +16,7 @@ package blockio
 
 import (
 	"context"
+	"github.com/matrixorigin/matrixone/pkg/util/trace"
 	"math"
 	"time"
 
@@ -122,6 +123,12 @@ func BlockRead(
 	if logutil.GetSkip1Logger().Core().Enabled(zap.DebugLevel) {
 		logutil.Debugf("read block %s, columns %v, types %v", info.BlockID.String(), columns, colTypes)
 	}
+
+	// TODO(ghs)
+	var span trace.Span
+	ctx, span = trace.Start(ctx, "blockio.BlockRead",
+		trace.WithKind(trace.SpanKindStatement))
+	defer span.End(trace.WithFSReadWriteExtra("", nil, 0))
 
 	var (
 		sels []int32

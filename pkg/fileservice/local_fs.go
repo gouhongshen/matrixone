@@ -275,6 +275,9 @@ func (l *LocalFS) Read(ctx context.Context, vector *IOVector) (err error) {
 	default:
 	}
 
+	ctx, span := trace.Start(ctx, "LocalFS.Read", trace.WithKind(trace.SpanKindStatement))
+	defer span.End(trace.WithFSReadWriteExtra("", nil, 0))
+
 	if len(vector.Entries) == 0 {
 		return moerr.NewEmptyVectorNoCtx()
 	}

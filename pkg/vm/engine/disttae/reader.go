@@ -20,7 +20,6 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/objectio"
 	"github.com/matrixorigin/matrixone/pkg/perfcounter"
 	plan2 "github.com/matrixorigin/matrixone/pkg/sql/plan"
-	"github.com/matrixorigin/matrixone/pkg/util/trace"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 	"go.uber.org/zap"
@@ -566,13 +565,7 @@ func (r *mergeReader) Read(
 	}
 
 	for len(r.rds) > 0 {
-		// TODO(ghs)
-		var span trace.Span
-		ctx, span = trace.Start(ctx, "mergeReader.Read",
-			trace.WithKind(trace.SpanKindStatement))
 		bat, err := r.rds[0].Read(ctx, cols, expr, mp, vp)
-		span.End(trace.WithStatementExtra([16]byte{}, ""))
-
 		if err != nil {
 			for _, rd := range r.rds {
 				rd.Close()
