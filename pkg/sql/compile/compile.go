@@ -3183,7 +3183,8 @@ func shuffleBlocksToMultiCN(c *Compile, ranges [][]byte, rel engine.Relation, n 
 	nodes = append(nodes, engine.Node{
 		Addr: c.addr,
 		Rel:  rel,
-		Mcpu: c.generateCPUNumber(ncpu, int(n.Stats.BlockNum)),
+		//Mcpu: c.generateCPUNumber(ncpu, int(n.Stats.BlockNum)),
+		Mcpu: 1,
 	})
 	//add memory table block
 	nodes[0].Data = append(nodes[0].Data, ranges[:1]...)
@@ -3215,7 +3216,8 @@ func shuffleBlocksToMultiCN(c *Compile, ranges [][]byte, rel engine.Relation, n 
 				Rel:  rel,
 				Id:   c.cnList[i].Id,
 				Addr: c.cnList[i].Addr,
-				Mcpu: c.generateCPUNumber(c.cnList[i].Mcpu, int(n.Stats.BlockNum)),
+				Mcpu: 1,
+				//Mcpu: c.generateCPUNumber(c.cnList[i].Mcpu, int(n.Stats.BlockNum)),
 			})
 		}
 	}
