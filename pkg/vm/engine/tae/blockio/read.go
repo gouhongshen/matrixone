@@ -16,7 +16,6 @@ package blockio
 
 import (
 	"context"
-	"github.com/matrixorigin/matrixone/pkg/util/trace"
 	"math"
 	"time"
 
@@ -125,10 +124,10 @@ func BlockRead(
 	}
 
 	// TODO(ghs)
-	var span trace.Span
-	ctx, span = trace.Start(ctx, "blockio.BlockRead",
-		trace.WithKind(trace.SpanKindStatement))
-	defer span.End(trace.WithFSReadWriteExtra("", nil, 0))
+	//var span trace.Span
+	//ctx, span = trace.Start(ctx, "blockio.BlockRead",
+	//	trace.WithKind(trace.SpanKindStatement))
+	//defer span.End(trace.WithFSReadWriteExtra("", nil, 0))
 
 	var (
 		sels []int32
