@@ -17,7 +17,6 @@ package blockio
 import (
 	"context"
 	"fmt"
-	trace2 "github.com/matrixorigin/matrixone/pkg/util/trace"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -366,9 +365,9 @@ func (p *IoPipeline) doAsyncFetch(
 }
 
 func (p *IoPipeline) Prefetch(params PrefetchParams) (err error) {
-	_, span := trace2.Start(context.Background(), "IoPipeline.Prefetch",
-		trace2.WithKind(trace2.SpanKindStatement))
-	span.End(trace2.WithFSReadWriteExtra("", nil, 0))
+	//_, span := trace2.Start(context.Background(), "IoPipeline.Prefetch",
+	//	trace2.WithKind(trace2.SpanKindStatement))
+	//span.End(trace2.WithFSReadWriteExtra("", nil, 0))
 	return p.prefetchFunc(params)
 }
 
