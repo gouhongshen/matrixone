@@ -162,7 +162,6 @@ const (
 )
 
 type SqlInfoType struct {
-	sync.Mutex
 	StatementId []byte
 	TxnId       []byte
 }
@@ -172,7 +171,8 @@ type SqlInfoType struct {
 // and one pipeline has one process instance.
 type Process struct {
 	// TODO(ghs)
-	SqlInfo SqlInfoType
+	SqlInfoMu sync.Mutex
+	SqlInfo   SqlInfoType
 
 	// Id, query id.
 	Id  string
@@ -241,8 +241,8 @@ type WrapCs struct {
 }
 
 func (proc *Process) GetSqlInfo() SqlInfoType {
-	proc.SqlInfo.Lock()
-	defer proc.SqlInfo.Unlock()
+	proc.SqlInfoMu.Lock()
+	defer proc.SqlInfoMu.Unlock()
 	return proc.SqlInfo
 }
 

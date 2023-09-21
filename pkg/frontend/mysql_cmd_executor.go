@@ -210,8 +210,8 @@ func (mce *MysqlCmdExecutor) GetRoutineManager() *RoutineManager {
 }
 
 func FillProcSQLInfo(proc *process.Process, ses *Session, cw ComputationWrapper) {
-	proc.SqlInfo.Lock()
-	defer proc.SqlInfo.Unlock()
+	proc.SqlInfoMu.Lock()
+	defer proc.SqlInfoMu.Unlock()
 
 	if ses != nil {
 		txnId := ses.GetTxnID()

@@ -365,9 +365,6 @@ func (ses *Session) GetSqlOfStmt() string {
 
 // TODO(ghs)
 func (ses *Session) GetTxnID() []byte {
-	ses.mu.Lock()
-	defer ses.mu.Unlock()
-
 	var txn TxnOperator
 	var err error
 	txnId := make([]byte, 16)
