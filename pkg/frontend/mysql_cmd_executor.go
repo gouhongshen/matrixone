@@ -228,7 +228,7 @@ func FillProcSQLInfo(proc *process.Process, ses *Session, cw ComputationWrapper)
 			proc.SqlInfo.StatementId = make([]byte, len(stmtId))
 		}
 
-		copy(ses.statementId[:], stmtId[:])
+		copy(proc.SqlInfo.StatementId, stmtId[:])
 	}
 }
 
