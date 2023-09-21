@@ -122,15 +122,15 @@ func genETLData(ctx context.Context, in []IBuffer2SqlItem, buf *bytes.Buffer, fa
 
 	// Initialize aggregator
 	var aggregator *Aggregator
-	if !GetTracerProvider().disableStmtAggregation {
-		aggregator = NewAggregator(
-			ctx,
-			GetTracerProvider().aggregationWindow,
-			StatementInfoNew,
-			StatementInfoUpdate,
-			StatementInfoFilter,
-		)
-	}
+	//if !GetTracerProvider().disableStmtAggregation {
+	//	aggregator = NewAggregator(
+	//		ctx,
+	//		GetTracerProvider().aggregationWindow,
+	//		StatementInfoNew,
+	//		StatementInfoUpdate,
+	//		StatementInfoFilter,
+	//	)
+	//}
 
 	ts := time.Now()
 	writerMap := make(map[string]table.RowWriter, 2)

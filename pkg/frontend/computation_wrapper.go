@@ -210,10 +210,11 @@ func (cwft *TxnComputationWrapper) Compile(requestCtx context.Context, u interfa
 		return nil, err
 	}
 
+	sqlInfo := cwft.proc.GetSqlInfo()
 	var span trace2.Span
-	cwft.proc.Ctx, span = trace2.Start(txnCtx, "TxnComputationWrapper.Compile",
+	_, span = trace2.Start(txnCtx, "TxnComputationWrapper.Compile",
 		trace2.WithKind(trace2.SpanKindStatement))
-	span.End(trace2.WithStatementExtra(cwft.uuid, cwft.ses.sql))
+	span.End(trace2.WithStatementExtra(sqlInfo.TxnId, sqlInfo.StatementId, cwft.ses.sql))
 
 	txnCtx = fileservice.EnsureStatementProfiler(txnCtx, requestCtx)
 

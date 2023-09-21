@@ -194,10 +194,11 @@ func (c *Compile) SetTempEngine(ctx context.Context, te engine.Engine) {
 // It generates a scope (logic pipeline) for a query plan.
 func (c *Compile) Compile(ctx context.Context, pn *plan.Plan, u any, fill func(any, *batch.Batch) error) (err error) {
 	// TODO(ghs)
+	sqlInfo := c.proc.GetSqlInfo()
 	var span trace.Span
-	c.ctx, span = trace.Start(c.ctx, "Compile.Compile",
+	_, span = trace.Start(c.ctx, "Compile.Compile",
 		trace.WithKind(trace.SpanKindStatement))
-	defer span.End(trace.WithStatementExtra([16]byte{}, c.sql))
+	defer span.End(trace.WithStatementExtra(sqlInfo.TxnId, sqlInfo.StatementId, c.sql))
 
 	_, task := gotrace.NewTask(context.TODO(), "pipeline.Compile")
 	defer task.End()
@@ -257,7 +258,6 @@ func (c *Compile) run(s *Scope) error {
 	if s == nil {
 		return nil
 	}
-
 	//fmt.Println(DebugShowScopes([]*Scope{s}))
 
 	switch s.Magic {
@@ -354,10 +354,11 @@ func (c *Compile) run(s *Scope) error {
 // Run is an important function of the compute-layer, it executes a single sql according to its scope
 func (c *Compile) Run(_ uint64) (*util2.RunResult, error) {
 	// TODO(ghs)
+	sqlInfo := c.proc.GetSqlInfo()
 	var span trace.Span
 	c.ctx, span = trace.Start(c.ctx, "Compile.Run",
 		trace.WithKind(trace.SpanKindStatement))
-	defer span.End(trace.WithStatementExtra([16]byte{}, c.sql))
+	defer span.End(trace.WithStatementExtra(sqlInfo.TxnId, sqlInfo.StatementId, c.sql))
 
 	var cc *Compile
 	_, task := gotrace.NewTask(context.TODO(), "pipeline.Run")
@@ -438,6 +439,15 @@ func (c *Compile) Run(_ uint64) (*util2.RunResult, error) {
 
 // run once
 func (c *Compile) runOnce() error {
+	sqlInfo := c.proc.GetSqlInfo()
+	var span trace.Span
+	c.ctx, span = trace.Start(c.ctx, "Compile.runOnce",
+		trace.WithKind(trace.SpanKindStatement))
+	defer span.End(trace.WithStatementExtra(sqlInfo.TxnId, sqlInfo.StatementId, c.sql))
+
+	//fmt.Println("----------------------------- Scope: ", DebugShowScopes(c.scope))
+	//fmt.Println("----------------------------- SQL: ", c.sql)
+
 	var wg sync.WaitGroup
 	errC := make(chan error, len(c.scope))
 	for _, s := range c.scope {
@@ -447,6 +457,12 @@ func (c *Compile) runOnce() error {
 		wg.Add(1)
 		scope := c.scope[i]
 		ants.Submit(func() {
+
+			//var span2 trace.Span
+			_, span2 := trace.Start(c.ctx, "ScopeRun",
+				trace.WithKind(trace.SpanKindStatement))
+			defer span2.End(trace.WithStatementExtra(sqlInfo.TxnId, sqlInfo.StatementId, c.sql))
+
 			errC <- c.run(scope)
 			wg.Done()
 		})
@@ -3295,7 +3311,8 @@ func putBlocksInCurrentCN(c *Compile, ranges [][]byte, rel engine.Relation, n *p
 	nodes = append(nodes, engine.Node{
 		Addr: c.addr,
 		Rel:  rel,
-		Mcpu: c.generateCPUNumber(ncpu, int(n.Stats.BlockNum)),
+		Mcpu: 1,
+		//Mcpu: c.generateCPUNumber(ncpu, int(n.Stats.BlockNum)),
 	})
 	nodes[0].Data = append(nodes[0].Data, ranges...)
 	return nodes

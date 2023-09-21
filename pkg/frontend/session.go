@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"go.uber.org/zap"
 	"runtime"
 	"strings"
 	"sync"
@@ -70,6 +71,9 @@ const (
 )
 
 type Session struct {
+	// TODO (ghs)
+	// current statement id
+	statementId []byte
 	// account id
 	accountId uint32
 
@@ -357,6 +361,29 @@ func (ses *Session) GetSqlOfStmt() string {
 	ses.mu.Lock()
 	defer ses.mu.Unlock()
 	return ses.stmtProfile.sqlOfStmt
+}
+
+// TODO(ghs)
+func (ses *Session) GetTxnID() []byte {
+	ses.mu.Lock()
+	defer ses.mu.Unlock()
+
+	var txn TxnOperator
+	var err error
+	txnId := make([]byte, 16)
+
+	if handler := ses.GetTxnHandler(); handler.IsValidTxnOperator() {
+		_, txn, err = handler.GetTxn()
+		if err != nil {
+			logError(ses, ses.GetDebugString(),
+				"Failed to record statement",
+				zap.Error(err))
+			copy(txnId[:], motrace.NilTxnID[:])
+		} else {
+			copy(txnId[:], txn.Txn().ID)
+		}
+	}
+	return txnId
 }
 
 func (ses *Session) IsDerivedStmt() bool {

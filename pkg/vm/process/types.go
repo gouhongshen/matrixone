@@ -161,10 +161,19 @@ const (
 	ExecHasMore
 )
 
+type SqlInfoType struct {
+	sync.Mutex
+	StatementId []byte
+	TxnId       []byte
+}
+
 // Process contains context used in query execution
 // one or more pipeline will be generated for one query,
 // and one pipeline has one process instance.
 type Process struct {
+	// TODO(ghs)
+	SqlInfo SqlInfoType
+
 	// Id, query id.
 	Id  string
 	Reg Register
@@ -229,6 +238,12 @@ type WrapCs struct {
 	Uid    uuid.UUID
 	Cs     morpc.ClientSession
 	DoneCh chan struct{}
+}
+
+func (proc *Process) GetSqlInfo() SqlInfoType {
+	proc.SqlInfo.Lock()
+	defer proc.SqlInfo.Unlock()
+	return proc.SqlInfo
 }
 
 func (proc *Process) InitSeq() {

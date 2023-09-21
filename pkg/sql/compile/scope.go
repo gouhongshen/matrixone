@@ -63,6 +63,11 @@ import (
 
 // Run read data from storage engine and run the instructions of scope.
 func (s *Scope) Run(c *Compile) (err error) {
+	//var span trace.Span
+	//c.ctx, span = trace.Start(c.ctx, "Scope.Run",
+	//	trace.WithKind(trace.SpanKindStatement))
+	//defer span.End(trace.WithStatementExtra([16]byte{}, c.sql))
+
 	var p *pipeline.Pipeline
 	defer func() {
 		if e := recover(); e != nil {

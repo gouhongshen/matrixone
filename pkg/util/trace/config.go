@@ -415,10 +415,14 @@ func WithProfileTraceSecs(d time.Duration) SpanStartOption {
 	})
 }
 
-func WithStatementExtra(stmID [16]byte, stm string) SpanEndOption {
+func WithStatementExtra(txnID []byte, stmID []byte, stm string) SpanEndOption {
+	tId, _ := uuid.FromBytes(txnID)
+	sId, _ := uuid.FromBytes(stmID)
+
 	return spanOptionFunc(func(cfg *SpanConfig) {
 		cfg.Extra = append(cfg.Extra,
-			zap.Binary("statement_id", stmID[:]),
+			zap.String("txn_id", tId.String()),
+			zap.String("statement_id", sId.String()),
 			zap.String("statement", stm),
 		)
 	})

@@ -209,6 +209,29 @@ func (mce *MysqlCmdExecutor) GetRoutineManager() *RoutineManager {
 	return mce.routineMgr
 }
 
+func FillProcSQLInfo(proc *process.Process, ses *Session, cw ComputationWrapper) {
+	proc.SqlInfo.Lock()
+	defer proc.SqlInfo.Unlock()
+
+	if ses != nil {
+		txnId := ses.GetTxnID()
+		if len(proc.SqlInfo.TxnId) == 0 {
+			proc.SqlInfo.TxnId = make([]byte, len(txnId))
+		}
+
+		copy(proc.SqlInfo.TxnId[:], txnId[:])
+	}
+
+	if cw != nil {
+		stmtId := cw.GetUUID()
+		if len(proc.SqlInfo.StatementId) == 0 {
+			proc.SqlInfo.StatementId = make([]byte, len(stmtId))
+		}
+
+		copy(ses.statementId[:], stmtId[:])
+	}
+}
+
 var RecordStatement = func(ctx context.Context, ses *Session, proc *process.Process, cw ComputationWrapper, envBegin time.Time, envStmt, sqlType string, useEnv bool) context.Context {
 	// set StatementID
 	var stmID uuid.UUID
@@ -3567,10 +3590,12 @@ func (mce *MysqlCmdExecutor) doComQuery(requestCtx context.Context, input *UserI
 		proc.SessionInfo.RoleId = moAdminRoleID
 		proc.SessionInfo.UserId = rootID
 	}
+
+	sqlInfo := proc.GetSqlInfo()
 	var span trace.Span
-	ses.connectCtx, span = trace.Start(ses.connectCtx, "MysqlCmdExecutor.doComQuery",
+	_, span = trace.Start(requestCtx, "MysqlCmdExecutor.doComQuery",
 		trace.WithKind(trace.SpanKindStatement))
-	defer span.End(trace.WithStatementExtra(ses.uuid, ses.sql))
+	defer span.End(trace.WithStatementExtra(sqlInfo.TxnId, sqlInfo.StatementId, input.sql))
 
 	proc.SessionInfo.User = userNameOnly
 	proc.SessionInfo.QueryId = ses.getQueryId(input.isInternal())
@@ -3619,6 +3644,10 @@ func (mce *MysqlCmdExecutor) doComQuery(requestCtx context.Context, input *UserI
 		stmt := cw.GetAst()
 		sqlType := input.getSqlSourceType(i)
 		requestCtx = RecordStatement(requestCtx, ses, proc, cw, beginInstant, sqlRecord[i], sqlType, singleStatement)
+
+		// TODO(ghs)
+		FillProcSQLInfo(proc, ses, cw)
+
 		tenant := ses.GetTenantNameWithStmt(stmt)
 		//skip PREPARE statement here
 		if ses.GetTenantInfo() != nil && !IsPrepareStatement(stmt) {

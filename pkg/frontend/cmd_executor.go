@@ -181,6 +181,10 @@ func Execute(ctx context.Context, ses *Session, proc *process.Process, stmtExec 
 	var err, err2 error
 	var cmpBegin, runBegin time.Time
 	ctx = RecordStatement(ctx, ses, proc, stmtExec, beginInstant, envStmt, sqlType, useEnv)
+
+	//TODO(ghs)
+	FillProcSQLInfo(proc, ses, stmtExec)
+
 	err = stmtExec.Setup(ctx, ses)
 	if err != nil {
 		goto handleRet
