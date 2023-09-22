@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/common/moprobe"
 	"math"
 	"net"
 	"runtime"
@@ -194,51 +195,60 @@ func (c *Compile) SetTempEngine(ctx context.Context, te engine.Engine) {
 // It generates a scope (logic pipeline) for a query plan.
 func (c *Compile) Compile(ctx context.Context, pn *plan.Plan, u any, fill func(any, *batch.Batch) error) (err error) {
 	// TODO(ghs)
-	sqlInfo := c.proc.GetSqlInfo()
-	var span trace.Span
-	_, span = trace.Start(c.ctx, "Compile.Compile",
-		trace.WithKind(trace.SpanKindStatement))
-	defer span.End(trace.WithStatementExtra(sqlInfo.TxnId, sqlInfo.StatementId, c.sql))
+	var outErr error
+	moprobe.WithRegion(ctx, moprobe.CompileCompile, func() {
+		// TODO(ghs)
+		sqlInfo := c.proc.GetSqlInfo()
+		var span trace.Span
+		_, span = trace.Start(c.ctx, "Compile.Compile",
+			trace.WithKind(trace.SpanKindStatement))
+		defer span.End(trace.WithStatementExtra(sqlInfo.TxnId, sqlInfo.StatementId, c.sql))
 
-	_, task := gotrace.NewTask(context.TODO(), "pipeline.Compile")
-	defer task.End()
-	defer func() {
-		if e := recover(); e != nil {
-			err = moerr.ConvertPanicError(ctx, e)
+		_, task := gotrace.NewTask(context.TODO(), "pipeline.Compile")
+		defer task.End()
+		defer func() {
+			if e := recover(); e != nil {
+				outErr = moerr.ConvertPanicError(ctx, e)
+			}
+		}()
+
+		// with values
+		c.proc.Ctx = perfcounter.WithCounterSet(c.proc.Ctx, &c.counterSet)
+		c.ctx = c.proc.Ctx
+
+		// session info and callback function to write back query result.
+		// XXX u is really a bad name, I'm not sure if `session` or `user` will be more suitable.
+		c.u = u
+		c.fill = fill
+
+		c.pn = pn
+		// get execute related information
+		// about ap or tp, what and how many compute resource we can use.
+		c.info = plan2.GetExecTypeFromPlan(pn)
+		if pn.IsPrepare {
+			c.info.Typ = plan2.ExecTypeTP
 		}
-	}()
 
-	// with values
-	c.proc.Ctx = perfcounter.WithCounterSet(c.proc.Ctx, &c.counterSet)
-	c.ctx = c.proc.Ctx
+		// Compile may exec some function that need engine.Engine.
+		c.proc.Ctx = context.WithValue(c.proc.Ctx, defines.EngineKey{}, c.e)
+		// generate logic pipeline for query.
+		c.scope, err = c.compileScope(ctx, pn)
 
-	// session info and callback function to write back query result.
-	// XXX u is really a bad name, I'm not sure if `session` or `user` will be more suitable.
-	c.u = u
-	c.fill = fill
-
-	c.pn = pn
-	// get execute related information
-	// about ap or tp, what and how many compute resource we can use.
-	c.info = plan2.GetExecTypeFromPlan(pn)
-	if pn.IsPrepare {
-		c.info.Typ = plan2.ExecTypeTP
-	}
-
-	// Compile may exec some function that need engine.Engine.
-	c.proc.Ctx = context.WithValue(c.proc.Ctx, defines.EngineKey{}, c.e)
-	// generate logic pipeline for query.
-	c.scope, err = c.compileScope(ctx, pn)
-
-	if err != nil {
-		return err
-	}
-	for _, s := range c.scope {
-		if len(s.NodeInfo.Addr) == 0 {
-			s.NodeInfo.Addr = c.addr
+		if err != nil {
+			//return err
+			outErr = err
+			return
 		}
-	}
-	return nil
+		for _, s := range c.scope {
+			if len(s.NodeInfo.Addr) == 0 {
+				s.NodeInfo.Addr = c.addr
+			}
+		}
+		return
+	})
+
+	return outErr
+
 }
 
 func (c *Compile) addAffectedRows(n uint64) {
@@ -352,89 +362,110 @@ func (c *Compile) run(s *Scope) error {
 }
 
 // Run is an important function of the compute-layer, it executes a single sql according to its scope
-func (c *Compile) Run(_ uint64) (*util2.RunResult, error) {
-	// TODO(ghs)
-	sqlInfo := c.proc.GetSqlInfo()
-	var span trace.Span
-	c.ctx, span = trace.Start(c.ctx, "Compile.Run",
-		trace.WithKind(trace.SpanKindStatement))
-	defer span.End(trace.WithStatementExtra(sqlInfo.TxnId, sqlInfo.StatementId, c.sql))
+func (c *Compile) Run(_ uint64) (ret *util2.RunResult, err error) {
 
-	var cc *Compile
-	_, task := gotrace.NewTask(context.TODO(), "pipeline.Run")
-	defer task.End()
-	defer func() {
-		putCompile(c)
-		putCompile(cc)
-	}()
-	result := &util2.RunResult{
-		AffectRows: 0,
-	}
-	if c.proc.TxnOperator != nil {
-		c.proc.TxnOperator.GetWorkspace().IncrSQLCount()
-		c.proc.TxnOperator.ResetRetry(false)
-	}
-	if err := c.runOnce(); err != nil {
-		c.fatalLog(0, err)
+	moprobe.WithRegion(c.ctx, moprobe.CompileRun, func() {
+		// TODO(ghs)
+		sqlInfo := c.proc.GetSqlInfo()
+		var span trace.Span
+		c.ctx, span = trace.Start(c.ctx, "Compile.Run",
+			trace.WithKind(trace.SpanKindStatement))
+		defer span.End(trace.WithStatementExtra(sqlInfo.TxnId, sqlInfo.StatementId, c.sql))
 
-		//  if the error is ErrTxnNeedRetry and the transaction is RC isolation, we need to retry the statement
-		if (moerr.IsMoErrCode(err, moerr.ErrTxnNeedRetry) ||
-			moerr.IsMoErrCode(err, moerr.ErrTxnNeedRetryWithDefChanged)) &&
-			c.proc.TxnOperator.Txn().IsRCIsolation() {
-			c.proc.TxnOperator.ResetRetry(true)
-			c.proc.TxnOperator.GetWorkspace().IncrSQLCount()
-
-			// clear the workspace of the failed statement
-			if e := c.proc.TxnOperator.GetWorkspace().RollbackLastStatement(c.ctx); e != nil {
-				return nil, e
-			}
-			//  increase the statement id
-			if e := c.proc.TxnOperator.GetWorkspace().IncrStatementID(c.ctx, false); e != nil {
-				return nil, e
-			}
-
-			// FIXME: the current retry method is quite bad, the overhead is relatively large, and needs to be
-			// improved to refresh expression in the future.
-			cc = New(
-				c.addr,
-				c.db,
-				c.sql,
-				c.tenant,
-				c.uid,
-				c.proc.Ctx,
-				c.e,
-				c.proc,
-				c.stmt,
-				c.isInternal,
-				c.cnLabel)
-			if moerr.IsMoErrCode(err, moerr.ErrTxnNeedRetryWithDefChanged) {
-				pn, err := c.buildPlanFunc()
-				if err != nil {
-					return nil, err
-				}
-				c.pn = pn
-			}
-			if err := cc.Compile(c.proc.Ctx, c.pn, c.u, c.fill); err != nil {
-				c.fatalLog(1, err)
-				return nil, err
-			}
-			if err := cc.runOnce(); err != nil {
-				c.fatalLog(1, err)
-				return nil, err
-			}
-			// set affectedRows to old compile to return
-			c.setAffectedRows(cc.getAffectedRows())
-			result.AffectRows = cc.getAffectedRows()
-			return result, c.proc.TxnOperator.GetWorkspace().Adjust()
+		var cc *Compile
+		_, task := gotrace.NewTask(context.TODO(), "pipeline.Run")
+		defer task.End()
+		defer func() {
+			putCompile(c)
+			putCompile(cc)
+		}()
+		result := &util2.RunResult{
+			AffectRows: 0,
 		}
-		return nil, err
-	}
+		if c.proc.TxnOperator != nil {
+			c.proc.TxnOperator.GetWorkspace().IncrSQLCount()
+			c.proc.TxnOperator.ResetRetry(false)
+		}
+		if err = c.runOnce(); err != nil {
+			c.fatalLog(0, err)
 
-	result.AffectRows = c.getAffectedRows()
-	if c.proc.TxnOperator != nil {
-		return result, c.proc.TxnOperator.GetWorkspace().Adjust()
-	}
-	return result, nil
+			//  if the error is ErrTxnNeedRetry and the transaction is RC isolation, we need to retry the statement
+			if (moerr.IsMoErrCode(err, moerr.ErrTxnNeedRetry) ||
+				moerr.IsMoErrCode(err, moerr.ErrTxnNeedRetryWithDefChanged)) &&
+				c.proc.TxnOperator.Txn().IsRCIsolation() {
+				c.proc.TxnOperator.ResetRetry(true)
+				c.proc.TxnOperator.GetWorkspace().IncrSQLCount()
+
+				// clear the workspace of the failed statement
+				if e := c.proc.TxnOperator.GetWorkspace().RollbackLastStatement(c.ctx); e != nil {
+					err = e
+					return
+					//return nil, e
+				}
+				//  increase the statement id
+				if e := c.proc.TxnOperator.GetWorkspace().IncrStatementID(c.ctx, false); e != nil {
+					err = e
+					return
+					//return nil, e
+				}
+
+				// FIXME: the current retry method is quite bad, the overhead is relatively large, and needs to be
+				// improved to refresh expression in the future.
+				cc = New(
+					c.addr,
+					c.db,
+					c.sql,
+					c.tenant,
+					c.uid,
+					c.proc.Ctx,
+					c.e,
+					c.proc,
+					c.stmt,
+					c.isInternal,
+					c.cnLabel)
+				if moerr.IsMoErrCode(err, moerr.ErrTxnNeedRetryWithDefChanged) {
+					var pn *plan.Plan
+					pn, err = c.buildPlanFunc()
+					if err != nil {
+						return
+						//return nil, err
+					}
+					c.pn = pn
+				}
+				if err = cc.Compile(c.proc.Ctx, c.pn, c.u, c.fill); err != nil {
+					c.fatalLog(1, err)
+					return
+					//return nil, err
+				}
+				if err = cc.runOnce(); err != nil {
+					c.fatalLog(1, err)
+					return
+					//return nil, err
+				}
+				// set affectedRows to old compile to return
+				c.setAffectedRows(cc.getAffectedRows())
+				result.AffectRows = cc.getAffectedRows()
+				ret = result
+				err = c.proc.TxnOperator.GetWorkspace().Adjust()
+				return
+			}
+			return
+			//return nil, err
+		}
+
+		result.AffectRows = c.getAffectedRows()
+		if c.proc.TxnOperator != nil {
+			ret = result
+			err = c.proc.TxnOperator.GetWorkspace().Adjust()
+			//return result, c.proc.TxnOperator.GetWorkspace().Adjust()
+		}
+		ret = result
+		return
+		//return result, nil
+	})
+
+	return
+
 }
 
 // run once

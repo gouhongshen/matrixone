@@ -67,6 +67,9 @@ const (
 	RPCStreamReceive
 	TxnStoreWaitWALFlush
 	TxnTableDoPrecommitDedupByPK
+	Statement
+	CompileCompile
+	CompileRun
 	RegionTypeMax
 )
 
@@ -80,6 +83,9 @@ var regionTypeStr = [RegionTypeMax]string{
 	"rpc stream receive",
 	"txnstore wait wal flush",
 	"txntable do precommit dedup by pk",
+	"statement",
+	"compile.compile",
+	"compile.run",
 }
 
 func WithRegion(ctx context.Context, rt RegionType, fn func()) {
