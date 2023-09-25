@@ -212,7 +212,7 @@ func (cwft *TxnComputationWrapper) Compile(requestCtx context.Context, u interfa
 
 	sqlInfo := cwft.proc.GetSqlInfo()
 	var span trace2.Span
-	_, span = trace2.Start(txnCtx, "TxnComputationWrapper.Compile",
+	requestCtx, span = trace2.Start(requestCtx, "TxnComputationWrapper.Compile",
 		trace2.WithKind(trace2.SpanKindStatement))
 	span.End(trace2.WithStatementExtra(sqlInfo.TxnId, sqlInfo.StatementId, cwft.ses.sql))
 
@@ -339,7 +339,7 @@ func (cwft *TxnComputationWrapper) Compile(requestCtx context.Context, u interfa
 	if len(cwft.ses.GetParameterUnit().ClusterNodes) > 0 {
 		addr = cwft.ses.GetParameterUnit().ClusterNodes[0].Addr
 	}
-	cwft.proc.Ctx = txnCtx
+	cwft.proc.Ctx = requestCtx
 	cwft.proc.FileService = cwft.ses.GetParameterUnit().FileService
 
 	var tenant string
@@ -353,7 +353,7 @@ func (cwft *TxnComputationWrapper) Compile(requestCtx context.Context, u interfa
 		cwft.ses.GetSql(),
 		tenant,
 		cwft.ses.GetUserName(),
-		txnCtx,
+		requestCtx,
 		cwft.ses.GetStorage(),
 		cwft.proc,
 		cwft.stmt,

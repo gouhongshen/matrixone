@@ -2593,6 +2593,12 @@ func (mce *MysqlCmdExecutor) executeStmt(requestCtx context.Context,
 	var loadLocalErrGroup *errgroup.Group
 	var loadLocalWriter *io.PipeWriter
 
+	var span trace.Span
+	sqlInfo := proc.GetSqlInfo()
+	requestCtx, span = trace.Start(requestCtx, "MysqlCmdExecutor.executeStmt",
+		trace.WithKind(trace.SpanKindStatement))
+	defer span.End(trace.WithStatementExtra(sqlInfo.TxnId, sqlInfo.StatementId, ses.sql))
+
 	ses.SetQueryStart(time.Now())
 
 	// per statement profiler
@@ -3593,7 +3599,7 @@ func (mce *MysqlCmdExecutor) doComQuery(requestCtx context.Context, input *UserI
 
 	sqlInfo := proc.GetSqlInfo()
 	var span trace.Span
-	_, span = trace.Start(requestCtx, "MysqlCmdExecutor.doComQuery",
+	requestCtx, span = trace.Start(requestCtx, "MysqlCmdExecutor.doComQuery",
 		trace.WithKind(trace.SpanKindStatement))
 	defer span.End(trace.WithStatementExtra(sqlInfo.TxnId, sqlInfo.StatementId, input.sql))
 
@@ -3824,6 +3830,11 @@ func (mce *MysqlCmdExecutor) ExecRequest(requestCtx context.Context, ses *Sessio
 			}
 		}
 	}()
+
+	var span trace.Span
+	requestCtx, span = trace.Start(requestCtx, "MysqlCmdExecutor.ExecRequest",
+		trace.WithKind(trace.SpanKindStatement))
+	defer span.End()
 
 	var sql string
 	logDebugf(ses.GetDebugString(), "cmd %v", req.GetCmd())
