@@ -310,11 +310,11 @@ var RecordStatement = func(ctx context.Context, ses *Session, proc *process.Proc
 	if !stm.IsZeroTxnID() {
 		stm.Report(ctx)
 	}
-	sc := trace.SpanContextWithID(trace.TraceID(stmID), trace.SpanKindStatement)
-	proc.WithSpanContext(sc)
-	reqCtx := ses.GetRequestContext()
-	ses.SetRequestContext(trace.ContextWithSpanContext(reqCtx, sc))
-	return motrace.ContextWithStatement(trace.ContextWithSpanContext(ctx, sc), stm)
+	//sc := trace.SpanContextWithID(trace.TraceID(stmID), trace.SpanKindStatement)
+	//proc.WithSpanContext(sc)
+	//reqCtx := ses.GetRequestContext()
+	//ses.SetRequestContext(trace.ContextWithSpanContext(reqCtx, sc))
+	return motrace.ContextWithStatement(ctx, stm)
 }
 
 var RecordParseErrorStatement = func(ctx context.Context, ses *Session, proc *process.Process, envBegin time.Time,

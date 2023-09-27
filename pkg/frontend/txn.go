@@ -268,6 +268,13 @@ func (th *TxnHandler) GetSession() *Session {
 }
 
 func (th *TxnHandler) CommitTxn() error {
+	_, span := trace.Start(th.ses.requestCtx, "Session.CommitTxn",
+		trace.WithKind(trace.SpanKindStatement))
+	txnId, _ := th.ses.stmtProfile.txnId.MarshalBinary()
+	stmId, _ := th.ses.stmtProfile.stmtId.MarshalBinary()
+
+	defer span.End(trace.WithStatementExtra(txnId, stmId, th.ses.stmtProfile.sqlOfStmt))
+
 	th.entryMu.Lock()
 	defer th.entryMu.Unlock()
 	if !th.IsValidTxnOperator() || th.IsShareTxn() {
@@ -334,6 +341,13 @@ func (th *TxnHandler) CommitTxn() error {
 }
 
 func (th *TxnHandler) RollbackTxn() error {
+	_, span := trace.Start(th.ses.requestCtx, "Session.RollbackTxn",
+		trace.WithKind(trace.SpanKindStatement))
+	txnId, _ := th.ses.stmtProfile.txnId.MarshalBinary()
+	stmId, _ := th.ses.stmtProfile.stmtId.MarshalBinary()
+
+	defer span.End(trace.WithStatementExtra(txnId, stmId, th.ses.stmtProfile.sqlOfStmt))
+
 	th.entryMu.Lock()
 	defer th.entryMu.Unlock()
 	if !th.IsValidTxnOperator() || th.IsShareTxn() {

@@ -186,12 +186,6 @@ func (rt *Routine) cancelRequestCtx() {
 	}
 }
 
-//type SesRequestCtxKeyType string
-//type SesConnectCtxKeyType string
-//
-//var SesRequestCtxKey SesRequestCtxKeyType
-//var SesConnectCtxKey SesConnectCtxKeyType
-
 func (rt *Routine) handleRequest(req *Request) error {
 	var ses *Session
 	var routineCtx context.Context

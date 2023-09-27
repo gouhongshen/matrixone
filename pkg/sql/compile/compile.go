@@ -476,8 +476,8 @@ func (c *Compile) runOnce() error {
 		trace.WithKind(trace.SpanKindStatement))
 	defer span.End(trace.WithStatementExtra(sqlInfo.TxnId, sqlInfo.StatementId, c.sql))
 
-	//fmt.Println("----------------------------- Scope: ", DebugShowScopes(c.scope))
 	//fmt.Println("----------------------------- SQL: ", c.sql)
+	//fmt.Println("----------------------------- Scope: ", DebugShowScopes(c.scope))
 
 	var wg sync.WaitGroup
 	errC := make(chan error, len(c.scope))
