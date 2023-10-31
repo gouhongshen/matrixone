@@ -391,7 +391,7 @@ func GlobalCheckpointDataFactory(end types.TS, versionInterval time.Duration,
 
 		// different from the increment checkpoint, we fill global
 		// checkpoint's SEGStorageUsageBat here
-		//FillSEGStorageUsageBatOfGlobal(c, collector, fs, ckpMetas)
+		FillSEGStorageUsageBatOfGlobal(c, collector, fs, ckpMetas)
 
 		data = collector.OrphanData()
 
