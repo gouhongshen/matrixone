@@ -22,6 +22,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
+	"github.com/matrixorigin/matrixone/pkg/objectio"
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/blockio"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
@@ -142,7 +143,9 @@ func collectUsageDataFromICkp(ctx context.Context, fs fileservice.FileService,
 
 		_, incrData, err := LoadCheckpointEntriesFromKey(ctx, fs, location, version)
 		if err != nil {
-			logutil.Error(fmt.Sprintf("[storage usage] load increment checkpoint failed: %v", err))
+			logutil.Warn(fmt.Sprintf(
+				"[storage usage] load increment checkpoint[%v] failed: %v",
+				objectio.Location(location).Name(), err))
 			return nil
 		}
 
@@ -246,6 +249,6 @@ func FillSEGStorageUsageBatOfGlobal(c *catalog.Catalog, collector *GlobalCollect
 	// cannot collect data from previous checkpoint, so
 	// we traverse the catalog to get the full datasets of storage usage.
 	// this code below should only execute exactly once when upgrade from old TN version
-	traverseCatalog(ctx, c, collector, fs)
+	// traverseCatalog(ctx, c, collector, fs)
 
 }
