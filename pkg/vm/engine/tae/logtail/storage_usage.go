@@ -226,25 +226,25 @@ func FillSEGStorageUsageBatOfGlobal(c *catalog.Catalog, collector *GlobalCollect
 	defer v2.TaskGCkpCollectUsageDurationHistogram.Observe(time.Since(start).Seconds())
 
 	destVecs := getStorageUsageBatVectors(collector.data)
+	destVecs[0].Length()
+	//ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	//defer cancel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	defer cancel()
-
-	tmpRest := collectUsageDataFromICkp(ctx, fs, locVers)
-	if tmpRest != nil {
-		for objId, combine := range tmpRest {
-			_, ok_1 := collector.deletes[UsageDBID][combine[UsageDBID]]
-			_, ok_2 := collector.deletes[UsageTblID][combine[UsageTblID]]
-			_, ok_3 := collector.deletes[UsageObjID][combine[UsageObjID]]
-			if ok_1 || ok_2 || ok_3 {
-				continue
-			}
-
-			appendToStorageUsageVectors(UsageData{
-				combine[UsageAccID], combine[UsageDBID], combine[UsageTblID], objId, combine[UsageSize]}, destVecs)
-		}
-		return
-	}
+	//tmpRest := collectUsageDataFromICkp(ctx, fs, locVers)
+	//if tmpRest != nil {
+	//	for objId, combine := range tmpRest {
+	//		_, ok_1 := collector.deletes[UsageDBID][combine[UsageDBID]]
+	//		_, ok_2 := collector.deletes[UsageTblID][combine[UsageTblID]]
+	//		_, ok_3 := collector.deletes[UsageObjID][combine[UsageObjID]]
+	//		if ok_1 || ok_2 || ok_3 {
+	//			continue
+	//		}
+	//
+	//		appendToStorageUsageVectors(UsageData{
+	//			combine[UsageAccID], combine[UsageDBID], combine[UsageTblID], objId, combine[UsageSize]}, destVecs)
+	//	}
+	//	return
+	//}
 
 	// cannot collect data from previous checkpoint, so
 	// we traverse the catalog to get the full datasets of storage usage.
