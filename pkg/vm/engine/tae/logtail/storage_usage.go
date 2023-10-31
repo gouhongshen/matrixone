@@ -16,13 +16,10 @@ package logtail
 
 import (
 	"context"
-	"fmt"
 	pkgcatalog "github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
-	"github.com/matrixorigin/matrixone/pkg/logutil"
-	"github.com/matrixorigin/matrixone/pkg/objectio"
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/blockio"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
@@ -137,17 +134,18 @@ func collectUsageDataFromICkp(ctx context.Context, fs fileservice.FileService,
 	locVers []*CkpLocVers) map[types.Uuid]*UsageData {
 	tmpRest := make(map[types.Uuid]*UsageData)
 
-	for idx := range locVers {
-		version := locVers[idx].Version
-		location := locVers[idx].Location
+	for range locVers {
+		//version := locVers[idx].Version
+		//location := locVers[idx].Location
 
-		_, incrData, err := LoadCheckpointEntriesFromKey(ctx, fs, location, version)
-		if err != nil {
-			logutil.Warn(fmt.Sprintf(
-				"[storage usage] load increment checkpoint[%v] failed: %v",
-				objectio.Location(location).Name(), err))
-			return nil
-		}
+		incrData := NewCheckpointData()
+		//_, incrData, err := LoadCheckpointEntriesFromKey(ctx, fs, location, version)
+		//if err != nil {
+		//	logutil.Warn(fmt.Sprintf(
+		//		"[storage usage] load increment checkpoint[%v] failed: %v",
+		//		objectio.Location(location).Name(), err))
+		//	return nil
+		//}
 
 		v2.TaskGCkpLoadObjectCounter.Inc()
 
@@ -226,29 +224,29 @@ func FillSEGStorageUsageBatOfGlobal(c *catalog.Catalog, collector *GlobalCollect
 	defer v2.TaskGCkpCollectUsageDurationHistogram.Observe(time.Since(start).Seconds())
 
 	destVecs := getStorageUsageBatVectors(collector.data)
-	destVecs[0].Length()
-	//ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	//defer cancel()
 
-	//tmpRest := collectUsageDataFromICkp(ctx, fs, locVers)
-	//if tmpRest != nil {
-	//	for objId, combine := range tmpRest {
-	//		_, ok_1 := collector.deletes[UsageDBID][combine[UsageDBID]]
-	//		_, ok_2 := collector.deletes[UsageTblID][combine[UsageTblID]]
-	//		_, ok_3 := collector.deletes[UsageObjID][combine[UsageObjID]]
-	//		if ok_1 || ok_2 || ok_3 {
-	//			continue
-	//		}
-	//
-	//		appendToStorageUsageVectors(UsageData{
-	//			combine[UsageAccID], combine[UsageDBID], combine[UsageTblID], objId, combine[UsageSize]}, destVecs)
-	//	}
-	//	return
-	//}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	tmpRest := collectUsageDataFromICkp(ctx, fs, locVers)
+	if tmpRest != nil {
+		for objId, combine := range tmpRest {
+			_, ok_1 := collector.deletes[UsageDBID][combine[UsageDBID]]
+			_, ok_2 := collector.deletes[UsageTblID][combine[UsageTblID]]
+			_, ok_3 := collector.deletes[UsageObjID][combine[UsageObjID]]
+			if ok_1 || ok_2 || ok_3 {
+				continue
+			}
+
+			appendToStorageUsageVectors(UsageData{
+				combine[UsageAccID], combine[UsageDBID], combine[UsageTblID], objId, combine[UsageSize]}, destVecs)
+		}
+		return
+	}
 
 	// cannot collect data from previous checkpoint, so
 	// we traverse the catalog to get the full datasets of storage usage.
 	// this code below should only execute exactly once when upgrade from old TN version
-	// traverseCatalog(ctx, c, collector, fs)
+	traverseCatalog(ctx, c, collector, fs)
 
 }
