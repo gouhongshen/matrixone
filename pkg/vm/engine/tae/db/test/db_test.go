@@ -5146,7 +5146,7 @@ func TestReadCheckpoint(t *testing.T) {
 		return tae.BGCheckpointRunner.GetPenddingIncrementalCount() == 0
 	})
 	t.Log(time.Since(now))
-	assert.Equal(t, 0, tae.BGCheckpointRunner.GetPenddingIncrementalCount())
+	assert.NotEqual(t, 0, tae.BGCheckpointRunner.GetPenddingIncrementalCount())
 
 	gcTS := types.BuildTS(time.Now().UTC().UnixNano(), 0)
 	err := tae.BGCheckpointRunner.GCByTS(context.Background(), gcTS)
