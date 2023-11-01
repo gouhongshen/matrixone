@@ -16,10 +16,13 @@ package logtail
 
 import (
 	"context"
+	"fmt"
 	pkgcatalog "github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
+	"github.com/matrixorigin/matrixone/pkg/objectio"
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/blockio"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
@@ -134,18 +137,17 @@ func collectUsageDataFromICkp(ctx context.Context, fs fileservice.FileService,
 	locVers []*CkpLocVers) map[types.Uuid]*UsageData {
 	tmpRest := make(map[types.Uuid]*UsageData)
 
-	for range locVers {
-		//version := locVers[idx].Version
-		//location := locVers[idx].Location
+	for idx := range locVers {
+		version := locVers[idx].Version
+		location := locVers[idx].Location
 
-		incrData := NewCheckpointData()
-		//_, incrData, err := LoadCheckpointEntriesFromKey(ctx, fs, location, version)
-		//if err != nil {
-		//	logutil.Warn(fmt.Sprintf(
-		//		"[storage usage] load increment checkpoint[%v] failed: %v",
-		//		objectio.Location(location).Name(), err))
-		//	return nil
-		//}
+		_, incrData, err := LoadCheckpointEntriesFromKey(ctx, fs, location, version)
+		if err != nil {
+			logutil.Warn(fmt.Sprintf(
+				"[storage usage] load increment checkpoint[%v] failed: %v",
+				objectio.Location(location).Name(), err))
+			return nil
+		}
 
 		v2.TaskGCkpLoadObjectCounter.Inc()
 
