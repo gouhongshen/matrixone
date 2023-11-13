@@ -214,7 +214,8 @@ func (txn *Transaction) dumpBatchLocked(offset int) error {
 			table.tableName,
 			fileName,
 			blockInfo,
-			table.db.txn.tnStores[0])
+			table.db.txn.tnStores[0],
+		)
 		if err != nil {
 			return err
 		}

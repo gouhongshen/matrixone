@@ -934,11 +934,6 @@ func toPBEntry(e Entry) (*api.Entry, error) {
 		FileName:     e.fileName,
 		PkCheckByTn:  int32(e.pkChkByTN),
 	}
-
-	if e.objStats != nil {
-		ae.ObjStatsBytes = e.objStats.Marshal()
-	}
-
 	return ae, nil
 }
 
