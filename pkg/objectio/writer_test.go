@@ -94,7 +94,7 @@ func TestNewObjectWriter(t *testing.T) {
 		Type: WriteTS,
 		Val:  ts,
 	}
-	blocks, err := objectWriter.WriteEnd(context.Background(), option)
+	blocks, _, err := objectWriter.WriteEnd(context.Background(), option)
 	assert.Nil(t, err)
 	assert.Equal(t, 3, len(blocks))
 	assert.Nil(t, objectWriter.buffer)
@@ -220,7 +220,7 @@ func getObjectMeta(ctx context.Context, t *testing.B) ObjectDataMeta {
 		Type: WriteTS,
 		Val:  ts,
 	}
-	blocks, err := objectWriter.WriteEnd(context.Background(), option)
+	blocks, _, err := objectWriter.WriteEnd(context.Background(), option)
 	assert.Nil(t, err)
 	assert.Equal(t, 1, len(blocks))
 	assert.Nil(t, objectWriter.buffer)
@@ -299,7 +299,7 @@ func TestNewObjectReader(t *testing.T) {
 		Type: WriteTS,
 		Val:  ts,
 	}
-	blocks, err := objectWriter.WriteEnd(context.Background(), option)
+	blocks, _, err := objectWriter.WriteEnd(context.Background(), option)
 	assert.Nil(t, err)
 	assert.Equal(t, 5, len(blocks))
 	assert.Nil(t, objectWriter.buffer)

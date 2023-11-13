@@ -214,9 +214,7 @@ func (txn *Transaction) dumpBatchLocked(offset int) error {
 			table.tableName,
 			fileName,
 			blockInfo,
-			table.db.txn.tnStores[0],
-			s3Writer.GetObjectStats(),
-		)
+			table.db.txn.tnStores[0])
 		if err != nil {
 			return err
 		}
@@ -279,8 +277,7 @@ func (txn *Transaction) WriteFileLocked(
 	tableName string,
 	fileName string,
 	bat *batch.Batch,
-	tnStore DNStore,
-	objStats *objectio.ObjectStats) error {
+	tnStore DNStore) error {
 	txn.hasS3Op.Store(true)
 	newBat := bat
 	if typ == INSERT {
@@ -310,12 +307,6 @@ func (txn *Transaction) WriteFileLocked(
 		fileName:     fileName,
 		bat:          newBat,
 		tnStore:      tnStore,
-	}
-
-	// clone or not depends on the implementation of `DescribeObject`.
-	// we clone here, in case the underline reused this variable
-	if objStats != nil {
-		entry.objStats = objStats.Clone()
 	}
 
 	txn.writes = append(txn.writes, entry)
@@ -351,7 +342,7 @@ func (txn *Transaction) WriteFile(
 	defer txn.Unlock()
 	return txn.WriteFileLocked(
 		typ, databaseId, tableId,
-		databaseName, tableName, fileName, bat, tnStore, nil)
+		databaseName, tableName, fileName, bat, tnStore)
 }
 
 func (txn *Transaction) deleteBatch(bat *batch.Batch,
@@ -553,9 +544,7 @@ func (txn *Transaction) mergeCompactionLocked() error {
 				tbl.tableName,
 				createdBlks[0].MetaLocation().Name().String(),
 				bat,
-				tbl.db.txn.tnStores[0],
-				nil,
-			)
+				tbl.db.txn.tnStores[0])
 			if err != nil {
 				return err
 			}

@@ -35,7 +35,7 @@ type BlockWriter struct {
 	pk             uint16
 	nameStr        string
 	name           objectio.ObjectName
-	objStats       *objectio.ObjectStats
+	objStats       objectio.ObjectStats
 }
 
 func NewBlockWriter(fs fileservice.FileService, name string) (*BlockWriter, error) {
@@ -64,7 +64,7 @@ func NewBlockWriterNew(fs fileservice.FileService, name objectio.ObjectName, sch
 	}, nil
 }
 
-func (w *BlockWriter) GetObjStats() *objectio.ObjectStats {
+func (w *BlockWriter) GetObjStats() objectio.ObjectStats {
 	return w.objStats
 }
 

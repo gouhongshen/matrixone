@@ -59,7 +59,7 @@ type S3Writer struct {
 	lengths []uint64
 
 	blockInfoBat *batch.Batch
-	objStats     *objectio.ObjectStats
+	objStats     objectio.ObjectStats
 
 	// An intermediate cache after the merge sort of all `Bats` data
 	buffer *batch.Batch
@@ -108,7 +108,7 @@ func (w *S3Writer) Free(proc *process.Process) {
 	w.Bats = nil
 }
 
-func (w *S3Writer) GetObjectStats() *objectio.ObjectStats {
+func (w *S3Writer) GetObjectStats() objectio.ObjectStats {
 	return w.objStats
 }
 
