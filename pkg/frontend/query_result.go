@@ -117,7 +117,7 @@ func saveQueryResult(ses *Session, bat *batch.Batch) error {
 		Type: objectio.WriteTS,
 		Val:  ses.expiredTime,
 	}
-	_, err = writer.WriteEnd(ses.requestCtx, option)
+	_, _, err = writer.WriteEnd(ses.requestCtx, option)
 	if err != nil {
 		return err
 	}
@@ -195,7 +195,7 @@ func saveQueryResultMeta(ses *Session) error {
 		Type: objectio.WriteTS,
 		Val:  ses.expiredTime,
 	}
-	_, err = metaWriter.WriteEnd(ses.requestCtx, option)
+	_, _, err = metaWriter.WriteEnd(ses.requestCtx, option)
 	if err != nil {
 		return err
 	}

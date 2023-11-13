@@ -808,6 +808,11 @@ func (h *Handle) HandlePreCommitWrite(
 		case *api.Entry:
 			//Handle DML
 			pe := e.(*api.Entry)
+
+			if len(pe.ObjStatsBytes) != 0 {
+				fmt.Println("---------------- got obj stats")
+			}
+
 			moBat, err := batch.ProtoBatchToBatch(pe.GetBat())
 			if err != nil {
 				panic(err)

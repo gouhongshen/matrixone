@@ -924,7 +924,7 @@ func toPBEntry(e Entry) (*api.Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &api.Entry{
+	ae := &api.Entry{
 		Bat:          bat,
 		EntryType:    typ,
 		TableId:      e.tableId,
@@ -933,7 +933,13 @@ func toPBEntry(e Entry) (*api.Entry, error) {
 		DatabaseName: e.databaseName,
 		FileName:     e.fileName,
 		PkCheckByTn:  int32(e.pkChkByTN),
-	}, nil
+	}
+
+	if e.objStats != nil {
+		ae.ObjStatsBytes = e.objStats.Marshal()
+	}
+
+	return ae, nil
 }
 
 func toPBBatch(bat *batch.Batch) (*api.Batch, error) {

@@ -15,6 +15,7 @@
 package colexec
 
 import (
+	"fmt"
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
@@ -35,6 +36,8 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/options"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 	"go.uber.org/zap"
+	"runtime/debug"
+	"strings"
 )
 
 // S3Writer is used to write table data to S3 and package a series of `BlockWriter` write operations
@@ -56,6 +59,7 @@ type S3Writer struct {
 	lengths []uint64
 
 	blockInfoBat *batch.Batch
+	objStats     *objectio.ObjectStats
 
 	// An intermediate cache after the merge sort of all `Bats` data
 	buffer *batch.Batch
@@ -102,6 +106,10 @@ func (w *S3Writer) Free(proc *process.Process) {
 		bat.Clean(proc.Mp())
 	}
 	w.Bats = nil
+}
+
+func (w *S3Writer) GetObjectStats() *objectio.ObjectStats {
+	return w.objStats
 }
 
 func (w *S3Writer) GetBlockInfoBat() *batch.Batch {
@@ -663,12 +671,18 @@ func (w *S3Writer) writeEndBlocks(proc *process.Process) error {
 		}
 	}
 	w.blockInfoBat.SetRowCount(w.blockInfoBat.Vecs[0].Length())
+	w.objStats = w.writer.GetObjStats()
 	return nil
 }
 
 // WriteEndBlocks writes batches in buffer to fileservice(aka s3 in this feature) and get meta data about block on fileservice and put it into metaLocBat
 // For more information, please refer to the comment about func WriteEnd in Writer interface
 func (w *S3Writer) WriteEndBlocks(proc *process.Process) ([]catalog.BlockInfo, error) {
+
+	if strings.Contains(w.tablename, "hhh") {
+		fmt.Println(fmt.Sprintf("len(bat) = %d; ", w.Bats[0].RowCount()) + string(debug.Stack()))
+	}
+
 	blocks, _, err := w.writer.Sync(proc.Ctx)
 	logutil.Debugf("write s3 table %q: %v, %v", w.tablename, w.seqnums, w.attrs)
 	if err != nil {

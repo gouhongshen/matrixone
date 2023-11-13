@@ -45,7 +45,7 @@ type objectWriterV1 struct {
 	name              ObjectName
 	compressBuf       []byte
 	bloomFilter       []byte
-	pkColIdx          int
+	pkColIdx          uint16
 }
 
 type blockData struct {
@@ -115,11 +115,11 @@ func newObjectWriterV1(name ObjectName, fs fileservice.FileService, schemaVersio
 func (w *objectWriterV1) DescribeObject() (*ObjectStats, error) {
 	objStats := newObjectStats()
 	objStats.extent = Header(w.buffer.vector.Entries[0].Data).Extent()
-	objStats.blkCnt = len(w.blocks)
+	objStats.blkCnt = uint32(len(w.blocks))
 	objStats.name = w.name
 	objStats.sortKeyIdx = w.pkColIdx
 
-	if len(w.blocks[SchemaData]) != 0 && len(w.colmeta) > w.pkColIdx {
+	if len(w.blocks[SchemaData]) != 0 && len(w.colmeta) > int(w.pkColIdx) {
 		objStats.zoneMaps[SchemaData] = w.colmeta[w.pkColIdx].ZoneMap()
 	}
 
@@ -175,7 +175,7 @@ func (w *objectWriterV1) UpdateBlockZM(blkIdx int, seqnum uint16, zm ZoneMap) {
 
 func (w *objectWriterV1) WriteBF(blkIdx int, seqnum uint16, buf []byte) (err error) {
 	w.blocks[SchemaData][blkIdx].bloomFilter = buf
-	w.pkColIdx = int(seqnum)
+	w.pkColIdx = seqnum
 	return
 }
 
@@ -357,7 +357,7 @@ func (w *objectWriterV1) writerBlocks(blocks []blockData) {
 	}
 }
 
-func (w *objectWriterV1) WriteEnd(ctx context.Context, items ...WriteOptions) ([]BlockObject, error) {
+func (w *objectWriterV1) WriteEnd(ctx context.Context, items ...WriteOptions) ([]BlockObject, *ObjectStats, error) {
 	var err error
 	w.RLock()
 	defer w.RUnlock()
@@ -391,7 +391,7 @@ func (w *objectWriterV1) WriteEnd(ctx context.Context, items ...WriteOptions) ([
 		// prepare bloom filter
 		bloomFilterDatas[i], bloomFilterExtents[i], err = w.prepareBloomFilter(w.blocks[i], uint32(len(w.blocks[i])), offset)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		objectMetas[i].BlockHeader().SetBFExtent(bloomFilterExtents[i])
 		offset += bloomFilterExtents[i].Length()
@@ -399,7 +399,7 @@ func (w *objectWriterV1) WriteEnd(ctx context.Context, items ...WriteOptions) ([
 		// prepare zone map area
 		zoneMapAreaDatas[i], zoneMapAreaExtents[i], err = w.prepareZoneMapArea(w.blocks[i], uint32(len(w.blocks[i])), offset)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		objectMetas[i].BlockHeader().SetZoneMapArea(zoneMapAreaExtents[i])
 		offset += zoneMapAreaExtents[i].Length()
@@ -414,7 +414,7 @@ func (w *objectWriterV1) WriteEnd(ctx context.Context, items ...WriteOptions) ([
 		// prepare object meta and block index
 		metas[i], metaExtents[i], err = w.prepareDataMeta(objectMetas[i], w.blocks[i], offset, startID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if i == int(SchemaData) {
 			start = metaExtents[SchemaData].Offset()
@@ -467,7 +467,7 @@ func (w *objectWriterV1) WriteEnd(ctx context.Context, items ...WriteOptions) ([
 
 	w.buffer.Write(footer.Marshal())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	blockObjects := make([]BlockObject, 0)
 	for i := range w.blocks {
@@ -477,16 +477,16 @@ func (w *objectWriterV1) WriteEnd(ctx context.Context, items ...WriteOptions) ([
 			blockObjects = append(blockObjects, w.blocks[i][j].meta)
 		}
 	}
-	_, err = w.Sync(ctx, items...)
+	objStats, err := w.Sync(ctx, items...)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// The buffer needs to be released at the end of WriteEnd
 	// Because the outside may hold this writer
 	// After WriteEnd is called, no more data can be written
 	w.buffer = nil
-	return blockObjects, err
+	return blockObjects, objStats, err
 }
 
 // Sync is for testing

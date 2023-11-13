@@ -497,7 +497,7 @@ func (r *runner) saveCheckpoint(start, end types.TS, ckpLSN, truncateLSN uint64)
 	}
 
 	// TODO: checkpoint entry should maintain the location
-	_, err = writer.WriteEnd(r.ctx)
+	_, _, err = writer.WriteEnd(r.ctx)
 	return
 }
 

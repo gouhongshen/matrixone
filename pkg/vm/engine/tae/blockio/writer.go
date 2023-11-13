@@ -35,6 +35,7 @@ type BlockWriter struct {
 	pk             uint16
 	nameStr        string
 	name           objectio.ObjectName
+	objStats       *objectio.ObjectStats
 }
 
 func NewBlockWriter(fs fileservice.FileService, name string) (*BlockWriter, error) {
@@ -61,6 +62,10 @@ func NewBlockWriterNew(fs fileservice.FileService, name objectio.ObjectName, sch
 		nameStr: name.String(),
 		name:    name,
 	}, nil
+}
+
+func (w *BlockWriter) GetObjStats() *objectio.ObjectStats {
+	return w.objStats
 }
 
 func (w *BlockWriter) SetPrimaryKey(idx uint16) {
@@ -150,12 +155,14 @@ func (w *BlockWriter) Sync(ctx context.Context) ([]objectio.BlockObject, objecti
 		}
 		w.writer.WriteObjectMetaBF(buf)
 	}
-	blocks, err := w.writer.WriteEnd(ctx)
+	blocks, objStats, err := w.writer.WriteEnd(ctx)
 	if len(blocks) == 0 {
 		logutil.Debug("[WriteEnd]", common.OperationField(w.nameStr),
 			common.OperandField("[Size=0]"), common.OperandField(w.writer.GetSeqnums()))
 		return blocks, objectio.Extent{}, err
 	}
+
+	w.objStats = objStats
 
 	logutil.Debug("[WriteEnd]",
 		common.OperationField(w.String(blocks)),

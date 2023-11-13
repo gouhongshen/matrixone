@@ -15,7 +15,12 @@
 package objectio
 
 import (
+	"bytes"
+	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/index"
 )
 
 const Magic = 0xFFFFFFFF
@@ -49,10 +54,10 @@ type ObjectStats struct {
 	// 0: Data
 	// 1: Tombstone
 	zoneMaps   [2]ZoneMap
-	blkCnt     int
+	blkCnt     uint32
 	extent     Extent
 	name       ObjectName
-	sortKeyIdx int
+	sortKeyIdx uint16
 }
 
 func newObjectStats() *ObjectStats {
@@ -60,7 +65,70 @@ func newObjectStats() *ObjectStats {
 	return description
 }
 
-func (des *ObjectStats) GetSortKeyIdx() int {
+func (des *ObjectStats) Marshal() []byte {
+	var buf bytes.Buffer
+
+	// marshal zone map
+	for idx := 0; idx < len(des.zoneMaps); idx++ {
+		if len(des.zoneMaps[idx]) == 0 {
+			buf.Write(index.ZeroZM)
+		} else {
+			if data, err := des.zoneMaps[idx].Marshal(); err != nil {
+				logutil.Info("[object stats]: marshal zone map failed")
+				buf.Write(index.ZeroZM)
+			} else {
+				buf.Write(data)
+			}
+		}
+	}
+
+	buf.Write(types.EncodeUint32(&des.blkCnt))
+	buf.Write(des.extent)
+	buf.Write(des.name)
+	buf.Write(types.EncodeUint16(&des.sortKeyIdx))
+
+	return buf.Bytes()
+}
+
+func (des *ObjectStats) UnMarshal(data []byte) {
+	offset := 0
+	for idx := 0; idx < len(des.zoneMaps); idx++ {
+		if des.zoneMaps[idx] == nil {
+			des.zoneMaps[idx] = index.ZeroZM
+		}
+		des.zoneMaps[idx].Unmarshal(data[offset : offset+ZoneMapSize])
+		offset += ZoneMapSize
+	}
+
+	des.blkCnt = types.DecodeUint32(data[offset : offset+4])
+	offset += 4
+
+	des.extent = data[offset : offset+ExtentLen]
+	offset += ExtentLen
+
+	des.name = data[offset : offset+ObjectNameLen]
+	offset += ObjectNameLen
+
+	des.sortKeyIdx = types.DecodeUint16(data[offset : offset+2])
+}
+
+// Clone deep copies the stats and returns its pointer
+func (des *ObjectStats) Clone() *ObjectStats {
+	copied := newObjectStats()
+
+	copy(copied.name, des.name)
+	copy(copied.extent, des.extent)
+
+	copied.blkCnt = des.blkCnt
+	copied.sortKeyIdx = des.sortKeyIdx
+
+	copied.zoneMaps[SchemaData] = des.zoneMaps[SchemaData].Clone()
+	copied.zoneMaps[SchemaTombstone] = des.zoneMaps[SchemaTombstone].Clone()
+
+	return copied
+}
+
+func (des *ObjectStats) GetSortKeyIdx() uint16 {
 	return des.sortKeyIdx
 }
 
@@ -76,7 +144,7 @@ func (des *ObjectStats) GetObjLoc() Location {
 	return BuildLocation(des.name, des.extent, 0, 0)
 }
 
-func (des *ObjectStats) GetBlkCnt() int {
+func (des *ObjectStats) GetBlkCnt() uint32 {
 	return des.blkCnt
 }
 
@@ -84,6 +152,11 @@ func (des *ObjectStats) GetDataSortKeyZoneMap() ZoneMap {
 	return des.zoneMaps[SchemaData]
 }
 
-func (des *ObjectStats) GetTombstoneZoneSortKeyMap() ZoneMap {
+func (des *ObjectStats) GetTombstoneSortKeyZoneMap() ZoneMap {
 	return des.zoneMaps[SchemaTombstone]
+}
+
+func (des *ObjectStats) String() string {
+	return fmt.Sprintf("[object stats]: objName: %s; extent: %v; blkCnt: %d; zoneMaps: %v",
+		des.name.String(), des.extent.String(), des.blkCnt, des.zoneMaps)
 }
