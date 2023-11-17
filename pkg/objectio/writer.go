@@ -114,6 +114,9 @@ func newObjectWriterV1(name ObjectName, fs fileservice.FileService, schemaVersio
 }
 
 func describeObjectHelper(w *objectWriterV1, colmeta []ColumnMeta, idx DataMetaType) ObjectStats {
+	if w == nil {
+		return ZeroObjectStats
+	}
 	ss := NewObjectStats()
 	SetObjectStatsObjectName(ss, w.name)
 	SetObjectStatsExtent(ss, Header(w.buffer.vector.Entries[0].Data).Extent())
@@ -149,6 +152,10 @@ func (w *objectWriterV1) DescribeObject() ([]ObjectStats, error) {
 	}
 
 	return stats, nil
+}
+
+func (w *objectWriterV1) GetObjectStats() []ObjectStats {
+	return w.objStats
 }
 
 func (w *objectWriterV1) GetSeqnums() []uint16 {

@@ -66,7 +66,10 @@ func (p *PartitionReader) prepare() error {
 				if entry.bat == nil || entry.bat.IsEmpty() {
 					continue
 				}
-				if entry.bat.Attrs[0] == catalog.BlockMeta_MetaLoc {
+				//if entry.bat.Attrs[0] == catalog.BlockMeta_MetaLoc {
+				//	continue
+				//}
+				if entry.bat.Attrs[0] == catalog.ObjectMeta_ObjectStats {
 					continue
 				}
 				inserts = append(inserts, entry.bat)

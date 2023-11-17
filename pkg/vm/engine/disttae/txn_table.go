@@ -1378,7 +1378,7 @@ func (tbl *txnTable) EnhanceDelete(bat *batch.Batch, name string) error {
 
 // TODO:: do prefetch read and parallel compaction
 func (tbl *txnTable) mergeCompaction(
-	compactedBlks map[catalog.BlockInfo][]int64) ([]catalog.BlockInfo, error) {
+	compactedBlks map[catalog.BlockInfo][]int64) ([]objectio.ObjectStats, error) {
 	s3writer := &colexec.S3Writer{}
 	s3writer.SetTableName(tbl.tableName)
 	s3writer.SetSchemaVer(tbl.version)
@@ -1420,11 +1420,11 @@ func (tbl *txnTable) mergeCompaction(
 		bat.Clean(tbl.db.txn.proc.GetMPool())
 
 	}
-	createdBlks, err := s3writer.WriteEndBlocks(tbl.db.txn.proc)
+	_, err = s3writer.WriteEndBlocks(tbl.db.txn.proc)
 	if err != nil {
 		return nil, err
 	}
-	return createdBlks, nil
+	return s3writer.GetObjectStats(), nil
 }
 
 func (tbl *txnTable) Delete(ctx context.Context, bat *batch.Batch, name string) error {

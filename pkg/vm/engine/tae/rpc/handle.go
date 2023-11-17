@@ -822,14 +822,20 @@ func (h *Handle) HandlePreCommitWrite(
 				Batch:        moBat,
 				PkCheck:      db.PKCheckType(pe.GetPkCheckByTn()),
 			}
-			if req.FileName != "" {
+			// delete or insert
+			if req.FileName != "" || req.Batch.Attrs[0] == catalog.ObjectMeta_ObjectStats {
+				//if req.FileName != "" {
 				rows := catalog.GenRows(req.Batch)
-				for _, row := range rows {
+				for idx, row := range rows {
 					if req.Type == db.EntryInsert {
 						//req.Blks[i] = row[catalog.BLOCKMETA_ID_ON_FS_IDX].(uint64)
 						//req.MetaLocs[i] = string(row[catalog.BLOCKMETA_METALOC_ON_FS_IDX].([]byte))
-						req.MetaLocs = append(req.MetaLocs,
-							string(row[0].([]byte)))
+						stats := objectio.ObjectStats(req.Batch.Vecs[0].GetBytesAt(idx))
+						if !stats.IsZero() {
+							req.MetaLocs = append(req.MetaLocs,
+								string(stats.ObjectLocation().String()))
+						}
+
 					} else {
 						//req.DeltaLocs[i] = string(row[0].([]byte))
 						req.DeltaLocs = append(req.DeltaLocs,
@@ -1021,7 +1027,8 @@ func (h *Handle) HandleWrite(
 
 	if req.Type == db.EntryInsert {
 		//Add blocks which had been bulk-loaded into S3 into table.
-		if req.FileName != "" {
+		if req.Batch.Attrs[0] == catalog.ObjectMeta_ObjectStats {
+			//if req.FileName != "" {
 			locations := make([]objectio.Location, 0)
 			for _, metLoc := range req.MetaLocs {
 				location, err := blockio.EncodeLocationFromString(metLoc)

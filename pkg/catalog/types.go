@@ -195,6 +195,9 @@ const (
 	BlockMeta_Type            = "%!%mo__meta_type"
 	BlockMeta_Deletes_Length  = "%!%mo__meta_deletes_length"
 	BlockMeta_Partition       = "%!%mo__meta_partition"
+
+	ObjectMeta_ObjectStats = "object_stats"
+
 	// BlockMetaOffset_Min       = "%!%mo__meta_offset_min"
 	// BlockMetaOffset_Max       = "%!%mo__meta_offset_max"
 	BlockMetaOffset    = "%!%mo__meta_offset"
@@ -369,6 +372,24 @@ type BlockInfo struct {
 	//this block can be distributed to remote nodes.
 	CanRemote    bool
 	PartitionNum int
+}
+
+// UnFoldBlksFromObjStats constructs block info from object stats,
+// and these block info only contain block id
+func UnFoldBlksFromObjStats(stats *objectio.ObjectStats) (blks []BlockInfo) {
+	if stats.IsZero() {
+		return blks
+	}
+
+	blkCnt := stats.BlkCnt()
+	blks = make([]BlockInfo, blkCnt)
+	for idx := uint32(0); idx < blkCnt; idx++ {
+		blks[idx] = BlockInfo{
+			BlockID: *objectio.BuildObjectBlockid(stats.ObjectName(), uint16(idx)),
+		}
+	}
+
+	return blks
 }
 
 func (b *BlockInfo) MetaLocation() objectio.Location {

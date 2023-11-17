@@ -16,12 +16,12 @@ package insert
 
 import (
 	"bytes"
+	"github.com/matrixorigin/matrixone/pkg/catalog"
+	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"sync/atomic"
 	"time"
 
-	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
-	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec"
 	"github.com/matrixorigin/matrixone/pkg/vm"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
@@ -217,14 +217,31 @@ func (arg *Argument) insert_table(proc *process.Process) (vm.CallResult, error) 
 
 // Collect all partition subtables' s3writers  metaLoc information and output it
 func collectAndOutput(proc *process.Process, s3Writers []*colexec.S3Writer, result *vm.CallResult) (err error) {
-	attrs := []string{catalog.BlockMeta_TableIdx_Insert, catalog.BlockMeta_BlockInfo}
+	//attrs := []string{catalog.BlockMeta_TableIdx_Insert, catalog.BlockMeta_BlockInfo}
+	//res := batch.NewWithSize(len(attrs))
+	//res.SetAttributes(attrs)
+	//res.Vecs[0] = proc.GetVector(types.T_int16.ToType())
+	//res.Vecs[1] = proc.GetVector(types.T_text.ToType())
+	//for _, w := range s3Writers {
+	//	//deep copy.
+	//	bat := w.GetBlockInfoBat()
+	//	res, err = res.Append(proc.Ctx, proc.GetMPool(), bat)
+	//	if err != nil {
+	//		return
+	//	}
+	//	res.SetRowCount(res.RowCount() + bat.RowCount())
+	//	w.ResetBlockInfoBat(proc)
+	//}
+	//result.Batch = res
+
+	attrs := []string{catalog.BlockMeta_TableIdx_Insert, catalog.ObjectMeta_ObjectStats}
 	res := batch.NewWithSize(len(attrs))
 	res.SetAttributes(attrs)
 	res.Vecs[0] = proc.GetVector(types.T_int16.ToType())
 	res.Vecs[1] = proc.GetVector(types.T_text.ToType())
 	for _, w := range s3Writers {
 		//deep copy.
-		bat := w.GetBlockInfoBat()
+		bat := w.GetObjectStatsBat()
 		res, err = res.Append(proc.Ctx, proc.GetMPool(), bat)
 		if err != nil {
 			return

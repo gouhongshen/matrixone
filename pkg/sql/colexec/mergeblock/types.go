@@ -14,10 +14,10 @@
 package mergeblock
 
 import (
-	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
+	"github.com/matrixorigin/matrixone/pkg/objectio"
 	"github.com/matrixorigin/matrixone/pkg/vm"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
@@ -81,19 +81,43 @@ func (arg *Argument) GetMetaLocBat(name string, proc *process.Process) {
 }
 
 func (arg *Argument) Split(proc *process.Process, bat *batch.Batch) error {
+	//arg.GetMetaLocBat(bat.Attrs[1], proc)
+	//tblIdx := vector.MustFixedCol[int16](bat.GetVector(0))
+	//blockInfos := vector.MustBytesCol(bat.GetVector(1))
+	//for i := range tblIdx {
+	//	if tblIdx[i] >= 0 {
+	//		blkInfo := catalog.DecodeBlockInfo(blockInfos[i])
+	//		arg.affectedRows += uint64(blkInfo.MetaLocation().Rows())
+	//		vector.AppendBytes(arg.container.mp[int(tblIdx[i])].Vecs[0],
+	//			blockInfos[i], false, proc.GetMPool())
+	//	} else {
+	//		idx := int(-(tblIdx[i] + 1))
+	//		newBat := &batch.Batch{}
+	//		if err := newBat.UnmarshalBinary(blockInfos[i]); err != nil {
+	//			return err
+	//		}
+	//		newBat.Cnt = 1
+	//		arg.affectedRows += uint64(newBat.RowCount())
+	//		arg.container.mp2[idx] = append(arg.container.mp2[idx], newBat)
+	//	}
+	//}
+	//for _, b := range arg.container.mp {
+	//	b.SetRowCount(b.Vecs[0].Length())
+	//}
+
 	arg.GetMetaLocBat(bat.Attrs[1], proc)
 	tblIdx := vector.MustFixedCol[int16](bat.GetVector(0))
-	blockInfos := vector.MustBytesCol(bat.GetVector(1))
+	statsBytes := vector.MustBytesCol(bat.GetVector(1))
 	for i := range tblIdx {
 		if tblIdx[i] >= 0 {
-			blkInfo := catalog.DecodeBlockInfo(blockInfos[i])
-			arg.affectedRows += uint64(blkInfo.MetaLocation().Rows())
+			stats := objectio.ObjectStats(statsBytes[i])
+			arg.affectedRows += uint64(stats.Rows())
 			vector.AppendBytes(arg.container.mp[int(tblIdx[i])].Vecs[0],
-				blockInfos[i], false, proc.GetMPool())
+				statsBytes[i], false, proc.GetMPool())
 		} else {
 			idx := int(-(tblIdx[i] + 1))
 			newBat := &batch.Batch{}
-			if err := newBat.UnmarshalBinary(blockInfos[i]); err != nil {
+			if err := newBat.UnmarshalBinary(statsBytes[i]); err != nil {
 				return err
 			}
 			newBat.Cnt = 1
