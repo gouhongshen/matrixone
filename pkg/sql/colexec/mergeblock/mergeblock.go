@@ -48,6 +48,12 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		result.Batch = batch.EmptyBatch
 		return result, nil
 	}
+
+	if ap.Tbl.GetTableName() == "hhh" {
+		x := 0
+		x++
+	}
+
 	bat := result.Batch
 	if err := ap.Split(proc, bat); err != nil {
 		return result, err

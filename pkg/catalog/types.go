@@ -397,10 +397,14 @@ func UnfoldBlkInfoFromObjStats(stats objectio.ObjectStats) (blks []BlockInfo) {
 		return blks
 	}
 
+	name := stats.ObjectName()
 	blkCnt := uint16(stats.BlkCnt())
+
 	for idx := uint16(0); idx < blkCnt; idx++ {
 		blks = append(blks, BlockInfo{
-			BlockID: *objectio.BuildObjectBlockid(stats.ObjectName(), idx),
+			BlockID:   *objectio.BuildObjectBlockid(name, idx),
+			MetaLoc:   ObjectLocation(stats.ObjectLocation()),
+			SegmentID: name.SegmentId(),
 		})
 	}
 

@@ -601,6 +601,7 @@ func (txn *Transaction) getInsertedBlocksForTable(
 	defer txn.Unlock()
 
 	var stats objectio.ObjectStats
+	//var testBlks []catalog.BlockInfo
 
 	for _, entry := range txn.writes {
 		if entry.databaseId != databaseId ||
@@ -637,6 +638,26 @@ func (txn *Transaction) getInsertedBlocksForTable(
 		//}
 
 	}
+
+	//for idx := range blks {
+	//	//tt, _ := testBlks[idx].Marshal()
+	//	//ss, _ := blks[idx].Marshal()
+	//	//if bytes.Equal(tt, ss) {
+	//	//	if test
+	//	//}
+	//	if testBlks[idx].BlockID != blks[idx].BlockID {
+	//		fmt.Println("-------------- block id not equal")
+	//	} else if testBlks[idx].SegmentID != blks[idx].SegmentID {
+	//		fmt.Println("-------------- segment id not equal")
+	//	} else if testBlks[idx].MetaLoc != blks[idx].MetaLoc {
+	//		fmt.Println("-------------- metaloc not equal")
+	//	} else if testBlks[idx].CommitTs != blks[idx].CommitTs {
+	//		fmt.Println("-------------- commit ts not equal")
+	//	} else if testBlks[idx].PartitionNum != blks[idx].PartitionNum {
+	//		fmt.Println("-------------- partition num not equal")
+	//	}
+	//}
+
 	return blks, nil
 
 }
