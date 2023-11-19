@@ -645,6 +645,9 @@ func (txn *Transaction) getInsertedBlocksForTable(
 	//	//if bytes.Equal(tt, ss) {
 	//	//	if test
 	//	//}
+	//	fmt.Println("--------------- ", testBlks[idx].MetaLoc)
+	//	fmt.Println("--------------- ", blks[idx].MetaLoc)
+	//
 	//	if testBlks[idx].BlockID != blks[idx].BlockID {
 	//		fmt.Println("-------------- block id not equal")
 	//	} else if testBlks[idx].SegmentID != blks[idx].SegmentID {
