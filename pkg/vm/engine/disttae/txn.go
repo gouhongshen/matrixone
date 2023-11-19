@@ -16,7 +16,6 @@ package disttae
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"strings"
 	"time"
@@ -31,7 +30,6 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/cache"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/blockio"
 )
 
 //func (txn *Transaction) getObjInfos(
@@ -601,6 +599,9 @@ func (txn *Transaction) getInsertedBlocksForTable(
 	tableId uint64) (blks []catalog.BlockInfo, err error) {
 	txn.Lock()
 	defer txn.Unlock()
+
+	var stats objectio.ObjectStats
+
 	for _, entry := range txn.writes {
 		if entry.databaseId != databaseId ||
 			entry.tableId != tableId {
@@ -613,23 +614,27 @@ func (txn *Transaction) getInsertedBlocksForTable(
 			entry.bat.Attrs[0] != catalog.BlockMeta_MetaLoc {
 			continue
 		}
-		metaLocs := vector.MustStrCol(entry.bat.Vecs[0])
-		for _, metaLoc := range metaLocs {
-			location, err := blockio.EncodeLocationFromString(metaLoc)
-			if err != nil {
-				return nil, err
-			}
-			sid := location.Name().SegmentId()
-			blkid := objectio.NewBlockid(
-				&sid,
-				location.Name().Num(),
-				location.ID())
-			pos, ok := txn.cnBlkId_Pos[*blkid]
-			if !ok {
-				panic(fmt.Sprintf("blkid %s not found", blkid.String()))
-			}
-			blks = append(blks, pos.blkInfo)
-		}
+
+		stats.UnMarshal(entry.bat.Vecs[1].GetBytesAt(0))
+		blks = append(blks, catalog.UnfoldBlkInfoFromObjStats(stats)...)
+
+		//metaLocs := vector.MustStrCol(entry.bat.Vecs[0])
+		//for _, metaLoc := range metaLocs {
+		//	location, err := blockio.EncodeLocationFromString(metaLoc)
+		//	if err != nil {
+		//		return nil, err
+		//	}
+		//	sid := location.Name().SegmentId()
+		//	blkid := objectio.NewBlockid(
+		//		&sid,
+		//		location.Name().Num(),
+		//		location.ID())
+		//	pos, ok := txn.cnBlkId_Pos[*blkid]
+		//	if !ok {
+		//		panic(fmt.Sprintf("blkid %s not found", blkid.String()))
+		//	}
+		//	blks = append(blks, pos.blkInfo)
+		//}
 
 	}
 	return blks, nil

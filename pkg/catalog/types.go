@@ -390,6 +390,23 @@ func (b *BlockInfo) SetDeltaLocation(deltaLoc objectio.Location) {
 	b.DeltaLoc = *(*[objectio.LocationLen]byte)(unsafe.Pointer(&deltaLoc[0]))
 }
 
+// UnfoldBlkInfoFromObjStats constructs a block info list from the given object stats.
+// for now, the constructed block info only contains valid block id.
+func UnfoldBlkInfoFromObjStats(stats objectio.ObjectStats) (blks []BlockInfo) {
+	if stats.IsZero() {
+		return blks
+	}
+
+	blkCnt := uint16(stats.BlkCnt())
+	for idx := uint16(0); idx < blkCnt; idx++ {
+		blks = append(blks, BlockInfo{
+			BlockID: *objectio.BuildObjectBlockid(stats.ObjectName(), idx),
+		})
+	}
+
+	return blks
+}
+
 // XXX info is passed in by value.   The use of unsafe here will cost
 // an allocation and copy.  BlockInfo is not small therefore this is
 // not exactly cheap.   However, caller of this function will keep a
