@@ -346,7 +346,7 @@ func (p *PartitionState) HandleLogtailEntry(
 		if IsBlkTable(entry.TableName) {
 			p.HandleMetadataInsert(ctx, fs, entry.Bat)
 		} else if IsSegTable(entry.TableName) {
-			p.HandleObjectInsert(entry.Bat)
+			p.HandleSegInsert(entry.Bat)
 		} else {
 			p.HandleRowsInsert(ctx, entry.Bat, primarySeqnum, packer)
 		}
@@ -354,7 +354,7 @@ func (p *PartitionState) HandleLogtailEntry(
 		if IsBlkTable(entry.TableName) {
 			p.HandleMetadataDelete(ctx, entry.Bat)
 		} else if IsSegTable(entry.TableName) {
-			// TODO p.HandleSegDelete(ctx, entry.Bat)
+			p.HandleSegDelete(entry.Bat)
 		} else {
 			p.HandleRowsDelete(ctx, entry.Bat, packer)
 		}
@@ -392,7 +392,7 @@ type ObjectInfo struct {
 }
 */
 
-func (p *PartitionState) HandleObjectInsert(bat *api.Batch) {
+func (p *PartitionState) HandleSegInsert(bat *api.Batch) {
 	statsCol := vector.MustBytesCol(mustVectorFromProto(bat.Vecs[2]))
 	stateCol := vector.MustFixedCol[bool](mustVectorFromProto(bat.Vecs[3]))
 	createTSCol := vector.MustFixedCol[types.TS](mustVectorFromProto(bat.Vecs[6]))
@@ -419,6 +419,38 @@ func (p *PartitionState) HandleObjectInsert(bat *api.Batch) {
 			IsAppendable: objEntry.EntryState,
 		}
 		p.objectIndexByTS.Set(e)
+	}
+}
+
+func (p *PartitionState) HandleSegDelete(bat *api.Batch) {
+	statsCol := vector.MustBytesCol(mustVectorFromProto(bat.Vecs[2]))
+	createTSCol := vector.MustFixedCol[types.TS](mustVectorFromProto(bat.Vecs[6]))
+
+	for idx := 0; idx < len(statsCol); idx++ {
+		var objEntry ObjectEntry
+
+		objEntry.ObjectStats = objectio.ObjectStats(statsCol[idx])
+
+		if val, ok := p.dataObjects.Get(objEntry); !ok {
+			logutil.Error("delete a non-existent object entry")
+		} else {
+			isDelete := true
+			if val.DeleteTime.IsEmpty() {
+				isDelete = true
+			}
+
+			e := ObjectIndexByTSEntry{
+				Time:         createTSCol[idx],
+				ShortObjName: *objEntry.ObjectShortName(),
+				IsDelete:     isDelete,
+
+				IsAppendable: objEntry.EntryState,
+			}
+
+			p.dataObjects.Delete(objEntry)
+			p.dataObjectsByCreateTS.Delete(ObjectIndexByCreateTSEntry(objEntry))
+			p.objectIndexByTS.Delete(e)
+		}
 	}
 }
 
