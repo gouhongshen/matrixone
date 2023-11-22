@@ -346,7 +346,7 @@ func (p *PartitionState) HandleLogtailEntry(
 		if IsBlkTable(entry.TableName) {
 			p.HandleMetadataInsert(ctx, fs, entry.Bat)
 		} else if IsSegTable(entry.TableName) {
-			p.HandleSegInsert(entry.Bat)
+			p.HandleObjectInsert(entry.Bat)
 		} else {
 			p.HandleRowsInsert(ctx, entry.Bat, primarySeqnum, packer)
 		}
@@ -365,14 +365,60 @@ func (p *PartitionState) HandleLogtailEntry(
 
 var nextRowEntryID = int64(1)
 
-func (p *PartitionState) HandleSegInsert(bat *api.Batch) {
-	if bat.Attrs[0] == catalog.ObjectMeta_ObjectStats {
+/*
+entry.EntryType=api.Entry_Insert, entry.TableName="_{tid}_seg",schema:
+	ObjectInfoAttr = []string{
+		ObjectAttr_ObjectStats,
+		ObjectAttr_State, // entry_state, true for appendable
+		SnapshotAttr_DBID,
+		SnapshotAttr_TID,
+		EntryNode_CreateAt,
+		EntryNode_DeleteAt,
+		txnbase.SnapshotAttr_StartTS,
+		txnbase.SnapshotAttr_PrepareTS,
+		txnbase.SnapshotAttr_CommitTS,
+}
+
+
+type ObjectInfo struct {
+	objectio.ObjectStats
+
+	EntryState  bool
+	Sorted      bool
+	HasDeltaLoc bool
+	CommitTS    types.TS
+	CreateTime  types.TS
+	DeleteTime  types.TS
+}
+*/
+
+func (p *PartitionState) HandleObjectInsert(bat *api.Batch) {
+	statsCol := vector.MustBytesCol(mustVectorFromProto(bat.Vecs[2]))
+	stateCol := vector.MustFixedCol[bool](mustVectorFromProto(bat.Vecs[3]))
+	createTSCol := vector.MustFixedCol[types.TS](mustVectorFromProto(bat.Vecs[6]))
+	deleteTSCol := vector.MustFixedCol[types.TS](mustVectorFromProto(bat.Vecs[7]))
+	commitTSCol := vector.MustFixedCol[types.TS](mustVectorFromProto(bat.Vecs[10]))
+
+	for idx := 0; idx < len(statsCol); idx++ {
 		var objEntry ObjectEntry
-		srcVec := mustVectorFromProto(bat.Vecs[0])
-		for idx := 0; idx < srcVec.Length(); idx++ {
-			objEntry.ObjectStats = objectio.ObjectStats(srcVec.GetBytesAt(idx))
-			p.dataObjects.Set(objEntry)
+
+		objEntry.ObjectStats = objectio.ObjectStats(statsCol[idx])
+		objEntry.EntryState = stateCol[idx]
+		objEntry.CreateTime = createTSCol[idx]
+		objEntry.DeleteTime = deleteTSCol[idx]
+		objEntry.CommitTS = commitTSCol[idx]
+
+		p.dataObjects.Set(objEntry)
+		p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
+
+		e := ObjectIndexByTSEntry{
+			Time:         createTSCol[idx],
+			ShortObjName: *objEntry.ObjectShortName(),
+			IsDelete:     false,
+
+			IsAppendable: objEntry.EntryState,
 		}
+		p.objectIndexByTS.Set(e)
 	}
 }
 
