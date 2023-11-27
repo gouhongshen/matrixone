@@ -1018,6 +1018,15 @@ func (h *Handle) HandleWrite(
 	if req.Type == db.EntryInsert {
 		//Add blocks which had been bulk-loaded into S3 into table.
 		if req.FileName != "" {
+			if len(req.Batch.Attrs) == 2 && req.Batch.Attrs[1] == catalog.ObjectMeta_ObjectStats {
+				for idx := 0; idx < req.Batch.Vecs[1].Length(); idx++ {
+					stats := objectio.ObjectStats(req.Batch.Vecs[1].GetBytesAt(idx))
+					if stats.IsZero() || stats.BlkCnt() == 0 || stats.Rows() == 0 {
+						panic(fmt.Sprintf("stats from cn is zero: %s", stats.String()))
+					}
+				}
+			}
+
 			locations := make([]objectio.Location, 0)
 			for _, metLoc := range req.MetaLocs {
 				location, err := blockio.EncodeLocationFromString(metLoc)
