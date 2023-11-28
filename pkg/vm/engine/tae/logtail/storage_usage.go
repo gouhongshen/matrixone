@@ -30,6 +30,34 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
 )
 
+type StorageUsageCache struct {
+	// when two requests happens within [firstRequest, firstRequest + lazyThreshold],
+	// it will reuse the cached result, no new query to TN.
+	lazyThreshold time.Duration
+	// the first request time after an update
+	firstRequest time.Time
+	// accId -> dbId -> [tblId, size]
+	data map[uint32]map[uint64][2]uint64
+}
+
+type StorageUsageCacheOption = func(c *StorageUsageCache)
+
+// WithLazyThreshold sets lazyThreshold to lazy seconds
+func WithLazyThreshold(lazy int) StorageUsageCacheOption {
+	return StorageUsageCacheOption(func(c *StorageUsageCache) {
+		c.lazyThreshold = time.Second * time.Duration(lazy)
+	})
+}
+
+func NewStorageUsageCache(opts ...StorageUsageCacheOption) *StorageUsageCache {
+	cache := new(StorageUsageCache)
+	cache.data = make(map[uint32]map[uint64][2]uint64)
+	for _, opt := range opts {
+		opt(cache)
+	}
+	return cache
+}
+
 type CkpLocVers struct {
 	Version  uint32
 	Location []byte
