@@ -170,6 +170,7 @@ func init() {
 		StorageUsageSchema, // 25
 		ObjectInfoSchema,
 		ObjectInfoSchema,
+		StorageUsageSchema,
 	}
 	checkpointDataSchemas_V2 = [MaxIDX]*catalog.Schema{
 		MetaSchema_V1,
@@ -200,6 +201,7 @@ func init() {
 		StorageUsageSchema, // 25
 		ObjectInfoSchema,
 		ObjectInfoSchema,
+		StorageUsageSchema,
 	}
 	checkpointDataSchemas_V3 = [MaxIDX]*catalog.Schema{
 		MetaSchema_V1,
@@ -230,6 +232,7 @@ func init() {
 		StorageUsageSchema, // 25
 		ObjectInfoSchema,
 		ObjectInfoSchema,
+		StorageUsageSchema,
 	}
 	checkpointDataSchemas_V4 = [MaxIDX]*catalog.Schema{
 		MetaSchema_V1,
@@ -260,6 +263,7 @@ func init() {
 		StorageUsageSchema, // 25
 		ObjectInfoSchema,
 		ObjectInfoSchema,
+		StorageUsageSchema,
 	}
 	checkpointDataSchemas_V5 = [MaxIDX]*catalog.Schema{
 		MetaSchema,
@@ -290,6 +294,7 @@ func init() {
 		StorageUsageSchema, // 25
 		ObjectInfoSchema,
 		ObjectInfoSchema,
+		StorageUsageSchema,
 	}
 
 	checkpointDataSchemas_V6 = [MaxIDX]*catalog.Schema{
@@ -321,6 +326,7 @@ func init() {
 		StorageUsageSchema, // 25
 		ObjectInfoSchema,
 		ObjectInfoSchema,
+		StorageUsageSchema,
 	}
 	// Checkpoint V7, V8 update checkpoint metadata
 	checkpointDataSchemas_V7 = checkpointDataSchemas_V6
@@ -358,6 +364,39 @@ func init() {
 		StorageUsageSchema, // 25
 		ObjectInfoSchema,
 		ObjectInfoSchema,
+		StorageUsageSchema,
+	}
+
+	checkpointDataSchemas_V10 = [MaxIDX]*catalog.Schema{
+		MetaSchema,
+		catalog.SystemDBSchema,
+		TxnNodeSchema,
+		DBDelSchema, // 3
+		DBTNSchema,
+		catalog.SystemTableSchema,
+		TblTNSchema,
+		TblDelSchema, // 7
+		TblTNSchema,
+		catalog.SystemColumnSchema,
+		ColumnDelSchema,
+		SegSchema, // 11
+		SegTNSchema,
+		DelSchema,
+		SegTNSchema,
+		BlkMetaSchema, // 15
+		BlkTNSchema,
+		DelSchema,
+		BlkTNSchema,
+		BlkMetaSchema, // 19
+		BlkTNSchema,
+		DelSchema,
+		BlkTNSchema,
+		BlkMetaSchema, // 23
+		TNMetaSchema,
+		StorageUsageSchema, // 25
+		ObjectInfoSchema,
+		ObjectInfoSchema,
+		StorageUsageSchema,
 	}
 
 	checkpointDataReferVersions = make(map[uint32][MaxIDX]*checkpointDataItem)
@@ -387,8 +426,7 @@ func registerCheckpointDataReferVersion(version uint32, schemas []*catalog.Schem
 	checkpointDataReferVersions[version] = checkpointDataRefer
 }
 
-func IncrementalCheckpointDataFactory(start, end types.TS,
-	fs fileservice.FileService, collectUsage bool) func(c *catalog.Catalog) (*CheckpointData, error) {
+func IncrementalCheckpointDataFactory(start, end types.TS, collectUsage bool) func(c *catalog.Catalog) (*CheckpointData, error) {
 	return func(c *catalog.Catalog) (data *CheckpointData, err error) {
 		collector := NewIncrementalCollector(start, end)
 		defer collector.Close()
@@ -403,7 +441,7 @@ func IncrementalCheckpointDataFactory(start, end types.TS,
 
 		if collectUsage {
 			// collecting usage happens only when do ckp
-			FillUsageBatOfIncremental(c, collector, fs)
+			FillUsageBatOfIncremental_(c, collector)
 		}
 
 		data = collector.OrphanData()
@@ -426,10 +464,7 @@ func BackupCheckpointDataFactory(start, end types.TS) func(c *catalog.Catalog) (
 
 func GlobalCheckpointDataFactory(
 	end types.TS,
-	versionInterval time.Duration,
-	fs fileservice.FileService,
-	ckpMetas []*CkpLocVers,
-) func(c *catalog.Catalog) (*CheckpointData, error) {
+	versionInterval time.Duration) func(c *catalog.Catalog) (*CheckpointData, error) {
 	return func(c *catalog.Catalog) (data *CheckpointData, err error) {
 		collector := NewGlobalCollector(end, versionInterval)
 		defer collector.Close()
@@ -443,7 +478,7 @@ func GlobalCheckpointDataFactory(
 		}
 		err = collector.PostLoop(c)
 
-		FillUsageBatOfGlobal(c, collector, fs, ckpMetas)
+		FillUsageBatOfGlobal_(c, collector)
 
 		data = collector.OrphanData()
 
@@ -691,7 +726,8 @@ type GlobalCollector struct {
 	// [2]. if a table has been deleted, should record its id
 	// [1]. if a db has been deleted, should record its id
 	// [0]. account's placeholder
-	deletes [UsageMAX]map[interface{}]struct{}
+	deletes  [UsageMAX]map[interface{}]struct{}
+	deletes_ []interface{}
 }
 
 // GetDeletes only for test
@@ -2570,6 +2606,7 @@ func (collector *GlobalCollector) isEntryDeletedBeforeThreshold(entry catalog.Ba
 func (collector *GlobalCollector) VisitDB(entry *catalog.DBEntry) error {
 	if collector.isEntryDeletedBeforeThreshold(entry.BaseEntryImpl) {
 		collector.deletes[UsageDBID][entry.GetID()] = struct{}{}
+		collector.deletes_ = append(collector.deletes_, entry)
 		return nil
 	}
 	return collector.BaseCollector.VisitDB(entry)
@@ -2687,6 +2724,7 @@ func (collector *BaseCollector) VisitTable(entry *catalog.TableEntry) (err error
 func (collector *GlobalCollector) VisitTable(entry *catalog.TableEntry) error {
 	if collector.isEntryDeletedBeforeThreshold(entry.BaseEntryImpl) {
 		collector.deletes[UsageTblID][entry.GetID()] = struct{}{}
+		collector.deletes_ = append(collector.deletes_, entry)
 		return nil
 	}
 	if collector.isEntryDeletedBeforeThreshold(entry.GetDB().BaseEntryImpl) {
@@ -2843,6 +2881,7 @@ func (collector *BaseCollector) VisitSeg(entry *catalog.SegmentEntry) (err error
 func (collector *GlobalCollector) VisitSeg(entry *catalog.SegmentEntry) error {
 	if collector.isEntryDeletedBeforeThreshold(entry.BaseEntryImpl) {
 		collector.deletes[UsageObjID][entry.ID] = struct{}{}
+		collector.deletes_ = append(collector.deletes_, entry)
 		return nil
 	}
 	if collector.isEntryDeletedBeforeThreshold(entry.GetTable().BaseEntryImpl) {
