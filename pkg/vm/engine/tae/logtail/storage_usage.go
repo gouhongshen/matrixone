@@ -19,16 +19,6 @@ type CkpLocVers struct {
 	Location []byte
 }
 
-const (
-	UsageAccID uint8 = iota
-	UsageDBID
-	UsageTblID
-	UsageObjID
-	UsageSize
-
-	UsageMAX
-)
-
 //type UsageData = [UsageMAX]interface{}
 //
 //// the returned order:
