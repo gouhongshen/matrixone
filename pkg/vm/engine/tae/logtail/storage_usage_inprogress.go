@@ -27,14 +27,22 @@ import (
 )
 
 type UsageData_ struct {
-	accId uint32
-	dbId  uint64
-	tblId uint64
-	size  int64
+	AccId uint32
+	DbId  uint64
+	TblId uint64
+	Size  int64
 }
 
 func usageLess(a UsageData_, b UsageData_) bool {
-	return a.accId < b.accId && a.dbId < b.dbId && a.tblId < b.tblId
+	if a.AccId < b.AccId {
+		return true
+	}
+
+	if a.DbId < b.DbId {
+		return true
+	}
+
+	return a.TblId < b.TblId
 }
 
 type StorageUsageCache struct {
@@ -91,6 +99,10 @@ func NewTNUsageMemo() *TNUsageMemo {
 
 var tnUsageMemo = NewTNUsageMemo()
 
+func GetTNUsageMemo() *TNUsageMemo {
+	return tnUsageMemo
+}
+
 func (m *TNUsageMemo) EnterProcessing() {
 	m.Lock()
 }
@@ -102,16 +114,118 @@ func (m *TNUsageMemo) LeaveProcessing() {
 func (m *TNUsageMemo) Update(usage UsageData_, del bool) {
 	size := int64(0)
 	if old, found := m.cache.data.Get(usage); found {
-		size = old.size
+		size = old.Size
 	}
 
 	if del {
-		usage.size = size - usage.size
+		usage.Size = size - usage.Size
 	} else {
-		usage.size = size + usage.size
+		usage.Size = size + usage.Size
 	}
 
 	m.cache.data.Set(usage)
+}
+
+func (m *TNUsageMemo) Delete(usage UsageData_) {
+	m.cache.data.Delete(usage)
+}
+
+func (m *TNUsageMemo) applyDeletesFromGCKP(collector *GlobalCollector) {
+	var dbs []*catalog.DBEntry
+	for _, del := range collector.deletes_ {
+		switch e := del.(type) {
+		case *catalog.DBEntry:
+			dbs = append(dbs, e)
+		case *catalog.TableEntry:
+			tnUsageMemo.Delete(UsageData_{
+				e.GetDB().GetTenantID(),
+				e.GetDB().GetID(), e.GetID(), 0})
+		case *catalog.SegmentEntry:
+			e.RLock()
+			node := e.GetLatestNodeLocked()
+			e.RUnlock()
+
+			tnUsageMemo.Update(UsageData_{
+				e.GetTable().GetDB().GetTenantID(),
+				e.GetTable().GetDB().GetID(),
+				e.GetTable().GetID(),
+				int64(node.BaseNode.ObjectStats.Size())}, true)
+		}
+	}
+
+	iter := tnUsageMemo.cache.data.Iter()
+	var tbls []uint64
+	for _, db := range dbs {
+
+		if found := iter.Seek(UsageData_{
+			db.GetTenantID(), db.ID, 0, 0}); !found {
+			continue
+		}
+
+		if iter.Item().DbId != db.ID {
+			continue
+		}
+
+		tbls = append(tbls, iter.Item().TblId)
+		for iter.Next() && iter.Item().DbId == db.ID {
+			tbls = append(tbls, iter.Item().TblId)
+		}
+
+		for idx := 0; idx < len(tbls); idx++ {
+			tnUsageMemo.cache.data.Delete(UsageData_{
+				db.GetTenantID(), db.ID, tbls[idx], 0,
+			})
+		}
+
+		tbls = tbls[:0]
+	}
+
+	iter.Release()
+}
+
+func (m *TNUsageMemo) replayIntoGCKP(collector *GlobalCollector) {
+	iter := tnUsageMemo.cache.data.Iter()
+	for iter.Next() {
+		usage := iter.Item()
+		appendToStorageUsageBat_(
+			usage.Size, 0,
+			collector.data, usage, collector.Allocator())
+	}
+	iter.Release()
+}
+
+func (m *TNUsageMemo) EstablishFromCKPs(entries []*CheckpointData, vers []uint32) {
+	m.EnterProcessing()
+	defer m.LeaveProcessing()
+
+	for x := range entries {
+		insVecs := getStorageUsageBatVectors_(entries[x].bats[StorageUsageInsIDX])
+
+		for y := 0; y < insVecs[UsageAccID].Length(); y++ {
+			m.Update(UsageData_{
+				vector.GetFixedAt[uint32](insVecs[UsageAccID], y),
+				vector.GetFixedAt[uint64](insVecs[UsageDBID], y),
+				vector.GetFixedAt[uint64](insVecs[UsageTblID], y),
+				vector.GetFixedAt[int64](insVecs[UsageSize], y),
+			}, false)
+		}
+
+		if vers[x] < CheckpointVersion10 {
+			// haven't StorageUsageDel batch
+			continue
+		}
+
+		delVecs := getStorageUsageBatVectors_(entries[x].bats[StorageUsageDelIDX])
+
+		for y := 0; y < delVecs[UsageAccID].Length(); y++ {
+			m.Update(UsageData_{
+				vector.GetFixedAt[uint32](delVecs[UsageAccID], y),
+				vector.GetFixedAt[uint64](delVecs[UsageDBID], y),
+				vector.GetFixedAt[uint64](delVecs[UsageTblID], y),
+				vector.GetFixedAt[int64](delVecs[UsageSize], y),
+			}, true)
+		}
+	}
 }
 
 func checkSegment_(entry *catalog.SegmentEntry, collector *BaseCollector) bool {
@@ -140,7 +254,7 @@ func getStorageUsageBatVectors_(bat *containers.Batch) []*vector.Vector {
 	sizeVec := bat.GetVectorByName(CheckpointMetaAttr_ObjectSize).GetDownstreamVector()
 
 	return []*vector.Vector{
-		accIDVec, dbIDVec, tblIDVec, sizeVec,
+		accIDVec, dbIDVec, tblIDVec, nil, sizeVec,
 	}
 }
 
@@ -149,34 +263,34 @@ func appendToStorageUsageBat_(positiveSize int64, negativeSize int64,
 
 	appendFunc := func(vecs []*vector.Vector, size int64) {
 		vector.AppendFixed[int64](vecs[UsageSize], size, false, mp)
-		vector.AppendFixed[uint32](vecs[UsageAccID], usage.accId, false, mp)
-		vector.AppendFixed[uint64](vecs[UsageDBID], usage.dbId, false, mp)
-		vector.AppendFixed[uint64](vecs[UsageTblID], usage.tblId, false, mp)
+		vector.AppendFixed[uint32](vecs[UsageAccID], usage.AccId, false, mp)
+		vector.AppendFixed[uint64](vecs[UsageDBID], usage.DbId, false, mp)
+		vector.AppendFixed[uint64](vecs[UsageTblID], usage.TblId, false, mp)
 	}
 
 	if positiveSize != 0 {
 		insVecs := getStorageUsageBatVectors_(data.bats[StorageUsageInsIDX])
 		appendFunc(insVecs, positiveSize)
 		tnUsageMemo.Update(UsageData_{
-			usage.accId, usage.dbId,
-			usage.tblId, positiveSize}, false)
+			usage.AccId, usage.DbId,
+			usage.TblId, positiveSize}, false)
 	}
 
 	if negativeSize != 0 {
 		delVecs := getStorageUsageBatVectors_(data.bats[StorageUsageDelIDX])
 		appendFunc(delVecs, negativeSize)
 		tnUsageMemo.Update(UsageData_{
-			usage.accId, usage.dbId,
-			usage.tblId, positiveSize}, true)
+			usage.AccId, usage.DbId,
+			usage.TblId, positiveSize}, true)
 	}
 }
 
 func segEntryToUsageData(entry *catalog.SegmentEntry) UsageData_ {
 	return UsageData_{
-		size:  0,
-		tblId: entry.GetTable().GetID(),
-		dbId:  entry.GetTable().GetDB().GetID(),
-		accId: entry.GetTable().GetDB().GetTenantID(),
+		Size:  0,
+		TblId: entry.GetTable().GetID(),
+		DbId:  entry.GetTable().GetDB().GetID(),
+		AccId: entry.GetTable().GetDB().GetTenantID(),
 	}
 }
 
@@ -237,74 +351,6 @@ func traverseCatalog_(
 		segEntryToUsageData(lastEntry), mp)
 }
 
-func FillUsageBatOfIncremental_(c *catalog.Catalog, collector *IncrementalCollector) {
-	start := time.Now()
-
-	tnUsageMemo.EnterProcessing()
-	defer func() {
-		tnUsageMemo.LeaveProcessing()
-		v2.TaskICkpCollectUsageDurationHistogram.Observe(time.Since(start).Seconds())
-	}()
-
-	traverseCatalog_(c, collector.BaseCollector, collector.Allocator())
-}
-
-func applyDeletesOnTNUsageMemo(collector *GlobalCollector) {
-	var dbs []*catalog.DBEntry
-	for _, del := range collector.deletes_ {
-		switch e := del.(type) {
-		case *catalog.DBEntry:
-			dbs = append(dbs, e)
-		case *catalog.TableEntry:
-			tnUsageMemo.cache.data.Delete(UsageData_{
-				e.GetDB().GetTenantID(),
-				e.GetDB().GetID(), e.GetID(), 0})
-		case *catalog.SegmentEntry:
-			e.RLock()
-			node := e.GetLatestNodeLocked()
-			e.RUnlock()
-
-			tnUsageMemo.Update(UsageData_{
-				e.GetTable().GetDB().GetTenantID(),
-				e.GetTable().GetDB().GetID(),
-				e.GetTable().GetID(),
-				int64(node.BaseNode.ObjectStats.Size())}, true)
-		}
-	}
-
-	iter := tnUsageMemo.cache.data.Iter()
-	var tbls []uint64
-	for _, db := range dbs {
-		if found := iter.Seek(UsageData_{
-			db.GetTenantID(), db.ID, 0, 0}); !found {
-			continue
-		}
-
-		tbls = append(tbls, iter.Item().tblId)
-		for iter.Next() {
-			tbls = append(tbls, iter.Item().tblId)
-		}
-
-		for idx := 0; idx < len(tbls); idx++ {
-			tnUsageMemo.cache.data.Delete(UsageData_{
-				db.GetTenantID(), db.ID, tbls[idx], 0,
-			})
-		}
-
-		tbls = tbls[:0]
-	}
-}
-
-func replayTNUsageMemoOnGCKP(collector *GlobalCollector) {
-	iter := tnUsageMemo.cache.data.Iter()
-	for iter.Next() {
-		usage := iter.Item()
-		appendToStorageUsageBat_(
-			usage.size, 0,
-			collector.data, usage, collector.Allocator())
-	}
-}
-
 func FillUsageBatOfGlobal_(
 	c *catalog.Catalog,
 	collector *GlobalCollector) {
@@ -316,7 +362,18 @@ func FillUsageBatOfGlobal_(
 		v2.TaskGCkpCollectUsageDurationHistogram.Observe(time.Since(start).Seconds())
 	}()
 
-	applyDeletesOnTNUsageMemo(collector)
-	replayTNUsageMemoOnGCKP(collector)
+	tnUsageMemo.applyDeletesFromGCKP(collector)
+	tnUsageMemo.replayIntoGCKP(collector)
+}
 
+func FillUsageBatOfIncremental_(c *catalog.Catalog, collector *IncrementalCollector) {
+	start := time.Now()
+
+	tnUsageMemo.EnterProcessing()
+	defer func() {
+		tnUsageMemo.LeaveProcessing()
+		v2.TaskICkpCollectUsageDurationHistogram.Observe(time.Since(start).Seconds())
+	}()
+
+	traverseCatalog_(c, collector.BaseCollector, collector.Allocator())
 }
