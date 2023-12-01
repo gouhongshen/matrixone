@@ -41,7 +41,6 @@ import (
 const (
 	blkMetaInsBatch int8 = iota
 	blkMetaDelBatch
-	segMetaDelBatch
 	dataInsBatch
 	dataDelBatch
 	dbInsBatch
@@ -64,7 +63,8 @@ type TxnLogtailRespBuilder struct {
 
 	batches []*containers.Batch
 
-	logtails *[]logtail.TableLogtail
+	logtails       *[]logtail.TableLogtail
+	currentLogtail *logtail.TableLogtail
 
 	batchToClose []*containers.Batch
 	insertBatch  *roaring.Bitmap
@@ -127,15 +127,6 @@ func (b *TxnLogtailRespBuilder) visitSegment(iseg any) {
 		return
 	}
 
-	deleteAt := b.txn.GetPrepareTS()
-	rowid := objectio.HackObjid2Rowid(&seg.ID)
-
-	if b.batches[segMetaDelBatch] == nil {
-		b.batches[segMetaDelBatch] = makeRespBatchFromSchema(DelSchema, common.LogtailAllocator)
-	}
-
-	b.batches[segMetaDelBatch].GetVectorByName(catalog.AttrRowID).Append(rowid, false)
-	b.batches[segMetaDelBatch].GetVectorByName(catalog.AttrCommitTs).Append(deleteAt, false)
 	if b.batches[objectInfoBatch] == nil {
 		b.batches[objectInfoBatch] = makeRespBatchFromSchema(ObjectInfoSchema, common.LogtailAllocator)
 	}
@@ -384,11 +375,23 @@ func (b *TxnLogtailRespBuilder) buildLogtailEntry(tid, dbid uint64, tableName, d
 		DbId: dbid,
 		TbId: tid,
 	}
-	tail := logtail.TableLogtail{
-		Ts:       &ts,
-		Table:    tableID,
-		Commands: []api.Entry{*entry},
+	if b.currentLogtail == nil {
+		b.currentLogtail = &logtail.TableLogtail{
+			Ts:       &ts,
+			Table:    tableID,
+			Commands: make([]api.Entry, 0),
+		}
+	} else {
+		if tid != b.currentLogtail.Table.TbId {
+			*b.logtails = append(*b.logtails, *b.currentLogtail)
+			b.currentLogtail = &logtail.TableLogtail{
+				Ts:       &ts,
+				Table:    tableID,
+				Commands: make([]api.Entry, 0),
+			}
+		}
 	}
+	b.currentLogtail.Commands = append(b.currentLogtail.Commands, *entry)
 	// specail delete batch and delete batch should be in the same TableLogtail
 	if batchIdx == dbDelBatch || batchIdx == tblDelBatch {
 		var bat2 *containers.Batch
@@ -410,9 +413,8 @@ func (b *TxnLogtailRespBuilder) buildLogtailEntry(tid, dbid uint64, tableName, d
 			DatabaseName: dbName,
 			Bat:          apiBat2,
 		}
-		tail.Commands = append(tail.Commands, *entry2)
+		b.currentLogtail.Commands = append(b.currentLogtail.Commands, *entry2)
 	}
-	*b.logtails = append(*b.logtails, tail)
 }
 
 func (b *TxnLogtailRespBuilder) rotateTable(dbName, tableName string, dbid, tid uint64) {
@@ -425,11 +427,6 @@ func (b *TxnLogtailRespBuilder) rotateTable(dbName, tableName string, dbid, tid 
 	if b.batches[blkMetaDelBatch] != nil {
 		b.batchToClose = append(b.batchToClose, b.batches[blkMetaDelBatch])
 		b.batches[blkMetaDelBatch] = nil
-	}
-	b.buildLogtailEntry(b.currTableID, b.currDBID, fmt.Sprintf("_%d_seg", b.currTableID), b.currDBName, segMetaDelBatch, true)
-	if b.batches[segMetaDelBatch] != nil {
-		b.batchToClose = append(b.batchToClose, b.batches[segMetaDelBatch])
-		b.batches[segMetaDelBatch] = nil
 	}
 
 	b.buildLogtailEntry(b.currTableID, b.currDBID, fmt.Sprintf("_%d_obj", b.currTableID), b.currDBName, objectInfoBatch, false)
@@ -457,7 +454,6 @@ func (b *TxnLogtailRespBuilder) rotateTable(dbName, tableName string, dbid, tid 
 func (b *TxnLogtailRespBuilder) BuildResp() {
 	b.buildLogtailEntry(b.currTableID, b.currDBID, fmt.Sprintf("_%d_meta", b.currTableID), b.currDBName, blkMetaInsBatch, false)
 	b.buildLogtailEntry(b.currTableID, b.currDBID, fmt.Sprintf("_%d_meta", b.currTableID), b.currDBName, blkMetaDelBatch, true)
-	b.buildLogtailEntry(b.currTableID, b.currDBID, fmt.Sprintf("_%d_seg", b.currTableID), b.currDBName, segMetaDelBatch, true)
 	b.buildLogtailEntry(b.currTableID, b.currDBID, fmt.Sprintf("_%d_obj", b.currTableID), b.currDBName, objectInfoBatch, false)
 	b.buildLogtailEntry(b.currTableID, b.currDBID, b.currTableName, b.currDBName, dataDelBatch, true)
 	b.buildLogtailEntry(b.currTableID, b.currDBID, b.currTableName, b.currDBName, dataInsBatch, false)
@@ -476,5 +472,9 @@ func (b *TxnLogtailRespBuilder) BuildResp() {
 			b.batchToClose = append(b.batchToClose, b.batches[i])
 			b.batches[i] = nil
 		}
+	}
+	if b.currentLogtail != nil {
+		*b.logtails = append(*b.logtails, *b.currentLogtail)
+		b.currentLogtail = nil
 	}
 }

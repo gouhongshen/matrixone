@@ -441,8 +441,6 @@ func (p *PartitionState) HandleLogtailEntry(
 	case api.Entry_Insert:
 		if IsBlkTable(entry.TableName) {
 			p.HandleMetadataInsert(ctx, fs, entry.Bat)
-		} else if IsSegTable(entry.TableName) {
-			// TODO
 		} else if IsObjTable(entry.TableName) {
 			p.HandleObjectInsertShadow(entry.Bat)
 		} else {
@@ -451,8 +449,6 @@ func (p *PartitionState) HandleLogtailEntry(
 	case api.Entry_Delete:
 		if IsBlkTable(entry.TableName) {
 			p.HandleMetadataDelete(ctx, entry.Bat)
-		} else if IsSegTable(entry.TableName) {
-			// TODO p.HandleSegDelete(ctx, entry.Bat)
 		} else if IsObjTable(entry.TableName) {
 			p.HandleObjectDeleteShadow(entry.Bat)
 		} else {
@@ -466,25 +462,23 @@ func (p *PartitionState) HandleLogtailEntry(
 func (p *PartitionState) HandleObjectDeleteShadow(bat *api.Batch) {
 	fmt.Println(fmt.Sprintf("state with pid  = %d handle shadow delete[%s]\n", p.PId.Load(), p.ConsumeTS.ToString()))
 
-	statsCol := vector.MustBytesCol(mustVectorFromProto(bat.Vecs[2]))
+	statsVec := mustVectorFromProto(bat.Vecs[2])
 	stateCol := vector.MustFixedCol[bool](mustVectorFromProto(bat.Vecs[3]))
+	sortedCol := vector.MustFixedCol[bool](mustVectorFromProto(bat.Vecs[4]))
 	createTSCol := vector.MustFixedCol[types.TS](mustVectorFromProto(bat.Vecs[6]))
 	deleteTSCol := vector.MustFixedCol[types.TS](mustVectorFromProto(bat.Vecs[7]))
 	commitTSCol := vector.MustFixedCol[types.TS](mustVectorFromProto(bat.Vecs[10]))
 
-	for idx := 0; idx < len(statsCol); idx++ {
+	for idx := 0; idx < len(stateCol); idx++ {
 		var objEntry ObjectEntry
 
-		objEntry.ObjectStats = objectio.ObjectStats(statsCol[idx])
-
-		//if objEntry.ObjectStats.Rows() == 0 && stateCol[idx] {
-		//	continue
-		//}
+		objEntry.ObjectStats = objectio.ObjectStats(statsVec.GetBytesAt(idx))
 
 		objEntry.EntryState = stateCol[idx]
 		objEntry.CreateTime = createTSCol[idx]
 		objEntry.DeleteTime = deleteTSCol[idx]
 		objEntry.CommitTS = commitTSCol[idx]
+		objEntry.Sorted = sortedCol[idx]
 
 		p.dataObjectsShadow.Set(objEntry)
 
@@ -495,35 +489,23 @@ func (p *PartitionState) HandleObjectDeleteShadow(bat *api.Batch) {
 func (p *PartitionState) HandleObjectInsertShadow(bat *api.Batch) {
 	fmt.Println(fmt.Sprintf("state with pid  = %d handle shadow insert[%s]\n", p.PId.Load(), p.ConsumeTS.ToString()))
 
-	statsCol := vector.MustBytesCol(mustVectorFromProto(bat.Vecs[2]))
+	statsVec := mustVectorFromProto(bat.Vecs[2])
 	stateCol := vector.MustFixedCol[bool](mustVectorFromProto(bat.Vecs[3]))
+	sortedCol := vector.MustFixedCol[bool](mustVectorFromProto(bat.Vecs[4]))
 	createTSCol := vector.MustFixedCol[types.TS](mustVectorFromProto(bat.Vecs[6]))
 	deleteTSCol := vector.MustFixedCol[types.TS](mustVectorFromProto(bat.Vecs[7]))
 	commitTSCol := vector.MustFixedCol[types.TS](mustVectorFromProto(bat.Vecs[10]))
 
-	for idx := 0; idx < len(statsCol); idx++ {
+	for idx := 0; idx < len(stateCol); idx++ {
 		var objEntry ObjectEntry
 
-		//fmt.Println(fmt.Sprintf("received shadow: entryState: %v; createTime: %s; deleteTime: %s; commitTS: %s\n",
-		//	stateCol[idx], createTSCol[idx].ToString(), deleteTSCol[idx].ToString(), commitTSCol[idx].ToString()))
-
-		objEntry.ObjectStats = objectio.ObjectStats(statsCol[idx])
-		//
-		//if objEntry.ObjectStats.Rows() == 0 && stateCol[idx] {
-		//	continue
-		//}
-
-		if old, ok := p.dataObjectsShadow.Get(objEntry); ok {
-			// if overwritten delete
-			if !old.DeleteTime.IsEmpty() && deleteTSCol[idx].IsEmpty() {
-				panic("shadow overwritten deleteTS")
-			}
-		}
+		objEntry.ObjectStats = objectio.ObjectStats(statsVec.GetBytesAt(idx))
 
 		objEntry.EntryState = stateCol[idx]
 		objEntry.CreateTime = createTSCol[idx]
 		objEntry.DeleteTime = deleteTSCol[idx]
 		objEntry.CommitTS = commitTSCol[idx]
+		objEntry.Sorted = sortedCol[idx]
 
 		p.dataObjectsShadow.Set(objEntry)
 
