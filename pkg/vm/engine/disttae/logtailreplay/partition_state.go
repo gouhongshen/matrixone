@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/blockio"
+	"github.com/tidwall/btree"
 	"net/http"
 	"runtime/trace"
 	"sync"
@@ -36,7 +37,6 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/objectio"
 	"github.com/matrixorigin/matrixone/pkg/pb/api"
 	"github.com/matrixorigin/matrixone/pkg/perfcounter"
-	"github.com/tidwall/btree"
 )
 
 var partitionStateProfileHandler = fileservice.NewProfileHandler()
@@ -113,8 +113,8 @@ func (p *PartitionState) CheckObjectStats(ts *types.TS) {
 	var stats, shadow ObjectEntry
 
 	toString := func(entry ObjectEntry) string {
-		return fmt.Sprintf("entryState: %v; createTime: %s; deleteTime: %s; detail: %s",
-			entry.EntryState, entry.CreateTime.ToString(), entry.DeleteTime.ToString(), entry.String())
+		return fmt.Sprintf("entryState: %v; sorted: %v; createTime: %s; deleteTime: %s; detail: %s",
+			entry.EntryState, entry.Sorted, entry.CreateTime.ToString(), entry.DeleteTime.ToString(), entry.String())
 	}
 
 	// check some fields whether equal or not between
@@ -122,7 +122,8 @@ func (p *PartitionState) CheckObjectStats(ts *types.TS) {
 	checkEqual := func() {
 		if shadow.EntryState != stats.EntryState ||
 			!shadow.CreateTime.Equal(stats.CreateTime) ||
-			!shadow.DeleteTime.Equal(stats.DeleteTime) {
+			!shadow.DeleteTime.Equal(stats.DeleteTime) ||
+			shadow.Sorted != stats.Sorted {
 			notEqual += fmt.Sprintf("\nstats:  %s\nshadow: %s\n",
 				toString(stats), toString(shadow),
 			)
