@@ -76,6 +76,9 @@ func (s *SegStat) loadObjectInfo(blk *BlockEntry) error {
 
 	meta := objMeta.MustDataMeta()
 
+	hsize := int(meta.BlockHeader().ZoneMapArea().Length())
+	hsize += int(meta.BlockHeader().BFExtent().Length())
+
 	for _, col := range schema.ColDefs {
 		if col.IsPhyAddr() {
 			continue
@@ -84,6 +87,8 @@ func (s *SegStat) loadObjectInfo(blk *BlockEntry) error {
 		s.originSize += int(colmata.Location().OriginSize())
 		s.compSize += int(colmata.Location().Length())
 	}
+
+	s.compSize += hsize
 
 	if schema.HasSortKey() {
 		col := schema.GetSingleSortKey()

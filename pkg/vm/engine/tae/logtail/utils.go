@@ -656,8 +656,8 @@ type BaseCollector struct {
 	Usage struct {
 		// db, tbl deletes
 		Deletes    []interface{}
-		SegInserts []UsageData_
-		SegDeletes []UsageData_
+		SegInserts []*catalog.SegmentEntry
+		SegDeletes []*catalog.SegmentEntry
 	}
 }
 
@@ -2680,13 +2680,7 @@ func (collector *BaseCollector) visitSegmentEntry(entry *catalog.SegmentEntry) e
 		if segNode.HasDropCommitted() {
 			// deleted and non-append, record into the usage del bat
 			if !entry.IsAppendable() && segNode.IsCommitted() {
-				collector.Usage.SegDeletes = append(collector.Usage.SegDeletes,
-					UsageData_{
-						Size:  int64(segNode.BaseNode.Size()),
-						TblId: entry.GetTable().GetID(),
-						DbId:  entry.GetTable().GetDB().GetID(),
-						AccId: entry.GetTable().GetDB().GetTenantID(),
-					})
+				collector.Usage.SegDeletes = append(collector.Usage.SegDeletes, entry)
 			}
 
 			vector.AppendFixed(
@@ -2717,13 +2711,7 @@ func (collector *BaseCollector) visitSegmentEntry(entry *catalog.SegmentEntry) e
 		} else {
 			// create and non-append, record into the usage ins bat
 			if !entry.IsAppendable() && segNode.IsCommitted() {
-				collector.Usage.SegInserts = append(collector.Usage.SegInserts,
-					UsageData_{
-						Size:  int64(segNode.BaseNode.Size()),
-						TblId: entry.GetTable().GetID(),
-						DbId:  entry.GetTable().GetDB().GetID(),
-						AccId: entry.GetTable().GetDB().GetTenantID(),
-					})
+				collector.Usage.SegInserts = append(collector.Usage.SegInserts, entry)
 			}
 
 			vector.AppendFixed(
