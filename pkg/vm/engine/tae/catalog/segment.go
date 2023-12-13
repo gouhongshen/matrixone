@@ -646,3 +646,12 @@ func (entry *SegmentEntry) GetTerminationTS() (ts types.TS, terminated bool) {
 	tableEntry.RUnlock()
 	return
 }
+
+// only for test
+func MockSegEntryWithTbl(tblEntry *TableEntry, size int64) *SegmentEntry {
+	entry := NewReplaySegmentEntry()
+	entry.Stat.compSize = int(size)
+	entry.table = tblEntry
+	entry.Stat.loaded = true
+	return entry
+}
