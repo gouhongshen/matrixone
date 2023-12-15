@@ -21,6 +21,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/blockio"
 	"net/http"
 	"runtime/trace"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -98,6 +99,11 @@ type RowEntry struct {
 	Batch             *batch.Batch
 	Offset            int64
 	PrimaryIndexBytes []byte
+}
+
+func (r RowEntry) String() string {
+	return fmt.Sprintf("block id: %s; row id: %s; time: %s; deleted: %v; primary: %v; offset: %d",
+		r.BlockID.String(), r.RowID.String(), r.Time.ToString(), r.Deleted, r.PrimaryIndexBytes, r.Offset)
 }
 
 func (r RowEntry) Less(than RowEntry) bool {
@@ -340,6 +346,13 @@ func (p *PartitionState) RowExists(rowID types.Rowid, ts types.TS) bool {
 	return false
 }
 
+// / mo_cloud.cu_time
+func isCuTime(name string) bool {
+	return strings.Contains(name, "cu_time")
+}
+
+var debugPrint bool
+
 func (p *PartitionState) HandleLogtailEntry(
 	ctx context.Context,
 	fs fileservice.FileService,
@@ -347,6 +360,12 @@ func (p *PartitionState) HandleLogtailEntry(
 	primarySeqnum int,
 	packer *types.Packer,
 ) {
+	if isCuTime(entry.TableName) {
+		debugPrint = true
+	} else {
+		debugPrint = false
+	}
+
 	switch entry.EntryType {
 	case api.Entry_Insert:
 		if IsBlkTable(entry.TableName) {
@@ -420,6 +439,10 @@ func (p *PartitionState) HandleRowsInsert(
 			entry.PrimaryIndexBytes = primaryKeys[i]
 			p.rows.Set(entry)
 
+			if debugPrint {
+				logutil.Infof("handle row insert cu_time: %s", entry.String())
+			}
+
 			{
 				entry := &PrimaryIndexEntry{
 					Bytes:      primaryKeys[i],
@@ -430,7 +453,6 @@ func (p *PartitionState) HandleRowsInsert(
 				}
 				p.primaryIndex.Set(entry)
 			}
-
 		})
 	}
 
@@ -499,6 +521,10 @@ func (p *PartitionState) HandleRowsDelete(
 				entry.Offset = int64(i)
 			}
 			p.rows.Set(entry)
+
+			if debugPrint {
+				logutil.Infof("handle row delete cu_time: %s", entry.String())
+			}
 
 			//handle memory deletes for non-appendable block.
 			p.dirtyBlocks.Set(blockID)

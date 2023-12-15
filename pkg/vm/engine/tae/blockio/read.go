@@ -15,8 +15,11 @@
 package blockio
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/container/nulls"
@@ -35,6 +38,11 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine"
 )
 
+// / mo_cloud.cu_time
+func isCuTime(name string) bool {
+	return strings.Contains(name, "cu_time")
+}
+
 type ReadFilter = func([]*vector.Vector) []int32
 
 func ReadByFilter(
@@ -47,12 +55,15 @@ func ReadByFilter(
 	filter ReadFilter,
 	fs fileservice.FileService,
 	mp *mpool.MPool,
+	tblName string,
 ) (sels []int32, err error) {
 	bat, err := LoadColumns(ctx, columns, colTypes, fs, info.MetaLocation(), mp)
 	if err != nil {
 		return
 	}
 	var deleteMask *nulls.Nulls
+
+	var buf bytes.Buffer
 
 	// merge persisted deletes
 	if !info.DeltaLocation().IsEmpty() {
@@ -91,6 +102,26 @@ func ReadByFilter(
 
 	sels = filter(bat.Vecs)
 
+	if isCuTime(tblName) {
+		delLoc := "nil"
+		if !info.DeltaLocation().IsEmpty() {
+			delLoc = info.DeltaLocation().String()
+		}
+
+		metaLoc := "nil"
+		if !info.MetaLocation().IsEmpty() {
+			delLoc = info.MetaLocation().String()
+		}
+
+		buf.WriteString(fmt.Sprintf("delta loc: %s; ", delLoc))
+		buf.WriteString(fmt.Sprintf("meta loc: %s; ", metaLoc))
+		buf.WriteString(fmt.Sprintf("del mask len: %d; ", deleteMask.Count()))
+		buf.WriteString(fmt.Sprintf("input del len: %d; ", len(inputDeletes)))
+		buf.WriteString(fmt.Sprintf("sels len: %d ", len(sels)))
+		buf.WriteByte('\n')
+		logutil.Infof("read by filter: %s", buf.String())
+	}
+
 	// deslect deleted rows from sels
 	if !deleteMask.IsEmpty() {
 		var rows []int32
@@ -118,6 +149,7 @@ func BlockRead(
 	fs fileservice.FileService,
 	mp *mpool.MPool,
 	vp engine.VectorPool,
+	tblName string,
 ) (*batch.Batch, error) {
 	if logutil.GetSkip1Logger().Core().Enabled(zap.DebugLevel) {
 		logutil.Debugf("read block %s, columns %v, types %v", info.BlockID.String(), columns, colTypes)
@@ -131,7 +163,7 @@ func BlockRead(
 	if filter != nil && info.Sorted {
 		if sels, err = ReadByFilter(
 			ctx, info, inputDeletes, filterSeqnums, filterColTypes,
-			types.TimestampToTS(ts), filter, fs, mp,
+			types.TimestampToTS(ts), filter, fs, mp, tblName,
 		); err != nil {
 			return nil, err
 		}
