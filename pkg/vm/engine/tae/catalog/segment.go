@@ -80,9 +80,6 @@ func (s *SegStat) loadObjectInfo(blk *BlockEntry) error {
 	hsize += int(meta.BlockHeader().BFExtent().Length())
 
 	for _, col := range schema.ColDefs {
-		if col.IsPhyAddr() {
-			continue
-		}
 		colmata := meta.MustGetColumn(uint16(col.SeqNum))
 		s.originSize += int(colmata.Location().OriginSize())
 		s.compSize += int(colmata.Location().Length())
