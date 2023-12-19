@@ -28,15 +28,18 @@ import (
 )
 
 var methodVersions = map[pb.CmdMethod]int64{
-	pb.CmdMethod_ShowProcessList:    defines.MORPCVersion1,
-	pb.CmdMethod_AlterAccount:       defines.MORPCVersion1,
-	pb.CmdMethod_KillConn:           defines.MORPCVersion1,
-	pb.CmdMethod_TraceSpan:          defines.MORPCVersion1,
-	pb.CmdMethod_GetLockInfo:        defines.MORPCVersion1,
-	pb.CmdMethod_GetTxnInfo:         defines.MORPCVersion1,
-	pb.CmdMethod_GetCacheInfo:       defines.MORPCVersion1,
-	pb.CmdMethod_SyncCommit:         defines.MORPCVersion1,
-	pb.CmdMethod_GetCommit:          defines.MORPCVersion1,
+	pb.CmdMethod_ShowProcessList: defines.MORPCVersion1,
+	pb.CmdMethod_AlterAccount:    defines.MORPCVersion1,
+	pb.CmdMethod_KillConn:        defines.MORPCVersion1,
+	pb.CmdMethod_TraceSpan:       defines.MORPCVersion1,
+	pb.CmdMethod_GetLockInfo:     defines.MORPCVersion1,
+	pb.CmdMethod_GetTxnInfo:      defines.MORPCVersion1,
+	pb.CmdMethod_GetCacheInfo:    defines.MORPCVersion1,
+	pb.CmdMethod_SyncCommit:      defines.MORPCVersion1,
+	pb.CmdMethod_GetCommit:       defines.MORPCVersion1,
+
+	pb.CmdMethod_InspectCN: defines.MORPCVersion2,
+
 	pb.CmdMethod_GetProtocolVersion: defines.MORPCMinVersion, // To make sure these methods are compatible with all versions.
 	pb.CmdMethod_SetProtocolVersion: defines.MORPCMinVersion,
 }

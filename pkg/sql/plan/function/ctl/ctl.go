@@ -101,6 +101,11 @@ func MoCtl(ivecs []*vector.Vector, result vector.FunctionResultWrapper, proc *pr
 		err = rs.AppendBytes([]byte(obj.ConsoleString()), false)
 		return err
 	}
+
+	if command == InspectCNMethod {
+		return rs.AppendBytes(res.Data.([]byte), false)
+	}
+
 	err = rs.AppendBytes(json.Pretty(res), false)
 	return err
 }

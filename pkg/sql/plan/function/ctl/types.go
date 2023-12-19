@@ -35,6 +35,7 @@ const (
 	CheckpointMethod    = "CHECKPOINT"
 	ForceGCMethod       = "FORCEGC"
 	InspectMethod       = "INSPECT"
+	InspectCNMethod     = "INSPECT CN"
 	LabelMethod         = "LABEL"
 	SyncCommitMethod    = "SYNCCOMMIT"
 	AddFaultPointMethod = "ADDFAULTPOINT"
@@ -71,6 +72,8 @@ var (
 
 		GetProtocolVersionMethod: handleGetProtocolVersion,
 		SetProtocolVersionMethod: handleSetProtocolVersion,
+
+		InspectCNMethod: handleInspectCN,
 	}
 )
 
