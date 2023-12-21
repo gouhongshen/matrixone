@@ -187,9 +187,21 @@ func (mgr *Manager) OnEndPrePrepare(txn txnif.AsyncTxn) {
 	}
 	mgr.table.AddTxn(txn)
 }
+
+var lastErr error
+
 func (mgr *Manager) OnEndPrepareWAL(txn txnif.AsyncTxn) {
 	txn.GetStore().AddWaitEvent(1)
-	mgr.collectLogtailQueue.Enqueue(txn)
+	_, err := mgr.collectLogtailQueue.Enqueue(txn)
+	if err != nil && lastErr == nil {
+		lastErr = err
+		logutil.Infof("on end prepare wal: collect-logtail-queue full start\n")
+	}
+
+	if err == nil && lastErr != nil {
+		lastErr = err
+		logutil.Infof("on end prepare wal: collect-logtail-queue full end\n")
+	}
 }
 
 // GetReader get a snapshot of all txn prepared between from and to.
