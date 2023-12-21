@@ -16,6 +16,10 @@ package jobs
 
 import (
 	"context"
+	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/common/moerr"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/txn/txnbase"
 	"math/rand"
 	"time"
 
@@ -64,7 +68,28 @@ func NewFlushBlkTask(
 
 func (task *flushBlkTask) Scope() *common.ID { return task.meta.AsCommonID() }
 
+var faultErrNum int = 5
+
+func mockErr() error {
+	if faultErrNum > 0 {
+		ss := rand.New(rand.NewSource(time.Now().UnixNano()))
+		if ss.Intn(3000) >= 2990 { // 10/3000 chance
+			txnbase.OnMock.Store(true)
+			faultErrNum--
+			return moerr.NewInternalErrorNoCtx(fmt.Sprintf("mocked err to stop flush: %d", faultErrNum))
+		}
+		txnbase.OnMock.Store(false)
+	}
+	txnbase.OnMock.Store(false)
+	return nil
+}
+
 func (task *flushBlkTask) Execute(ctx context.Context) (err error) {
+	if err = mockErr(); err != nil {
+		logutil.Infof("mock err success: ", err.Error())
+		return err
+	}
+
 	if v := ctx.Value(TestFlushBailoutPos1{}); v != nil {
 		time.Sleep(time.Duration(rand.Intn(200)) * time.Millisecond)
 	}

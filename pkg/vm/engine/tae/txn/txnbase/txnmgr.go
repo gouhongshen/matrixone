@@ -530,6 +530,8 @@ func (mgr *TxnManager) dequeuePreparing(items ...any) {
 	})
 }
 
+var OnMock atomic.Bool
+
 func (mgr *TxnManager) onPrepareWAL(items ...any) {
 	now := time.Now()
 
@@ -573,6 +575,7 @@ func (mgr *TxnManager) onPrepareWAL(items ...any) {
 		if t6.Sub(t1) > time.Second {
 			logutil.Warn(
 				"SLOW-LOG",
+				zap.Bool("on-mock", OnMock.Load()),
 				zap.String("txn", op.Txn.String()),
 				zap.Duration("prepare-wal-duration", t2.Sub(t1)),
 				zap.Duration("get-prepare-ts", t3.Sub(t2)),
