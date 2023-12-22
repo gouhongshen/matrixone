@@ -579,6 +579,10 @@ func (s *LogtailServer) NotifyLogtail(
 	return s.event.NotifyLogtail(from, to, closeCB, tails...)
 }
 
+func (s *LogtailServer) NotifierDepth() int {
+	return len(s.event.C)
+}
+
 func (s *LogtailServer) SessionMgr() *SessionManager {
 	return s.ssmgr
 }
