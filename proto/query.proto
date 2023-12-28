@@ -52,7 +52,6 @@ enum CmdMethod {
 
   GetProtocolVersion = 10;
   SetProtocolVersion = 11;
-  InspectCN = 12;
 }
 
 // QueryRequest is the common query request. It contains the query
@@ -138,8 +137,6 @@ message Request {
 
   GetProtocolVersionRequest GetProtocolVersion = 13;
   SetProtocolVersionRequest SetProtocolVersion = 14;
-
-  InspectCNRequest          InspectCNRequest   = 15;
 }
 
 // ShowProcessListResponse is the response of command ShowProcessList.
@@ -175,8 +172,6 @@ message Response {
 
   GetProtocolVersionResponse GetProtocolVersion = 13;
   SetProtocolVersionResponse SetProtocolVersion = 14;
-
-  InspectCNResponse          InspectCNResponse  = 15;
 }
 
 // AlterAccountRequest is the "alter account restricted" query request.
@@ -203,24 +198,6 @@ message KillConnRequest {
 message KillConnResponse {
   bool Success = 1;
 }
-
-message AccessInfo {
-  uint32 AccountID            = 1;
-  uint32 UserID               = 2;
-  uint32 RoleID               = 3;
-}
-
-message InspectCNRequest {
-  string Cmd = 1;
-  AccessInfo AccessInfo = 2;
-}
-
-message InspectCNResponse {
-  int32 Typ = 1;
-  string Message = 2;
-  bytes Payload = 3;
-}
-
 message TraceSpanRequest {
   string Cmd = 1;
   string Spans = 2;

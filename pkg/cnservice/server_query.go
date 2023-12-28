@@ -48,7 +48,6 @@ func (s *service) initQueryCommandHandler() {
 	s.queryService.AddHandleFunc(query.CmdMethod_SyncCommit, s.handleSyncCommit, false)
 	s.queryService.AddHandleFunc(query.CmdMethod_GetCommit, s.handleGetCommit, false)
 	s.queryService.AddHandleFunc(query.CmdMethod_ShowProcessList, s.handleShowProcessList, false)
-	s.queryService.AddHandleFunc(query.CmdMethod_InspectCN, s.handleInspectCN, false)
 }
 
 func (s *service) handleKillConn(ctx context.Context, req *query.Request, resp *query.Response) error {
@@ -90,15 +89,6 @@ func (s *service) handleTraceSpan(ctx context.Context, req *query.Request, resp 
 	resp.TraceSpanResponse.Resp = ctl.SelfProcess(
 		req.TraceSpanRequest.Cmd, req.TraceSpanRequest.Spans, req.TraceSpanRequest.Threshold)
 	return nil
-}
-
-func (s *service) handleInspectCN(ctx context.Context, req *query.Request, resp *query.Response) error {
-	resp.TraceSpanResponse = new(query.TraceSpanResponse)
-	var err error
-
-	resp.InspectCNResponse, err = ctl.InspectHere(
-		req.InspectCNRequest.AccessInfo, req.InspectCNRequest.Cmd)
-	return err
 }
 
 // handleGetLockInfo sends the lock info on current cn to another cn that needs.

@@ -66,7 +66,7 @@ func MoTableRows(ivecs []*vector.Vector, result vector.FunctionResultWrapper, pr
 			dbStr := functionUtil.QuickBytesToStr(db)
 			tblStr := functionUtil.QuickBytesToStr(tbl)
 
-			if isClusterTable(dbStr, tblStr) {
+			if IsClusterTable(dbStr, tblStr) {
 				//if it is the cluster table in the general account, switch into the sys account
 				if v := proc.Ctx.Value(defines.TenantIDKey{}); v == nil || v != uint32(sysAccountID) {
 					proc.Ctx = context.WithValue(proc.Ctx, defines.TenantIDKey{}, uint32(sysAccountID))
@@ -165,7 +165,7 @@ func MoTableSize(ivecs []*vector.Vector, result vector.FunctionResultWrapper, pr
 			dbStr := functionUtil.QuickBytesToStr(db)
 			tblStr := functionUtil.QuickBytesToStr(tbl)
 
-			if isClusterTable(dbStr, tblStr) {
+			if IsClusterTable(dbStr, tblStr) {
 				//if it is the cluster table in the general account, switch into the sys account
 				if v := proc.Ctx.Value(defines.TenantIDKey{}); v == nil || v != uint32(sysAccountID) {
 					proc.Ctx = context.WithValue(proc.Ctx, defines.TenantIDKey{}, uint32(sysAccountID))
@@ -285,7 +285,7 @@ func moTableColMaxMinImpl(fnName string, parameters []*vector.Vector, result vec
 				return moerr.NewInvalidInput(proc.Ctx, "%s has bad input column %s", fnName, columnStr)
 			}
 
-			if isClusterTable(dbStr, tableStr) {
+			if IsClusterTable(dbStr, tableStr) {
 				//if it is the cluster table in the general account, switch into the sys account
 				if v := proc.Ctx.Value(defines.TenantIDKey{}); v == nil || v != uint32(sysAccountID) {
 					proc.Ctx = context.WithValue(proc.Ctx, defines.TenantIDKey{}, uint32(sysAccountID))
@@ -405,7 +405,7 @@ func getValueInStr(value any) string {
 	}
 }
 
-func isClusterTable(dbName, name string) bool {
+func IsClusterTable(dbName, name string) bool {
 	if dbName == moCatalog {
 		//if it is neither among the tables nor the index table,
 		//it is the cluster table.
@@ -424,6 +424,10 @@ const (
 	moCatalog    = "mo_catalog"
 	sysAccountID = 0
 )
+
+func GetSysAccountId() int {
+	return sysAccountID
+}
 
 var (
 	predefinedTables = map[string]int8{

@@ -16,9 +16,10 @@ package disttae
 
 import (
 	"context"
-
 	"github.com/matrixorigin/matrixone/pkg/container/types"
+	"github.com/matrixorigin/matrixone/pkg/sql/plan/function/ctl/inspectcn"
 	"github.com/matrixorigin/matrixone/pkg/txn/client"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/cache"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logtail"
@@ -253,7 +254,20 @@ func (e *Engine) init(ctx context.Context) error {
 		bat.Clean(m)
 	}
 
+	e.enableInspectCN()
+
 	return nil
+}
+
+func (e *Engine) enableInspectCN() {
+	inspectcn.UpdateLogTail = func(
+		ctx context.Context,
+		tbl engine.Relation) (p *logtailreplay.PartitionState, err error) {
+
+		p, err = tbl.(*txnTable).getPartitionState(ctx)
+
+		return
+	}
 }
 
 func (e *Engine) getPartition(databaseId, tableId uint64) *logtailreplay.Partition {
