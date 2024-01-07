@@ -15,8 +15,13 @@
 package disttae
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"go.uber.org/zap"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -566,6 +571,13 @@ func (tbl *txnTable) Ranges(ctx context.Context, exprs []*plan.Expr) (ranges [][
 		v2.TxnTableRangeDurationHistogram.Observe(time.Since(start).Seconds())
 	}()
 
+	var isDebug atomic.Bool
+	if strings.Contains(tbl.tableDef.Name, "statement_cu_for_test") {
+		isDebug.Store(true)
+	} else {
+		isDebug.Store(false)
+	}
+
 	tbl.writes = tbl.writes[:0]
 	tbl.writesOffset = tbl.db.txn.statements[tbl.db.txn.statementID-1]
 
@@ -604,6 +616,7 @@ func (tbl *txnTable) Ranges(ctx context.Context, exprs []*plan.Expr) (ranges [][
 		newExprs,
 		&ranges,
 		tbl.proc.Load(),
+		isDebug.Load(),
 	)
 	return
 }
@@ -633,7 +646,22 @@ func (tbl *txnTable) rangesOnePart(
 	exprs []*plan.Expr, // filter expression
 	ranges *[][]byte, // output marshaled block list after filtering
 	proc *process.Process, // process of this transaction
+	isDebug bool,
 ) (err error) {
+
+	var buf bytes.Buffer
+	defer func() {
+		if isDebug {
+			buf.WriteString("exprs: ")
+			for idx := range exprs {
+				buf.WriteString(plan2.FormatExpr(exprs[idx]))
+			}
+			logutil.Info("[1.1] slow-insert",
+				zap.Error(err),
+				zap.String("", buf.String()))
+		}
+	}()
+
 	if tbl.db.txn.op.Txn().IsRCIsolation() {
 		state, err := tbl.getPartitionState(tbl.proc.Load().Ctx)
 		if err != nil {
@@ -724,6 +752,7 @@ func (tbl *txnTable) rangesOnePart(
 
 	if done, err := tbl.tryFastRanges(
 		state, exprs, objectStatsList, dirtyBlks, ranges, fs,
+		isDebug, &buf,
 	); err != nil {
 		return err
 	} else if done {
@@ -746,6 +775,8 @@ func (tbl *txnTable) rangesOnePart(
 
 	hasDeletes := len(dirtyBlks) > 0
 
+	var loaded int
+
 	for _, objStats := range objectStatsList {
 		s3BlkCnt += objStats.BlkCnt()
 		// for a new object :
@@ -755,6 +786,7 @@ func (tbl *txnTable) rangesOnePart(
 		skipObj = false
 		if auxIdCnt > 0 {
 			v2.TxnRangesLoadedObjectMetaTotalCounter.Inc()
+			loaded++
 			location := objStats.ObjectLocation()
 			if objMeta, err = objectio.FastLoadObjectMeta(ctx, &location, false, fs); err != nil {
 				return
@@ -836,6 +868,7 @@ func (tbl *txnTable) rangesOnePart(
 		var objMeta objectio.ObjectMeta
 		location := obj.Location()
 		v2.TxnRangesLoadedObjectMetaTotalCounter.Inc()
+		loaded++
 		if objMeta, err = objectio.FastLoadObjectMeta(
 			tbl.proc.Load().Ctx, &location, false, tbl.db.txn.engine.fs,
 		); err != nil {
@@ -914,6 +947,16 @@ func (tbl *txnTable) rangesOnePart(
 	v2.TaskSelBlockTotal.Add(float64(btotal))
 	v2.TaskSelBlockHit.Add(float64(btotal - bhit))
 	blockio.RecordBlockSelectivity(bhit, btotal)
+
+	if isDebug {
+		if btotal == 0 {
+			btotal = 1
+		}
+		buf.WriteString(fmt.Sprintf(
+			"[after tryFastRanges] blkHit: %d, blkTotal: %d, blkHitRate: %f, loaded: %d; ",
+			bhit, btotal, float64(bhit)/float64(btotal), loaded))
+	}
+
 	return
 }
 
@@ -925,8 +968,20 @@ func (tbl *txnTable) tryFastRanges(
 	dirtyBlks map[types.Blockid]struct{},
 	ranges *[][]byte,
 	fs fileservice.FileService,
+	isDebug bool, buf *bytes.Buffer,
 ) (done bool, err error) {
+
+	if isDebug {
+		buf.WriteString("[in try fast ranges]: ")
+	}
+
 	if tbl.primaryIdx == -1 {
+		if isDebug {
+			if tbl.tableDef.Pkey.CompPkeyCol != nil {
+				buf.WriteString("comp pk col != nil; ")
+			}
+			buf.WriteString("try fast ranges primaryIdx = -1; ")
+		}
 		done = false
 		return
 	}
@@ -939,6 +994,9 @@ func (tbl *txnTable) tryFastRanges(
 		tbl.db.txn.engine.packerPool,
 	)
 	if len(val) == 0 {
+		if isDebug {
+			buf.WriteString("extractPKValue len = 0; ")
+		}
 		done = false
 		return
 	}
@@ -953,12 +1011,15 @@ func (tbl *txnTable) tryFastRanges(
 		s3BlkCnt uint32
 	)
 
+	var loaded int
+
 	for _, stats := range objStatsList {
 		s3BlkCnt += stats.BlkCnt()
 
 		location := stats.ObjectLocation()
 		var objMeta objectio.ObjectMeta
 		v2.TxnRangesLoadedObjectMetaTotalCounter.Inc()
+		loaded++
 		if objMeta, err = objectio.FastLoadObjectMeta(
 			tbl.proc.Load().Ctx, &location, false, tbl.db.txn.engine.fs,
 		); err != nil {
@@ -973,6 +1034,7 @@ func (tbl *txnTable) tryFastRanges(
 		// If object zone map doesn't contains the pk value, we need to check bloom filter
 		meta = objMeta.MustDataMeta()
 		pkZM := meta.MustGetColumn(uint16(tbl.primaryIdx)).ZoneMap()
+
 		if skipObj = !pkZM.ContainsKey(val); skipObj {
 			continue
 		}
@@ -1046,6 +1108,7 @@ func (tbl *txnTable) tryFastRanges(
 		var bf objectio.BloomFilter
 		location := obj.Location()
 		v2.TxnRangesLoadedObjectMetaTotalCounter.Inc()
+		loaded++
 		if objMeta, err = objectio.FastLoadObjectMeta(
 			tbl.proc.Load().Ctx, &location, false, tbl.db.txn.engine.fs,
 		); err != nil {
@@ -1124,6 +1187,16 @@ func (tbl *txnTable) tryFastRanges(
 	v2.TaskSelBlockTotal.Add(float64(btotal))
 	v2.TaskSelBlockHit.Add(float64(btotal - bhit))
 	blockio.RecordBlockSelectivity(bhit, btotal)
+
+	if isDebug {
+		if btotal == 0 {
+			btotal = 1
+		}
+
+		buf.WriteString(fmt.Sprintf(
+			"blkHit: %d, blkTotal: %d, blkHitRate: %f, loaded: %d; ",
+			bhit, btotal, float64(bhit)/float64(btotal), loaded))
+	}
 	return
 }
 
