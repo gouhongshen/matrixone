@@ -491,6 +491,7 @@ func (client *txnClient) closeTxn(txn txn.TxnMeta) {
 	key := cutil.UnsafeBytesToString(txn.ID)
 	if op, ok := client.mu.activeTxns[key]; ok {
 		v2.TxnLifeCycleDurationHistogram.Observe(time.Since(op.createAt).Seconds())
+		op.txnLifeTrace.End()
 
 		delete(client.mu.activeTxns, key)
 		client.removeFromLeakCheck(txn.ID)

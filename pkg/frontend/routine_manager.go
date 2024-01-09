@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	gotrace "runtime/trace"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -368,6 +369,12 @@ func (rm *RoutineManager) Handler(rs goetty.IOSession, msg interface{}, received
 	defer func() {
 		logutil.Debugf("request from %d:%s has been processed", rs.ID(), rs.RemoteAddress())
 	}()
+
+	_, task := gotrace.NewTask(context.Background(), "RoutineManager.Handler")
+	defer func() {
+		task.End()
+	}()
+
 	var err error
 	var isTlsHeader bool
 	ctx, span := trace.Start(rm.getCtx(), "RoutineManager.Handler",

@@ -214,6 +214,7 @@ type txnOperator struct {
 	clock                clock.Clock
 	createAt             time.Time
 	commitAt             time.Time
+	txnLifeTrace         *gotrace.Task
 }
 
 func newTxnOperator(
@@ -226,6 +227,8 @@ func newTxnOperator(
 	tc.txnID = txnMeta.ID
 	tc.clock = clock
 	tc.createAt = time.Now()
+	_, tc.txnLifeTrace = gotrace.NewTask(context.Background(), "TxnLifeSpan")
+
 	for _, opt := range options {
 		opt(tc)
 	}
@@ -477,7 +480,7 @@ func (tc *txnOperator) Commit(ctx context.Context) error {
 		v2.TxnCNCommitDurationHistogram.Observe(time.Since(tc.commitAt).Seconds())
 	}()
 
-	_, task := gotrace.NewTask(context.TODO(), "transaction.Commit")
+	_, task := gotrace.NewTask(context.TODO(), "transaction.CNCommit")
 	defer task.End()
 	util.LogTxnCommit(tc.getTxnMeta(false))
 
