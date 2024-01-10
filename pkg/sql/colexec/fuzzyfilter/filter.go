@@ -16,6 +16,8 @@ package fuzzyfilter
 
 import (
 	"bytes"
+	"context"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/common/bloomfilter"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -114,7 +116,13 @@ func (arg *Argument) Prepare(proc *process.Process) (err error) {
 func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	anal := proc.GetAnalyze(arg.info.Idx, arg.info.ParallelIdx, arg.info.ParallelMajor)
 	anal.Start()
-	defer anal.Stop()
+
+	_, task := gotrace.NewTask(context.Background(), "FuzzyFilter")
+
+	defer func() {
+		task.End()
+		anal.Stop()
+	}()
 
 	if arg.roaringFilter != nil {
 		return arg.filterByRoaring(proc, anal)

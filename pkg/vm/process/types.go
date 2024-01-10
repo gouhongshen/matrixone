@@ -16,6 +16,7 @@ package process
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -162,6 +163,20 @@ type AnalyzeInfo struct {
 	mu                     *sync.Mutex
 	TimeConsumedArrayMajor []int64
 	TimeConsumedArrayMinor []int64
+}
+
+func (a *AnalyzeInfo) CheckLog() bool {
+	return (a.TimeConsumed+a.WaitTimeConsumed+a.ScanTime+a.InsertTime)/(1000*1000) > 10
+}
+
+func (a *AnalyzeInfo) String() string {
+	return fmt.Sprintf(
+		"TimeConsumed: %15.6fms; WaitTimeConsumed: %15.6fms; ScanTime: %15.6fms; InsertTime: %15.6fms; DiskIO: %15.6fmb",
+		float64(a.TimeConsumed)/1000000.0,
+		float64(a.WaitTimeConsumed)/1000000.0,
+		float64(a.ScanTime)/1000000.0,
+		float64(a.InsertTime)/1000000.0,
+		float64(a.DiskIO)/(1024*1024.0))
 }
 
 type ExecStatus int

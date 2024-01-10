@@ -402,12 +402,22 @@ func (c *Compile) Run(_ uint64) (result *util2.RunResult, err error) {
 
 	sp := c.proc.GetStmtProfile()
 	c.ctx, span = trace.Start(c.ctx, "Compile.Run", trace.WithKind(trace.SpanKindStatement))
-	_, task := gotrace.NewTask(context.TODO(), "pipeline.Run")
+	_, task := gotrace.NewTask(context.TODO(), "Compile.Run")
 	defer func() {
 		// fuzzy filter not sure whether this insert / load obey duplicate constraints, need double check
 		if runC != nil {
 			if runC.fuzzy != nil && runC.fuzzy.cnt > 0 && err == nil {
 				err = runC.fuzzy.backgroundSQLCheck(runC)
+			}
+		}
+
+		if strings.Contains(c.db, "standalone_insert_db") {
+			for i := 0; i < len(c.anal.analInfos); i++ {
+				if !c.anal.analInfos[i].CheckLog() {
+					continue
+				}
+				fmt.Printf("(%*s), %s\n",
+					20, plan.Node_NodeType_name[c.anal.qry.Nodes[i].NodeId], c.anal.analInfos[i].String())
 			}
 		}
 

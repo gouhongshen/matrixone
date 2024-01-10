@@ -16,6 +16,8 @@ package table_scan
 
 import (
 	"bytes"
+	"context"
+	gotrace "runtime/trace"
 	"time"
 
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
@@ -38,8 +40,12 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	t := time.Now()
 	anal := proc.GetAnalyze(arg.info.Idx, arg.info.ParallelIdx, arg.info.ParallelMajor)
 	anal.Start()
+
+	_, task := gotrace.NewTask(context.Background(), "TableScan")
+
 	defer func() {
 		anal.Stop()
+		task.End()
 		v2.TxnStatementScanDurationHistogram.Observe(time.Since(t).Seconds())
 	}()
 

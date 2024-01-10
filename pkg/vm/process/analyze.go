@@ -69,8 +69,8 @@ func (a *analyze) Start() {
 
 func (a *analyze) Stop() {
 	if a.analInfo != nil {
-		atomic.AddInt64(&a.analInfo.WaitTimeConsumed, int64(a.wait/time.Nanosecond))
-		consumeTime := int64((time.Since(a.start) - a.wait - a.childrenCallDuration) / time.Nanosecond)
+		atomic.AddInt64(&a.analInfo.WaitTimeConsumed, int64(a.wait.Nanoseconds()))
+		consumeTime := (time.Since(a.start) - a.wait - a.childrenCallDuration).Nanoseconds()
 		atomic.AddInt64(&a.analInfo.TimeConsumed, consumeTime)
 		a.analInfo.AddSingleParallelTimeConsumed(a.parallelMajor, a.parallelIdx, consumeTime)
 	}
@@ -136,12 +136,12 @@ func (a *analyze) Network(bat *batch.Batch) {
 
 func (a *analyze) AddScanTime(t time.Time) {
 	if a.analInfo != nil {
-		atomic.AddInt64(&a.analInfo.ScanTime, int64(time.Since(t)))
+		atomic.AddInt64(&a.analInfo.ScanTime, int64(time.Since(t).Nanoseconds()))
 	}
 }
 
 func (a *analyze) AddInsertTime(t time.Time) {
 	if a.analInfo != nil {
-		atomic.AddInt64(&a.analInfo.InsertTime, int64(time.Since(t)))
+		atomic.AddInt64(&a.analInfo.InsertTime, int64(time.Since(t).Nanoseconds()))
 	}
 }
