@@ -416,8 +416,11 @@ func (c *Compile) Run(_ uint64) (result *util2.RunResult, err error) {
 				if !c.anal.analInfos[i].CheckLog() {
 					continue
 				}
-				fmt.Printf("(%*s), %s\n",
-					20, plan.Node_NodeType_name[c.anal.qry.Nodes[i].NodeId], c.anal.analInfos[i].String())
+				fmt.Printf("(%*s, %d), %s\n",
+					20,
+					plan.Node_NodeType_name[int32(c.anal.qry.Nodes[i].NodeType)],
+					c.anal.qry.Nodes[i].NodeId,
+					c.anal.analInfos[i].String())
 			}
 		}
 

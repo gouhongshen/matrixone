@@ -171,7 +171,7 @@ func (a *AnalyzeInfo) CheckLog() bool {
 
 func (a *AnalyzeInfo) String() string {
 	return fmt.Sprintf(
-		"TimeConsumed: %15.6fms; WaitTimeConsumed: %15.6fms; ScanTime: %15.6fms; InsertTime: %15.6fms; DiskIO: %15.6fmb",
+		"TimeConsumed: %15.6fms;\t WaitTimeConsumed: %15.6fms;\t ScanTime: %15.6fms;\t InsertTime: %15.6fms;\t DiskIO: %15.6fmb",
 		float64(a.TimeConsumed)/1000000.0,
 		float64(a.WaitTimeConsumed)/1000000.0,
 		float64(a.ScanTime)/1000000.0,
