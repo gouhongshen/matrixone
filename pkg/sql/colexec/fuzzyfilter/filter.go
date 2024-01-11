@@ -136,19 +136,22 @@ func (arg *Argument) filterByBloom(proc *process.Process, anal process.Analyze) 
 	for {
 		switch arg.state {
 		case Build:
-
+			_, task := gotrace.NewTask(context.Background(), "Filter.Build")
 			bat, _, err := arg.ReceiveFromSingleReg(1, anal)
 			if err != nil {
+				task.End()
 				return result, err
 			}
 
 			if bat == nil {
 				arg.state = HandleRuntimeFilter
+				task.End()
 				continue
 			}
 
 			if bat.IsEmpty() {
 				proc.PutBatch(bat)
+				task.End()
 				continue
 			}
 
@@ -165,17 +168,21 @@ func (arg *Argument) filterByBloom(proc *process.Process, anal process.Analyze) 
 			})
 
 			proc.PutBatch(bat)
+			task.End()
 			continue
 
 		case HandleRuntimeFilter:
+			_, task := gotrace.NewTask(context.Background(), "Filter.HandleRuntimeFilter")
 			if err := arg.handleRuntimeFilter(proc); err != nil {
+				task.End()
 				return result, err
 			}
 
 		case Probe:
-
+			_, task := gotrace.NewTask(context.Background(), "Filter.Probe")
 			bat, _, err := arg.ReceiveFromSingleReg(0, anal)
 			if err != nil {
+				task.End()
 				return result, err
 			}
 
@@ -184,6 +191,7 @@ func (arg *Argument) filterByBloom(proc *process.Process, anal process.Analyze) 
 				// this will happen in such case:create unique index from a table that unique col have no data
 				if arg.rbat == nil || arg.collisionCnt == 0 {
 					result.Status = vm.ExecStop
+					task.End()
 					return result, nil
 				}
 
@@ -192,11 +200,13 @@ func (arg *Argument) filterByBloom(proc *process.Process, anal process.Analyze) 
 				result.Batch = arg.rbat
 				result.Status = vm.ExecStop
 				arg.state = End
+				task.End()
 				return result, nil
 			}
 
 			if bat.IsEmpty() {
 				proc.PutBatch(bat)
+				task.End()
 				continue
 			}
 
@@ -212,6 +222,7 @@ func (arg *Argument) filterByBloom(proc *process.Process, anal process.Analyze) 
 				}
 			})
 			proc.PutBatch(bat)
+			task.End()
 			continue
 		case End:
 			result.Status = vm.ExecStop
