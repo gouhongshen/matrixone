@@ -102,6 +102,10 @@ func (task *flushBlkTask) Execute(ctx context.Context) (err error) {
 		}
 	}
 	task.blocks, _, err = writer.Sync(ctx)
+	if err != nil {
+		panic("writer.Sync err")
+	}
+
 	task.Stats = writer.GetObjectStats()[objectio.SchemaData]
 
 	perfcounter.Update(ctx, func(counter *perfcounter.CounterSet) {
