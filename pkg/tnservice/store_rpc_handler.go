@@ -101,7 +101,6 @@ func (s *store) doDebug(ctx context.Context, request *txn.TxnRequest, response *
 }
 
 func (s *store) handleCommit(ctx context.Context, request *txn.TxnRequest, response *txn.TxnResponse) error {
-	_, task := gotrace.NewTask(ctx, "TNCommit-validTNShard")
 
 	_, span := trace.Start(ctx, "store.handleCommit",
 		trace.WithKind(trace.SpanKindStatement))
@@ -113,10 +112,8 @@ func (s *store) handleCommit(ctx context.Context, request *txn.TxnRequest, respo
 	}
 	r.waitStarted()
 
-	task.End()
-
 	if request.CommitRequest != nil {
-		_, task = gotrace.NewTask(ctx, "TNCommit-handleWrite")
+		_, task := gotrace.NewTask(ctx, "TNCommit-handleWrite")
 		for _, req := range request.CommitRequest.Payload {
 			//response is shared by all requests
 			prepareResponse(req, response)
@@ -129,7 +126,7 @@ func (s *store) handleCommit(ctx context.Context, request *txn.TxnRequest, respo
 	}
 	prepareResponse(request, response)
 
-	_, task = gotrace.NewTask(ctx, "TNCommit-service.Commit")
+	_, task := gotrace.NewTask(ctx, "TNCommit-service.Commit")
 	defer func() {
 		task.End()
 	}()

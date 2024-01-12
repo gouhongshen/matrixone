@@ -810,6 +810,11 @@ func (tc *txnOperator) getTxnMeta(locked bool) txn.TxnMeta {
 }
 
 func (tc *txnOperator) doSend(ctx context.Context, requests []txn.TxnRequest, locked bool) (*rpc.SendResult, error) {
+	_, task := gotrace.NewTask(context.Background(), "txnOperator.doSend")
+	defer func() {
+		task.End()
+	}()
+
 	txnMeta := tc.getTxnMeta(locked)
 	for idx := range requests {
 		requests[idx].Txn = txnMeta

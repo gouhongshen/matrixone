@@ -22,6 +22,7 @@ import (
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/common"
 	"math"
+	gotrace "runtime/trace"
 	"strings"
 	"time"
 
@@ -899,6 +900,11 @@ func (txn *Transaction) getCachedTable(
 }
 
 func (txn *Transaction) Commit(ctx context.Context) ([]txn.TxnRequest, error) {
+	_, task := gotrace.NewTask(context.Background(), "WorkSpace.Commit")
+	defer func() {
+		task.End()
+	}()
+
 	logDebugf(txn.op.Txn(), "Transaction.Commit")
 	txn.IncrStatementID(ctx, true)
 	defer txn.delTransaction()
