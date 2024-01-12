@@ -15,9 +15,11 @@
 package bloomfilter
 
 import (
+	"context"
 	"github.com/matrixorigin/matrixone/pkg/common/hashmap"
 	"github.com/matrixorigin/matrixone/pkg/container/hashtable"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
+	gotrace "runtime/trace"
 )
 
 func (bf *BloomFilter) Clean() {
@@ -80,6 +82,8 @@ func (bf *BloomFilter) Add(v *vector.Vector) {
 }
 
 func (bf *BloomFilter) Test(v *vector.Vector, callBack func(bool, int)) {
+	_, task := gotrace.NewTask(context.Background(), "BloomFilter.Test")
+
 	bf.handle(v, func(idx, beginIdx int) {
 		exist := true
 		vals := bf.vals[idx]
@@ -92,6 +96,8 @@ func (bf *BloomFilter) Test(v *vector.Vector, callBack func(bool, int)) {
 		callBack(exist, beginIdx+idx)
 	},
 	)
+
+	task.End()
 }
 
 func (bf *BloomFilter) TestAndAdd(v *vector.Vector, callBack func(bool, int)) {
