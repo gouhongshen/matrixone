@@ -16,6 +16,8 @@ package partition
 
 import (
 	"bytes"
+	"context"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/compare"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -68,6 +70,9 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
+
+	_, task := gotrace.NewTask(context.Background(), "partition-partition")
+	defer task.End()
 
 	ap := arg
 	ctr := ap.ctr

@@ -16,7 +16,9 @@ package group
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/common/hashmap"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -154,10 +156,15 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
+	_, task := gotrace.NewTask(context.Background(), "group-group")
+
 	ap := arg
 	anal := proc.GetAnalyze(arg.info.Idx, arg.info.ParallelIdx, arg.info.ParallelMajor)
 	anal.Start()
-	defer anal.Stop()
+	defer func() {
+		anal.Stop()
+		task.End()
+	}()
 
 	// if operator has no group by clause.
 	if len(ap.Exprs) == 0 {

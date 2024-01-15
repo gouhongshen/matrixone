@@ -16,7 +16,9 @@ package limit
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/vm"
@@ -39,6 +41,9 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
+
+	_, task := gotrace.NewTask(context.Background(), "limit-limit")
+	defer task.End()
 
 	ap := arg
 	anal := proc.GetAnalyze(arg.info.Idx, arg.info.ParallelIdx, arg.info.ParallelMajor)

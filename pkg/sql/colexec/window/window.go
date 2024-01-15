@@ -16,6 +16,8 @@ package window
 
 import (
 	"bytes"
+	"context"
+	gotrace "runtime/trace"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -70,6 +72,9 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
+
+	_, task := gotrace.NewTask(context.Background(), "window-window")
+	defer task.End()
 
 	var err error
 	var end bool

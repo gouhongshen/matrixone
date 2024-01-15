@@ -16,6 +16,8 @@ package hashbuild
 
 import (
 	"bytes"
+	"context"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/common/hashmap"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -91,9 +93,15 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
+	_, task := gotrace.NewTask(context.Background(), "hashbuild-build")
+
 	anal := proc.GetAnalyze(arg.Info.Idx, arg.Info.ParallelIdx, arg.Info.ParallelMajor)
 	anal.Start()
-	defer anal.Stop()
+	defer func() {
+		anal.Stop()
+		task.End()
+	}()
+
 	result := vm.NewCallResult()
 	ap := arg
 	ctr := ap.ctr

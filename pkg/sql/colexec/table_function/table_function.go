@@ -16,7 +16,9 @@ package table_function
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/vm"
 
@@ -32,6 +34,9 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
+
+	_, task := gotrace.NewTask(context.Background(), "table_function")
+	defer task.End()
 
 	tblArg := arg
 	var (

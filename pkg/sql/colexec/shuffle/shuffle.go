@@ -16,6 +16,8 @@ package shuffle
 
 import (
 	"bytes"
+	"context"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
@@ -59,6 +61,9 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
+
+	_, task := gotrace.NewTask(context.Background(), "shuffle-shuffle")
+	defer task.End()
 
 	ap := arg
 	var index int

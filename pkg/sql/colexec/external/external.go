@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	gotrace "runtime/trace"
 	"strconv"
 	"strings"
 	"time"
@@ -131,6 +132,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
+	_, task := gotrace.NewTask(context.Background(), "external-external")
+	defer task.End()
 
 	t := time.Now()
 	ctx, span := trace.Start(proc.Ctx, "ExternalCall")

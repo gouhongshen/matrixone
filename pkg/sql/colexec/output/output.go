@@ -16,6 +16,8 @@ package output
 
 import (
 	"bytes"
+	"context"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/vm"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
@@ -36,6 +38,9 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
+
+	_, task := gotrace.NewTask(context.Background(), "output-output")
+	defer task.End()
 
 	ap := arg
 	result, err := arg.children[0].Call(proc)

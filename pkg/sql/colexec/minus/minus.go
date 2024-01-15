@@ -16,6 +16,8 @@ package minus
 
 import (
 	"bytes"
+	"context"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/common/hashmap"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -52,6 +54,9 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
+
+	_, task := gotrace.NewTask(context.Background(), "minus-minus")
+	defer task.End()
 
 	var err error
 	// prepare the analysis work.

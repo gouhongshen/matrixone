@@ -16,7 +16,9 @@ package restrict
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/pb/plan"
 	"github.com/matrixorigin/matrixone/pkg/vm"
@@ -50,6 +52,9 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
+
+	_, task := gotrace.NewTask(context.Background(), "restrict-restrict")
+	defer task.End()
 
 	result, err := arg.children[0].Call(proc)
 	if err != nil {

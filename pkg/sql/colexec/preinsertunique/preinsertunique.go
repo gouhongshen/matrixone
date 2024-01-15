@@ -16,6 +16,7 @@ package preinsertunique
 
 import (
 	"bytes"
+	"context"
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/nulls"
@@ -24,6 +25,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/sql/util"
 	"github.com/matrixorigin/matrixone/pkg/vm"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
+	gotrace "runtime/trace"
 )
 
 const (
@@ -47,6 +49,9 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
+
+	_, task := gotrace.NewTask(context.Background(), "preinsertunique-preinsertunique")
+	defer task.End()
 
 	result, err := arg.children[0].Call(proc)
 	if err != nil {

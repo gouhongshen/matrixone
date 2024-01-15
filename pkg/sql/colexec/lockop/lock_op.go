@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	gotrace "runtime/trace"
 	"strings"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -86,6 +87,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
+	_, task := gotrace.NewTask(context.Background(), "lockop-lock_op")
+	defer task.End()
 
 	txnOp := proc.TxnOperator
 	if !txnOp.Txn().IsPessimistic() {

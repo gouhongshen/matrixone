@@ -16,6 +16,8 @@ package deletion
 
 import (
 	"bytes"
+	"context"
+	gotrace "runtime/trace"
 	"sync/atomic"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
@@ -72,6 +74,9 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
+
+	_, task := gotrace.NewTask(context.Background(), "deletion-deletion")
+	defer task.End()
 
 	if arg.RemoteDelete {
 		return arg.remote_delete(proc)

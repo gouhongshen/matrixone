@@ -16,6 +16,7 @@ package sample
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"github.com/matrixorigin/matrixone/pkg/common/hashmap"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -28,6 +29,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 	"math/rand"
+	gotrace "runtime/trace"
 )
 
 const argName = "sample"
@@ -97,6 +99,9 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
+
+	_, task := gotrace.NewTask(context.Background(), "sample-sample")
+	defer task.End()
 
 	// duplicate code from other operators.
 	result, lastErr := arg.children[0].Call(proc)

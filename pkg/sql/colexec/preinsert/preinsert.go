@@ -16,6 +16,8 @@ package preinsert
 
 import (
 	"bytes"
+	"context"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -44,6 +46,9 @@ func (arg *Argument) Call(proc *proc) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
+
+	_, task := gotrace.NewTask(context.Background(), "preinsert-preinsert")
+	defer task.End()
 
 	result, err := arg.children[0].Call(proc)
 	if err != nil {

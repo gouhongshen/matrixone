@@ -16,7 +16,9 @@ package onduplicatekey
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	gotrace "runtime/trace"
 	"strings"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
@@ -49,6 +51,9 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
+
+	_, task := gotrace.NewTask(context.Background(), "onduplicatekey-on_duplicate_key")
+	defer task.End()
 
 	anal := proc.GetAnalyze(arg.info.Idx, arg.info.ParallelIdx, arg.info.ParallelMajor)
 	anal.Start()
