@@ -16,7 +16,7 @@ package table_scan
 
 import (
 	"bytes"
-	"context"
+	"fmt"
 	gotrace "runtime/trace"
 	"time"
 
@@ -41,7 +41,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	anal := proc.GetAnalyze(arg.info.Idx, arg.info.ParallelIdx, arg.info.ParallelMajor)
 	anal.Start()
 
-	_, task := gotrace.NewTask(context.Background(), "TableScan")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "TableScan")
 
 	defer func() {
 		anal.Stop()
@@ -63,7 +64,11 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 
 	for {
 		// read data from storage engine
+		var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.Reader.String())
 		bat, err := arg.Reader.Read(proc.Ctx, arg.Attrs, nil, proc.Mp(), proc)
+		task.End()
+
 		if err != nil {
 			result.Status = vm.ExecStop
 			return result, err
@@ -86,6 +91,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		bat = nil
 		break
 	}
+
+	fmt.Println("table_scan megabytes: ", float64(result.Batch.Size())/(1024*1024))
 
 	result.Batch = arg.buf
 	return result, nil

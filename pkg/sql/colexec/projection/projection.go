@@ -16,7 +16,6 @@ package projection
 
 import (
 	"bytes"
-	"context"
 	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -60,7 +59,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "projection-projection")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "projection-projection")
 	defer task.End()
 
 	result, err := arg.children[0].Call(proc)

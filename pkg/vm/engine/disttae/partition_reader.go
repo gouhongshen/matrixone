@@ -102,6 +102,10 @@ func (p *PartitionReader) prepare() error {
 	return nil
 }
 
+func (p *PartitionReader) String() string {
+	return "PartitionReader"
+}
+
 func (p *PartitionReader) Read(
 	ctx context.Context,
 	colNames []string,

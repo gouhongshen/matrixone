@@ -16,7 +16,6 @@ package deletion
 
 import (
 	"bytes"
-	"context"
 	gotrace "runtime/trace"
 	"sync/atomic"
 
@@ -75,7 +74,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "deletion-deletion")
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, "delete.deletion")
 	defer task.End()
 
 	if arg.RemoteDelete {

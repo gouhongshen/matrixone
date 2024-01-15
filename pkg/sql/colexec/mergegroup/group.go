@@ -16,7 +16,6 @@ package mergegroup
 
 import (
 	"bytes"
-	"context"
 	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/common/hashmap"
@@ -46,7 +45,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "mergegroup-group")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "mergegroup-group")
 	defer task.End()
 
 	ap := arg

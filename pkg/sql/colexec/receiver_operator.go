@@ -15,7 +15,6 @@
 package colexec
 
 import (
-	"context"
 	"reflect"
 	gotrace "runtime/trace"
 	"time"
@@ -45,7 +44,8 @@ func (r *ReceiverOperator) InitReceiver(proc *process.Process, isMergeType bool)
 }
 
 func (r *ReceiverOperator) ReceiveFromSingleReg(regIdx int, analyze process.Analyze) (*batch.Batch, bool, error) {
-	_, task := gotrace.NewTask(context.Background(), "ReceiveFromSingleReg")
+	var task *gotrace.Task
+	r.proc.Ctx, task = gotrace.NewTask(r.proc.Ctx, "ReceiveFromSingleReg")
 	start := time.Now()
 	defer func() {
 		analyze.WaitStop(start)

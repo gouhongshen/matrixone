@@ -87,7 +87,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
-	_, task := gotrace.NewTask(context.Background(), "lockop-lock_op")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "lockop-lock_op")
 	defer task.End()
 
 	txnOp := proc.TxnOperator

@@ -16,7 +16,6 @@ package insert
 
 import (
 	"bytes"
-	"context"
 	gotrace "runtime/trace"
 	"sync/atomic"
 	"time"
@@ -63,7 +62,8 @@ func (arg *Argument) Prepare(proc *process.Process) error {
 // first parameter: true represents whether the current pipeline has ended
 // first parameter: false
 func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
-	_, task := gotrace.NewTask(context.Background(), "Insert")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "Insert")
 	defer func() {
 		task.End()
 	}()

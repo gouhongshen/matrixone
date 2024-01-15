@@ -16,7 +16,6 @@ package source
 
 import (
 	"bytes"
-	"context"
 	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/container/types"
@@ -67,7 +66,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "source-source")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "source-source")
 	defer task.End()
 
 	_, span := trace.Start(proc.Ctx, "SourceCall")

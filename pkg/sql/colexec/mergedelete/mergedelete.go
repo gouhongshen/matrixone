@@ -16,7 +16,6 @@ package mergedelete
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	gotrace "runtime/trace"
 
@@ -42,7 +41,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "mergedelete-mergedelete")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "mergedelete-mergedelete")
 	defer task.End()
 
 	var err error

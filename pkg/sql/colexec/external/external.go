@@ -132,7 +132,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
 		return vm.CancelResult, err
 	}
-	_, task := gotrace.NewTask(context.Background(), "external-external")
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, "external-external")
 	defer task.End()
 
 	t := time.Now()

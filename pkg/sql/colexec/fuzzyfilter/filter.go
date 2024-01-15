@@ -16,7 +16,6 @@ package fuzzyfilter
 
 import (
 	"bytes"
-	"context"
 	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/common/bloomfilter"
@@ -117,7 +116,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	anal := proc.GetAnalyze(arg.info.Idx, arg.info.ParallelIdx, arg.info.ParallelMajor)
 	anal.Start()
 
-	_, task := gotrace.NewTask(context.Background(), "FuzzyFilter")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "FuzzyFilter")
 
 	defer func() {
 		task.End()
@@ -136,7 +136,8 @@ func (arg *Argument) filterByBloom(proc *process.Process, anal process.Analyze) 
 	for {
 		switch arg.state {
 		case Build:
-			_, task := gotrace.NewTask(context.Background(), "Filter.Build")
+			var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "Filter.Build")
 			bat, _, err := arg.ReceiveFromSingleReg(1, anal)
 			if err != nil {
 				task.End()
@@ -172,14 +173,16 @@ func (arg *Argument) filterByBloom(proc *process.Process, anal process.Analyze) 
 			continue
 
 		case HandleRuntimeFilter:
-			_, task := gotrace.NewTask(context.Background(), "Filter.HandleRuntimeFilter")
+			var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "Filter.HandleRuntimeFilter")
 			if err := arg.handleRuntimeFilter(proc); err != nil {
 				task.End()
 				return result, err
 			}
 
 		case Probe:
-			_, task := gotrace.NewTask(context.Background(), "Filter.Probe")
+			var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "Filter.Probe")
 			bat, _, err := arg.ReceiveFromSingleReg(0, anal)
 			if err != nil {
 				task.End()

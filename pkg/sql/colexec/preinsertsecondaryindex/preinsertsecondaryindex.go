@@ -16,7 +16,6 @@ package preinsertsecondaryindex
 
 import (
 	"bytes"
-	"context"
 	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
@@ -51,7 +50,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "preinsertsecondaryindex-preinsertsecondaryindex")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "preinsertsecondaryindex-preinsertsecondaryindex")
 	defer task.End()
 
 	result, err := arg.children[0].Call(proc)

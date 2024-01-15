@@ -257,6 +257,10 @@ func (r *emptyReader) Close() error {
 	return nil
 }
 
+func (r *emptyReader) String() string {
+	return "emptyReader"
+}
+
 func (r *emptyReader) Read(_ context.Context, _ []string,
 	_ *plan.Expr, _ *mpool.MPool, _ engine.VectorPool) (*batch.Batch, error) {
 	return nil, nil
@@ -294,6 +298,10 @@ func (r *blockReader) Close() error {
 	r.blks = nil
 	r.buffer = nil
 	return nil
+}
+
+func (r *blockReader) String() string {
+	return "blockReader"
 }
 
 func (r *blockReader) Read(
@@ -565,6 +573,10 @@ func (r *blockMergeReader) loadDeletes(ctx context.Context, cols []string) error
 	return nil
 }
 
+func (r *blockMergeReader) String() string {
+	return "blockMergeReader"
+}
+
 func (r *blockMergeReader) Read(
 	ctx context.Context,
 	cols []string,
@@ -600,6 +612,10 @@ func NewMergeReader(readers []engine.Reader) *mergeReader {
 
 func (r *mergeReader) Close() error {
 	return nil
+}
+
+func (r *mergeReader) String() string {
+	return "mergeReader"
 }
 
 func (r *mergeReader) Read(

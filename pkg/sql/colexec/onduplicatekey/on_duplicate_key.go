@@ -16,7 +16,6 @@ package onduplicatekey
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	gotrace "runtime/trace"
 	"strings"
@@ -52,7 +51,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "onduplicatekey-on_duplicate_key")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "onduplicatekey-on_duplicate_key")
 	defer task.End()
 
 	anal := proc.GetAnalyze(arg.info.Idx, arg.info.ParallelIdx, arg.info.ParallelMajor)

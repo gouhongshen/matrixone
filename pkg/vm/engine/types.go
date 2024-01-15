@@ -646,6 +646,7 @@ type Relation interface {
 type Reader interface {
 	Close() error
 	Read(context.Context, []string, *plan.Expr, *mpool.MPool, VectorPool) (*batch.Batch, error)
+	String() string
 }
 
 type Database interface {

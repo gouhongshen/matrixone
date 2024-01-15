@@ -17,7 +17,6 @@ package top
 import (
 	"bytes"
 	"container/heap"
-	"context"
 	"fmt"
 	gotrace "runtime/trace"
 
@@ -71,7 +70,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "top-top")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "top-top")
 	defer task.End()
 
 	ap := arg

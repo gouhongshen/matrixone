@@ -113,7 +113,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "dispatch-dispatch")
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, "dispatch-dispatch")
 	defer task.End()
 
 	ap := arg

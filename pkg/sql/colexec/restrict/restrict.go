@@ -16,7 +16,6 @@ package restrict
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	gotrace "runtime/trace"
 
@@ -53,7 +52,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "restrict-restrict")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "restrict-restrict")
 	defer task.End()
 
 	result, err := arg.children[0].Call(proc)

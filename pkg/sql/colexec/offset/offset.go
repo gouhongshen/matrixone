@@ -16,7 +16,6 @@ package offset
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	gotrace "runtime/trace"
 
@@ -42,7 +41,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "offset-offset")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "offset-offset")
 	defer task.End()
 
 	result, err := arg.children[0].Call(proc)

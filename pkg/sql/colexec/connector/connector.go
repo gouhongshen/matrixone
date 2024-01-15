@@ -16,7 +16,6 @@ package connector
 
 import (
 	"bytes"
-	"context"
 	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -40,7 +39,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "connector-connector")
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, "connector-connector")
 	defer task.End()
 
 	reg := arg.Reg

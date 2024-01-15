@@ -16,7 +16,6 @@ package limit
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	gotrace "runtime/trace"
 
@@ -42,7 +41,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "limit-limit")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "limit-limit")
 	defer task.End()
 
 	ap := arg

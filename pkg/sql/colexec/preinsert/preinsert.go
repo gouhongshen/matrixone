@@ -16,7 +16,6 @@ package preinsert
 
 import (
 	"bytes"
-	"context"
 	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
@@ -47,7 +46,8 @@ func (arg *Argument) Call(proc *proc) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "preinsert-preinsert")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "preinsert-preinsert")
 	defer task.End()
 
 	result, err := arg.children[0].Call(proc)

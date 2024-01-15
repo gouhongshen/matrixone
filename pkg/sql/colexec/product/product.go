@@ -16,7 +16,6 @@ package product
 
 import (
 	"bytes"
-	"context"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec"
 	gotrace "runtime/trace"
 
@@ -44,7 +43,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "product-product")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "product-product")
 	defer task.End()
 
 	anal := proc.GetAnalyze(arg.info.Idx, arg.info.ParallelIdx, arg.info.ParallelMajor)

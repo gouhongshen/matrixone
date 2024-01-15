@@ -16,7 +16,6 @@ package sample
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"github.com/matrixorigin/matrixone/pkg/common/hashmap"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -100,7 +99,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	_, task := gotrace.NewTask(context.Background(), "sample-sample")
+	var task *gotrace.Task 
+ proc.Ctx, task = gotrace.NewTask(proc.Ctx, "sample-sample")
 	defer task.End()
 
 	// duplicate code from other operators.
