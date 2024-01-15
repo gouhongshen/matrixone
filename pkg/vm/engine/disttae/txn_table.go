@@ -16,6 +16,7 @@ package disttae
 
 import (
 	"context"
+	"fmt"
 	gotrace "runtime/trace"
 	"strconv"
 	"time"
@@ -667,6 +668,7 @@ func (tbl *txnTable) rangesOnePart(
 	); err != nil {
 		return err
 	} else if done {
+		fmt.Println("try fast ranges len: ", blocks.Len())
 		return nil
 	}
 
@@ -846,6 +848,8 @@ func (tbl *txnTable) rangesOnePart(
 	); err != nil {
 		return
 	}
+
+	fmt.Println("ranges one part len: ", blocks.Len())
 
 	bhit, btotal := blocks.Len()-1, int(s3BlkCnt)
 	v2.TaskSelBlockTotal.Add(float64(btotal))
