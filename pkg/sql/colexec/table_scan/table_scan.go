@@ -41,8 +41,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	anal := proc.GetAnalyze(arg.info.Idx, arg.info.ParallelIdx, arg.info.ParallelMajor)
 	anal.Start()
 
-	var task *gotrace.Task 
- proc.Ctx, task = gotrace.NewTask(proc.Ctx, "TableScan")
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, "TableScan")
 
 	defer func() {
 		anal.Stop()
@@ -64,8 +64,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 
 	for {
 		// read data from storage engine
-		var task *gotrace.Task 
- proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.Reader.String())
+		var task *gotrace.Task
+		proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.Reader.String())
 		bat, err := arg.Reader.Read(proc.Ctx, arg.Attrs, nil, proc.Mp(), proc)
 		task.End()
 
@@ -92,8 +92,11 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		break
 	}
 
-	fmt.Println("table_scan megabytes: ", float64(result.Batch.Size())/(1024*1024))
-
 	result.Batch = arg.buf
+
+	if result.Batch != nil {
+		fmt.Println("table_scan megabytes: ", float64(result.Batch.Size())/(1024*1024))
+	}
+
 	return result, nil
 }
