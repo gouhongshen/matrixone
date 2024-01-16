@@ -16,6 +16,8 @@ package projection
 
 import (
 	"bytes"
+	"github.com/matrixorigin/matrixone/pkg/common"
+	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
@@ -55,7 +57,12 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
+	start := time.Now()
 	result, err := arg.children[0].Call(proc)
+	dur := time.Since(start)
+	name := bytes.Buffer{}
+	arg.children[0].String(&name)
+	common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), proc.StmtProfile.GetSqlOfStmt(), dur)
 	if err != nil {
 		return result, err
 	}

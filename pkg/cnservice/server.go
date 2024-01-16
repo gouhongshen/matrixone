@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/common"
 	"os"
 	"sync"
 	"time"
@@ -215,6 +216,8 @@ func NewService(
 	if err != nil {
 		panic(err)
 	}
+
+	common.InsertLogger = common.InitInsertLogger(ctx)
 
 	return srv, nil
 }

@@ -16,7 +16,9 @@ package deletion
 
 import (
 	"bytes"
+	"github.com/matrixorigin/matrixone/pkg/common"
 	"sync/atomic"
+	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -194,7 +196,13 @@ func (arg *Argument) remoteDelete(proc *process.Process) (vm.CallResult, error) 
 }
 
 func (arg *Argument) normalDelete(proc *process.Process) (vm.CallResult, error) {
+	start := time.Now()
 	result, err := arg.children[0].Call(proc)
+	dur := time.Since(start)
+	name := bytes.Buffer{}
+	arg.children[0].String(&name)
+	common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), proc.StmtProfile.GetSqlOfStmt(), dur)
+
 	if err != nil {
 		return result, err
 	}

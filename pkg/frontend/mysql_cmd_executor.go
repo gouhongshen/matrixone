@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/matrixorigin/matrixone/pkg/common"
 	"io"
 	gotrace "runtime/trace"
 	"sort"
@@ -3773,8 +3772,6 @@ func (mce *MysqlCmdExecutor) doComQuery(requestCtx context.Context, input *UserI
 	if judgeIsClientBIQuery(input) {
 		dialectEquivalentRewrite(input)
 	}
-
-	common.InsertDebugLogger.OpenDebug()
 
 	pu := ses.GetParameterUnit()
 	//the ses.GetUserName returns the user_name with the account_name.

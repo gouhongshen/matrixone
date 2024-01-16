@@ -17,6 +17,7 @@ package sample
 import (
 	"bytes"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/common"
 	"github.com/matrixorigin/matrixone/pkg/common/hashmap"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
@@ -28,6 +29,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 	"math/rand"
+	"time"
 )
 
 func (arg *Argument) String(buf *bytes.Buffer) {
@@ -95,7 +97,12 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	}
 
 	// duplicate code from other operators.
+	start := time.Now()
 	result, lastErr := arg.children[0].Call(proc)
+	dur := time.Since(start)
+	name := bytes.Buffer{}
+	arg.children[0].String(&name)
+	common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), proc.StmtProfile.GetSqlOfStmt(), dur)
 	if lastErr != nil {
 		return result, lastErr
 	}

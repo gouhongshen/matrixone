@@ -16,9 +16,11 @@ package vm
 
 import (
 	"bytes"
+	"github.com/matrixorigin/matrixone/pkg/common"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
+	"time"
 )
 
 func (ins *Instruction) MarshalBinary() ([]byte, error) {
@@ -126,7 +128,12 @@ func Run(ins Instructions, proc *process.Process) (end bool, err error) {
 	root := ins[len(ins)-1].Arg
 	end = false
 	for !end {
+		start := time.Now()
 		result, err := root.Call(proc)
+		dur := time.Since(start)
+		name := bytes.Buffer{}
+		root.String(&name)
+		common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), proc.StmtProfile.GetSqlOfStmt(), dur)
 		if err != nil {
 			return true, err
 		}

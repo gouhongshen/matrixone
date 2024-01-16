@@ -17,6 +17,8 @@ package client
 import (
 	"context"
 	"encoding/hex"
+	"github.com/google/uuid"
+	"github.com/matrixorigin/matrixone/pkg/common"
 	"math"
 	gotrace "runtime/trace"
 	"sync"
@@ -482,7 +484,9 @@ func (client *txnClient) closeTxn(txn txn.TxnMeta) {
 
 	key := cutil.UnsafeBytesToString(txn.ID)
 	if op, ok := client.mu.activeTxns[key]; ok {
-		v2.TxnLifeCycleDurationHistogram.Observe(time.Since(op.createAt).Seconds())
+		lifeSpan := time.Since(op.createAt)
+		v2.TxnLifeCycleDurationHistogram.Observe(lifeSpan.Seconds())
+		common.InsertLogger.TryLog(uuid.UUID(op.txnID), lifeSpan)
 
 		delete(client.mu.activeTxns, key)
 		client.removeFromLeakCheck(txn.ID)

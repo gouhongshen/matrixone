@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/common"
 	"math"
 	"net"
 	"runtime"
@@ -414,6 +415,13 @@ func (c *Compile) Run(_ uint64) (result *util2.RunResult, err error) {
 	}
 
 	sp := c.proc.GetStmtProfile()
+	if strings.Contains(c.sql, "statement_cu") ||
+		strings.Contains(c.sql, "news_detail") ||
+		strings.Contains(c.sql, "cluster_pk_tables") {
+
+		common.InsertLogger.SetTxnId(sp.GetTxnId())
+	}
+
 	c.ctx, span = trace.Start(c.ctx, "Compile.Run", trace.WithKind(trace.SpanKindStatement))
 	_, task := gotrace.NewTask(context.TODO(), "pipeline.Run")
 	defer func() {

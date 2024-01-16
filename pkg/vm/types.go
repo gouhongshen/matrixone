@@ -16,6 +16,7 @@ package vm
 
 import (
 	"bytes"
+	"github.com/matrixorigin/matrixone/pkg/common"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -155,7 +156,12 @@ func CancelCheck(proc *process.Process) (error, bool) {
 
 func ChildrenCall(o Operator, proc *process.Process, anal process.Analyze) (CallResult, error) {
 	beforeChildrenCall := time.Now()
+	start := time.Now()
 	result, err := o.Call(proc)
+	dur := time.Since(start)
+	name := bytes.Buffer{}
+	o.String(&name)
+	common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), proc.StmtProfile.GetSqlOfStmt(), dur)
 	anal.ChildrenCallStop(beforeChildrenCall)
 	return result, err
 }

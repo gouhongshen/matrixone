@@ -19,6 +19,8 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"github.com/google/uuid"
+	"github.com/matrixorigin/matrixone/pkg/common"
 	gotrace "runtime/trace"
 	"sync"
 	"time"
@@ -445,7 +447,9 @@ func (tc *txnOperator) WriteAndCommit(ctx context.Context, requests []txn.TxnReq
 func (tc *txnOperator) Commit(ctx context.Context) error {
 	tc.commitAt = time.Now()
 	defer func() {
-		v2.TxnCNCommitDurationHistogram.Observe(time.Since(tc.commitAt).Seconds())
+		dur := time.Since(tc.commitAt)
+		v2.TxnCNCommitDurationHistogram.Observe(dur.Seconds())
+		common.InsertLogger.RecordCNCommit(uuid.UUID(tc.txnID), dur)
 	}()
 
 	_, task := gotrace.NewTask(context.TODO(), "transaction.Commit")

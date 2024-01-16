@@ -103,6 +103,8 @@ func NewFromProc(p *Process, ctx context.Context, regNumber int) *Process {
 	proc.Aicm = p.Aicm
 	proc.LoadTag = p.LoadTag
 
+	proc.StmtProfile = p.GetStmtProfile()
+
 	proc.prepareParams = p.prepareParams
 	proc.resolveVariableFunc = p.resolveVariableFunc
 

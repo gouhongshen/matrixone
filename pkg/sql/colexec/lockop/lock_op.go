@@ -18,7 +18,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/common"
 	"strings"
+	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -85,7 +87,13 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 
 	txnOp := proc.TxnOperator
 	if !txnOp.Txn().IsPessimistic() {
-		return arg.children[0].Call(proc)
+		start := time.Now()
+		result, err := arg.children[0].Call(proc)
+		dur := time.Since(start)
+		name := bytes.Buffer{}
+		arg.children[0].String(&name)
+		common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), proc.StmtProfile.GetSqlOfStmt(), dur)
+		return result, err
 	}
 
 	if !arg.block {
@@ -100,7 +108,12 @@ func callNonBlocking(
 	proc *process.Process,
 	arg *Argument) (vm.CallResult, error) {
 
+	start := time.Now()
 	result, err := arg.children[0].Call(proc)
+	dur := time.Since(start)
+	name := bytes.Buffer{}
+	arg.children[0].String(&name)
+	common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), proc.StmtProfile.GetSqlOfStmt(), dur)
 	if err != nil {
 		return result, err
 	}

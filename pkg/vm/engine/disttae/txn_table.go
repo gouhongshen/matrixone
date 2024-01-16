@@ -16,6 +16,8 @@ package disttae
 
 import (
 	"context"
+	"github.com/google/uuid"
+	"github.com/matrixorigin/matrixone/pkg/common"
 	"strconv"
 	"time"
 	"unsafe"
@@ -562,8 +564,9 @@ func (tbl *txnTable) resetSnapshot() {
 func (tbl *txnTable) Ranges(ctx context.Context, exprs []*plan.Expr) (ranges [][]byte, err error) {
 	start := time.Now()
 	defer func() {
+		dur := time.Since(start)
 		v2.TxnTableRangeSizeHistogram.Observe(float64(len(ranges)))
-		v2.TxnTableRangeDurationHistogram.Observe(time.Since(start).Seconds())
+		v2.TxnTableRangeDurationHistogram.Observe(dur.Seconds())
 	}()
 
 	tbl.writes = tbl.writes[:0]
@@ -634,6 +637,8 @@ func (tbl *txnTable) rangesOnePart(
 	ranges *[][]byte, // output marshaled block list after filtering
 	proc *process.Process, // process of this transaction
 ) (err error) {
+	start := time.Now()
+
 	if tbl.db.txn.op.Txn().IsRCIsolation() {
 		state, err := tbl.getPartitionState(tbl.proc.Load().Ctx)
 		if err != nil {
@@ -914,6 +919,10 @@ func (tbl *txnTable) rangesOnePart(
 	v2.TaskSelBlockTotal.Add(float64(btotal))
 	v2.TaskSelBlockHit.Add(float64(btotal - bhit))
 	blockio.RecordBlockSelectivity(bhit, btotal)
+
+	dur := time.Since(start)
+	common.InsertLogger.RecordRanges(uuid.UUID(tbl.db.txn.op.Txn().ID), bhit, btotal, dur)
+
 	return
 }
 
