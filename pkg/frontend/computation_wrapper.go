@@ -193,7 +193,10 @@ func (cwft *TxnComputationWrapper) Compile(requestCtx context.Context, u interfa
 	var span trace.Span
 	requestCtx, span = trace.Start(requestCtx, "TxnComputationWrapper.Compile",
 		trace.WithKind(trace.SpanKindStatement))
-	defer span.End(trace.WithStatementExtra(cwft.ses.GetTxnId(), cwft.ses.GetStmtId(), cwft.ses.GetSqlOfStmt()))
+
+	defer func() {
+		span.End(trace.WithStatementExtra(cwft.ses.GetTxnId(), cwft.ses.GetStmtId(), cwft.ses.GetSqlOfStmt()))
+	}()
 
 	stats := statistic.StatsInfoFromContext(requestCtx)
 	stats.CompileStart()
