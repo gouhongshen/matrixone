@@ -162,13 +162,6 @@ func (stmt *statement) doLog(t *Transaction, txnId uuid.UUID, start, end int64) 
 
 	for k := range stmt.phaseDuration {
 		phs := stmt.phaseDuration[k]
-		if len(k) > 30 {
-			idx := strings.Index(k, "(")
-			if idx == -1 {
-				idx = 30
-			}
-			k = k[:idx]
-		}
 		phaseStr += fmt.Sprintf("%s:", k)
 		for x := range phs {
 			phaseStr += fmt.Sprintf("(%d,%d)", phs[x].start, phs[x].end)
@@ -191,7 +184,8 @@ func (stmt *statement) doLog(t *Transaction, txnId uuid.UUID, start, end int64) 
 
 	logutil.Info("Slow Insert",
 		zap.String("txnId", txnId.String()),
-		zap.String("txnLifeSpan", fmt.Sprintf("(%d,%d)", start, end)),
+		zap.String("txnLifeSpan", fmt.Sprintf("%dms(%d,%d)",
+			time.Unix(0, end).Sub(time.Unix(0, start)).Milliseconds(), start, end)),
 		zap.String("phase duration", phaseStr),
 		zap.String("ranges", rangesStr),
 		zap.String("cnCommit", cnCommitStr))
@@ -214,6 +208,14 @@ func (t *Transaction) collectTask() {
 				})
 
 			case Operator:
+				if len(ph.name) > 30 {
+					idx := strings.Index(ph.name, "(")
+					if idx == -1 {
+						idx = 30
+					}
+					ph.name = ph.name[:idx]
+				}
+
 				old := t.Stmts.phaseDuration[ph.name]
 				old = append(old, ph)
 				t.Stmts.phaseDuration[ph.name] = old
