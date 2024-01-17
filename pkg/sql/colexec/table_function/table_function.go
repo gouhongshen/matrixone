@@ -42,10 +42,10 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 
 	start := time.Now()
 	result, err := arg.children[0].Call(proc)
-	dur := time.Since(start)
+
 	name := bytes.Buffer{}
 	arg.children[0].String(&name)
-	common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), proc.StmtProfile.GetSqlOfStmt(), dur)
+	common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), start.UnixNano(), time.Now().UnixNano())
 	if err != nil {
 		return result, err
 	}

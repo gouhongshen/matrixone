@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
+	"github.com/panjf2000/ants/v2"
 	"go.uber.org/zap"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -38,26 +38,25 @@ const (
 type phase struct {
 	typ        int
 	name       string
-	dur        time.Duration
-	cnt        int64
-	maxDur     time.Duration
+	start, end int64
 	hit, total int
+	dur        time.Duration
 }
 
 type statement struct {
-	phaseDuration map[string]phase
+	phaseDuration map[string][]phase
 	ranges        []struct {
 		hit, total int
 		dur        time.Duration
 	}
 	cnCommit []struct {
-		dur time.Duration
+		start, end int64
 	}
 }
 
 func newStmt() *statement {
 	s := new(statement)
-	s.phaseDuration = make(map[string]phase)
+	s.phaseDuration = make(map[string][]phase)
 	return s
 }
 
@@ -68,6 +67,8 @@ type Transaction struct {
 	collectCh chan phase
 	Stmts     *statement
 	ctx       context.Context
+
+	ants *ants.Pool
 }
 
 var InsertLogger *Transaction
@@ -87,6 +88,7 @@ func InitInsertLogger(ctx context.Context) *Transaction {
 
 	t.Stmts = t.pool.Get().(*statement)
 
+	t.ants, _ = ants.NewPool(10)
 	go t.collectTask()
 	return t
 }
@@ -95,14 +97,15 @@ func (t *Transaction) SetTxnId(txnId uuid.UUID) {
 	t.TxnId = txnId
 }
 
-func (t *Transaction) RecordCNCommit(txnId uuid.UUID, dur time.Duration) {
+func (t *Transaction) RecordCNCommit(txnId uuid.UUID, start, end int64) {
 	if !bytes.Equal(txnId[:], t.TxnId[:]) {
 		return
 	}
 
 	t.collectCh <- phase{
-		dur: dur,
-		typ: CNCommit,
+		start: start,
+		end:   end,
+		typ:   CNCommit,
 	}
 }
 
@@ -123,17 +126,17 @@ func (t *Transaction) RecordRanges(txnId uuid.UUID, hit, total int, dur time.Dur
 	}
 }
 
-func (t *Transaction) RecordPhase(name string, txnId uuid.UUID, sql string, dur time.Duration) {
+func (t *Transaction) RecordPhase(name string, txnId uuid.UUID, start, end int64) {
 	if !bytes.Equal(txnId[:], t.TxnId[:]) {
 		return
 	}
 
-	t.collectCh <- phase{name: name, dur: dur, typ: Operator}
+	t.collectCh <- phase{name: name, start: start, end: end, typ: Operator}
 }
 
-func (t *Transaction) TryLog(txnId uuid.UUID, lifeSpan time.Duration) {
+func (t *Transaction) TryLog(txnId uuid.UUID, start, end int64) {
 	if bytes.Equal(txnId[:], t.TxnId[:]) {
-		t.collectCh <- phase{dur: lifeSpan, typ: Done}
+		t.collectCh <- phase{start: start, end: end, typ: Done}
 	}
 }
 
@@ -145,30 +148,32 @@ func (stmt *statement) clear() {
 	stmt.cnCommit = stmt.cnCommit[:0]
 }
 
-func (stmt *statement) doLog(t *Transaction, txnId uuid.UUID, lifeSpan time.Duration) {
+func (stmt *statement) doLog(t *Transaction, txnId uuid.UUID, start, end int64) {
+	defer func() {
+		stmt.clear()
+		t.pool.Put(stmt)
+	}()
 
-	names := make([]string, len(stmt.phaseDuration))
-
-	idx := 0
-	for k := range stmt.phaseDuration {
-		if strings.Contains(k, "projection") {
-			k = "projection"
-		}
-		names[idx] = k
-		idx++
+	if _, ok := stmt.phaseDuration["MergeS3BlocksMetaLoc"]; ok {
+		return
 	}
-
-	sort.Slice(names, func(i, j int) bool {
-		return names[i] < names[j]
-	})
 
 	phaseStr := ""
 
-	for idx := range names {
-		k := names[idx]
-		p := stmt.phaseDuration[k]
-		phaseStr += fmt.Sprintf("[%s(%5d), total-%.3fms, max-%.3fms]; ",
-			k, p.cnt, float64(p.dur.Nanoseconds())/(1000*1000), float64(p.maxDur.Nanoseconds())/(1000*1000))
+	for k := range stmt.phaseDuration {
+		phs := stmt.phaseDuration[k]
+		if len(k) > 30 {
+			idx := strings.Index(k, "(")
+			if idx == -1 {
+				idx = 30
+			}
+			k = k[:idx]
+		}
+		phaseStr += fmt.Sprintf("%s:", k)
+		for x := range phs {
+			phaseStr += fmt.Sprintf("(%d,%d)", phs[x].start, phs[x].end)
+		}
+		phaseStr += ";"
 	}
 
 	rangesStr := ""
@@ -181,20 +186,15 @@ func (stmt *statement) doLog(t *Transaction, txnId uuid.UUID, lifeSpan time.Dura
 
 	cnCommitStr := ""
 	for idx := range stmt.cnCommit {
-		cnCommitStr += fmt.Sprintf("[%.3fms]",
-			float64(stmt.cnCommit[idx].dur)/(1000*1000))
+		cnCommitStr += fmt.Sprintf("(%d,%d)", stmt.cnCommit[idx].start, stmt.cnCommit[idx].end)
 	}
 
 	logutil.Info("Slow Insert",
 		zap.String("txnId", txnId.String()),
-		zap.String("txnLifeSpan", fmt.Sprintf("%.3fms", float64(lifeSpan.Nanoseconds())/(1000*1000))),
+		zap.String("txnLifeSpan", fmt.Sprintf("(%d,%d)", start, end)),
 		zap.String("phase duration", phaseStr),
 		zap.String("ranges", rangesStr),
 		zap.String("cnCommit", cnCommitStr))
-
-	stmt.clear()
-	t.pool.Put(stmt)
-
 }
 
 func (t *Transaction) collectTask() {
@@ -209,17 +209,13 @@ func (t *Transaction) collectTask() {
 			case Done:
 				stmt := t.Stmts
 				t.Stmts = t.pool.Get().(*statement)
-				go stmt.doLog(t, t.TxnId, ph.dur)
+				t.ants.Submit(func() {
+					stmt.doLog(t, t.TxnId, ph.start, ph.end)
+				})
 
 			case Operator:
 				old := t.Stmts.phaseDuration[ph.name]
-				old.dur += ph.dur
-				old.cnt++
-
-				if ph.dur > old.maxDur {
-					old.maxDur = ph.dur
-				}
-
+				old = append(old, ph)
 				t.Stmts.phaseDuration[ph.name] = old
 
 			case Range:
@@ -230,7 +226,7 @@ func (t *Transaction) collectTask() {
 
 			case CNCommit:
 				t.Stmts.cnCommit = append(t.Stmts.cnCommit,
-					struct{ dur time.Duration }{dur: ph.dur})
+					struct{ start, end int64 }{start: ph.start, end: ph.end})
 			}
 		}
 	}

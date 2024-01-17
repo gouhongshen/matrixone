@@ -486,7 +486,7 @@ func (client *txnClient) closeTxn(txn txn.TxnMeta) {
 	if op, ok := client.mu.activeTxns[key]; ok {
 		lifeSpan := time.Since(op.createAt)
 		v2.TxnLifeCycleDurationHistogram.Observe(lifeSpan.Seconds())
-		common.InsertLogger.TryLog(uuid.UUID(op.txnID), lifeSpan)
+		common.InsertLogger.TryLog(uuid.UUID(op.txnID), op.createAt.UnixNano(), time.Now().UnixNano())
 
 		delete(client.mu.activeTxns, key)
 		client.removeFromLeakCheck(txn.ID)

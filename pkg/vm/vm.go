@@ -130,10 +130,9 @@ func Run(ins Instructions, proc *process.Process) (end bool, err error) {
 	for !end {
 		start := time.Now()
 		result, err := root.Call(proc)
-		dur := time.Since(start)
 		name := bytes.Buffer{}
 		root.String(&name)
-		common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), proc.StmtProfile.GetSqlOfStmt(), dur)
+		common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), start.UnixNano(), time.Now().UnixNano())
 		if err != nil {
 			return true, err
 		}
