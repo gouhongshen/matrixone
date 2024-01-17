@@ -27,11 +27,21 @@ import (
 	"time"
 )
 
+const (
+	None int = iota
+	Done
+	Range
+	CNCommit
+	Operator
+)
+
 type phase struct {
-	name   string
-	dur    time.Duration
-	cnt    int64
-	maxDur time.Duration
+	typ        int
+	name       string
+	dur        time.Duration
+	cnt        int64
+	maxDur     time.Duration
+	hit, total int
 }
 
 type statement struct {
@@ -53,9 +63,10 @@ func newStmt() *statement {
 
 type Transaction struct {
 	sync.Mutex
+	pool      sync.Pool
 	TxnId     uuid.UUID
 	collectCh chan phase
-	Stmts     statement
+	Stmts     *statement
 	ctx       context.Context
 }
 
@@ -63,10 +74,19 @@ var InsertLogger *Transaction
 
 func InitInsertLogger(ctx context.Context) *Transaction {
 	t := new(Transaction)
-	t.Stmts = *newStmt()
+
+	t.pool = sync.Pool{
+		New: func() any {
+			return newStmt()
+		},
+	}
+
 	t.ctx = ctx
 	t.TxnId = uuid.New()
 	t.collectCh = make(chan phase, 1000*100)
+
+	t.Stmts = t.pool.Get().(*statement)
+
 	go t.collectTask()
 	return t
 }
@@ -80,8 +100,10 @@ func (t *Transaction) RecordCNCommit(txnId uuid.UUID, dur time.Duration) {
 		return
 	}
 
-	t.Stmts.cnCommit = append(t.Stmts.cnCommit,
-		struct{ dur time.Duration }{dur: dur})
+	t.collectCh <- phase{
+		dur: dur,
+		typ: CNCommit,
+	}
 }
 
 func (t *Transaction) RecordRanges(txnId uuid.UUID, hit, total int, dur time.Duration) {
@@ -92,10 +114,13 @@ func (t *Transaction) RecordRanges(txnId uuid.UUID, hit, total int, dur time.Dur
 	if !bytes.Equal(txnId[:], t.TxnId[:]) {
 		return
 	}
-	t.Stmts.ranges = append(t.Stmts.ranges, struct {
-		hit, total int
-		dur        time.Duration
-	}{hit: hit, total: total, dur: dur})
+
+	t.collectCh <- phase{
+		hit:   hit,
+		total: total,
+		dur:   dur,
+		typ:   Range,
+	}
 }
 
 func (t *Transaction) RecordPhase(name string, txnId uuid.UUID, sql string, dur time.Duration) {
@@ -103,17 +128,24 @@ func (t *Transaction) RecordPhase(name string, txnId uuid.UUID, sql string, dur 
 		return
 	}
 
-	t.collectCh <- phase{name: name, dur: dur}
+	t.collectCh <- phase{name: name, dur: dur, typ: Operator}
 }
 
 func (t *Transaction) TryLog(txnId uuid.UUID, lifeSpan time.Duration) {
 	if bytes.Equal(txnId[:], t.TxnId[:]) {
-		t.collectCh <- phase{cnt: 0x3fff, dur: lifeSpan}
+		t.collectCh <- phase{dur: lifeSpan, typ: Done}
 	}
 }
 
-func (t *Transaction) doLog(txnId uuid.UUID, lifeSpan time.Duration) {
-	stmt := t.Stmts
+func (stmt *statement) clear() {
+	for x := range stmt.phaseDuration {
+		delete(stmt.phaseDuration, x)
+	}
+	stmt.ranges = stmt.ranges[:0]
+	stmt.cnCommit = stmt.cnCommit[:0]
+}
+
+func (stmt *statement) doLog(t *Transaction, txnId uuid.UUID, lifeSpan time.Duration) {
 
 	names := make([]string, len(stmt.phaseDuration))
 
@@ -140,17 +172,17 @@ func (t *Transaction) doLog(txnId uuid.UUID, lifeSpan time.Duration) {
 	}
 
 	rangesStr := ""
-	for idx := range t.Stmts.ranges {
+	for idx := range stmt.ranges {
 		rangesStr += fmt.Sprintf("[%d/%d=%.3f, %.3fms]; ",
-			t.Stmts.ranges[idx].hit, t.Stmts.ranges[idx].total,
-			float64(t.Stmts.ranges[idx].hit)/float64(t.Stmts.ranges[idx].total),
-			float64(t.Stmts.ranges[idx].dur.Nanoseconds())/(1000*1000))
+			stmt.ranges[idx].hit, stmt.ranges[idx].total,
+			float64(stmt.ranges[idx].hit)/float64(stmt.ranges[idx].total),
+			float64(stmt.ranges[idx].dur.Nanoseconds())/(1000*1000))
 	}
 
 	cnCommitStr := ""
-	for idx := range t.Stmts.cnCommit {
+	for idx := range stmt.cnCommit {
 		cnCommitStr += fmt.Sprintf("[%.3fms]",
-			float64(t.Stmts.cnCommit[idx].dur)/(1000*1000))
+			float64(stmt.cnCommit[idx].dur)/(1000*1000))
 	}
 
 	logutil.Info("Slow Insert",
@@ -160,9 +192,9 @@ func (t *Transaction) doLog(txnId uuid.UUID, lifeSpan time.Duration) {
 		zap.String("ranges", rangesStr),
 		zap.String("cnCommit", cnCommitStr))
 
-	for x := range t.Stmts.phaseDuration {
-		delete(t.Stmts.phaseDuration, x)
-	}
+	stmt.clear()
+	t.pool.Put(stmt)
+
 }
 
 func (t *Transaction) collectTask() {
@@ -170,23 +202,36 @@ func (t *Transaction) collectTask() {
 		select {
 		case <-t.ctx.Done():
 			return
+
 		case ph := <-t.collectCh:
 
-			if ph.cnt == 0x3fff {
-				t.doLog(t.TxnId, ph.dur)
-				continue
+			switch ph.typ {
+			case Done:
+				stmt := t.Stmts
+				t.Stmts = t.pool.Get().(*statement)
+				go stmt.doLog(t, t.TxnId, ph.dur)
+
+			case Operator:
+				old := t.Stmts.phaseDuration[ph.name]
+				old.dur += ph.dur
+				old.cnt++
+
+				if ph.dur > old.maxDur {
+					old.maxDur = ph.dur
+				}
+
+				t.Stmts.phaseDuration[ph.name] = old
+
+			case Range:
+				t.Stmts.ranges = append(t.Stmts.ranges, struct {
+					hit, total int
+					dur        time.Duration
+				}{hit: ph.hit, total: ph.total, dur: ph.dur})
+
+			case CNCommit:
+				t.Stmts.cnCommit = append(t.Stmts.cnCommit,
+					struct{ dur time.Duration }{dur: ph.dur})
 			}
-
-			old := t.Stmts.phaseDuration[ph.name]
-			old.dur += ph.dur
-			old.cnt++
-
-			if ph.dur > old.maxDur {
-				old.maxDur = ph.dur
-			}
-
-			t.Stmts.phaseDuration[ph.name] = old
-
 		}
 	}
 }

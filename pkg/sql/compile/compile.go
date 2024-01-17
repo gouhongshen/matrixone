@@ -416,7 +416,7 @@ func (c *Compile) Run(_ uint64) (result *util2.RunResult, err error) {
 
 	sp := c.proc.GetStmtProfile()
 	if strings.Contains(c.sql, "statement_cu") ||
-		strings.Contains(c.sql, "news_detail") ||
+		strings.Contains(c.sql, "bmsql_oorder") ||
 		strings.Contains(c.sql, "cluster_pk_tables") {
 
 		common.InsertLogger.SetTxnId(sp.GetTxnId())
