@@ -920,8 +920,9 @@ func (tbl *txnTable) rangesOnePart(
 	v2.TaskSelBlockHit.Add(float64(btotal - bhit))
 	blockio.RecordBlockSelectivity(bhit, btotal)
 
-	dur := time.Since(start)
-	common.InsertLogger.RecordRanges(uuid.UUID(tbl.db.txn.op.Txn().ID), bhit, btotal, dur)
+	//fmt.Println(string(debug.Stack()))
+	common.InsertLogger.RecordRanges(
+		uuid.UUID(tbl.db.txn.op.Txn().ID), int64(bhit), int64(btotal), start.UnixMicro(), time.Now().UnixMicro())
 
 	return
 }

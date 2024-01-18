@@ -17,9 +17,18 @@ package bitmap
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func Test_A(t *testing.T) {
+	start := time.Now().UnixNano()
+	time.Sleep(time.Second * 3)
+	end := time.Now().UnixNano()
+
+	fmt.Println(time.Unix(0, end).Sub(time.Unix(0, start)).Milliseconds())
+}
 
 const (
 	Rows          = 10

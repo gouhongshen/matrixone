@@ -160,7 +160,7 @@ func ChildrenCall(o Operator, proc *process.Process, anal process.Analyze) (Call
 	result, err := o.Call(proc)
 	name := bytes.Buffer{}
 	o.String(&name)
-	common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), start.UnixNano(), time.Now().UnixNano())
+	common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), start.UnixMicro(), time.Now().UnixMicro())
 	anal.ChildrenCallStop(beforeChildrenCall)
 	return result, err
 }

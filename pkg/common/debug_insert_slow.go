@@ -15,13 +15,13 @@
 package common
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/panjf2000/ants/v2"
 	"go.uber.org/zap"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -36,132 +36,190 @@ const (
 )
 
 type phase struct {
+	txn        *transaction
 	typ        int
 	name       string
 	start, end int64
-	hit, total int
-	dur        time.Duration
+	hit, total int64
 }
 
-type statement struct {
+type transaction struct {
 	phaseDuration map[string][]phase
 	ranges        []struct {
-		hit, total int
-		dur        time.Duration
+		hit, total, start, end int64
 	}
 	cnCommit []struct {
 		start, end int64
 	}
+	txnId uuid.UUID
 }
 
-func newStmt() *statement {
-	s := new(statement)
+func newTxn() *transaction {
+	s := new(transaction)
 	s.phaseDuration = make(map[string][]phase)
 	return s
 }
 
-type Transaction struct {
+type Sketchpad struct {
 	sync.Mutex
-	pool      sync.Pool
-	TxnId     uuid.UUID
+	pool sync.Pool
+	//TxnId     uuid.UUID
 	collectCh chan phase
-	Stmts     *statement
-	ctx       context.Context
+	//Stmts     *transaction
+	ctx context.Context
 
+	pad  sync.Map
 	ants *ants.Pool
 }
 
-var InsertLogger *Transaction
+var InsertLogger *Sketchpad
 
-func InitInsertLogger(ctx context.Context) *Transaction {
-	t := new(Transaction)
+func InitInsertLogger(ctx context.Context) *Sketchpad {
+	t := new(Sketchpad)
 
 	t.pool = sync.Pool{
 		New: func() any {
-			return newStmt()
+			return newTxn()
 		},
 	}
 
 	t.ctx = ctx
-	t.TxnId = uuid.New()
+	//t.TxnId = uuid.MustParse("dd1dccb4-4d3c-41f8-b482-5251dc7a41bf")
 	t.collectCh = make(chan phase, 1000*100)
 
-	t.Stmts = t.pool.Get().(*statement)
+	//t.Stmts = t.pool.Get().(*transaction)
 
 	t.ants, _ = ants.NewPool(10)
 	go t.collectTask()
 	return t
 }
 
-func (t *Transaction) SetTxnId(txnId uuid.UUID) {
-	t.TxnId = txnId
+func (t *Sketchpad) SetTxnId(txnId uuid.UUID) {
+	_, ok := t.pad.Load(txnId)
+	if ok {
+		panic("re set txn id")
+	}
+
+	txn := t.pool.Get().(*transaction)
+	txn.txnId = txnId
+	t.pad.Store(txnId, txn)
 }
 
-func (t *Transaction) RecordCNCommit(txnId uuid.UUID, start, end int64) {
-	if !bytes.Equal(txnId[:], t.TxnId[:]) {
+func (t *Sketchpad) RecordCNCommit(txnId uuid.UUID, start, end int64) {
+	val, ok := t.pad.Load(txnId)
+	if !ok {
 		return
 	}
 
 	t.collectCh <- phase{
+		txn:   val.(*transaction),
 		start: start,
 		end:   end,
 		typ:   CNCommit,
 	}
 }
 
-func (t *Transaction) RecordRanges(txnId uuid.UUID, hit, total int, dur time.Duration) {
+func (t *Sketchpad) RecordRanges(txnId uuid.UUID, hit, total, start, end int64) {
 	if total == 0 {
 		return
 	}
 
-	if !bytes.Equal(txnId[:], t.TxnId[:]) {
+	val, ok := t.pad.Load(txnId)
+	if !ok {
 		return
 	}
 
 	t.collectCh <- phase{
+		txn:   val.(*transaction),
 		hit:   hit,
 		total: total,
-		dur:   dur,
+		start: start,
+		end:   end,
 		typ:   Range,
 	}
 }
 
-func (t *Transaction) RecordPhase(name string, txnId uuid.UUID, start, end int64) {
-	if !bytes.Equal(txnId[:], t.TxnId[:]) {
+func (t *Sketchpad) RecordPhase(name string, txnId uuid.UUID, start, end int64) {
+	val, ok := t.pad.Load(txnId)
+	if !ok {
 		return
 	}
 
-	t.collectCh <- phase{name: name, start: start, end: end, typ: Operator}
-}
-
-func (t *Transaction) TryLog(txnId uuid.UUID, start, end int64) {
-	if bytes.Equal(txnId[:], t.TxnId[:]) {
-		t.collectCh <- phase{start: start, end: end, typ: Done}
+	t.collectCh <- phase{
+		txn:   val.(*transaction),
+		name:  name,
+		start: start,
+		end:   end,
+		typ:   Operator,
 	}
 }
 
-func (stmt *statement) clear() {
-	for x := range stmt.phaseDuration {
-		delete(stmt.phaseDuration, x)
+func (t *Sketchpad) TryLog(txnId uuid.UUID, start, end int64) {
+	val, ok := t.pad.Load(txnId)
+	if ok {
+		t.collectCh <- phase{
+			txn:   val.(*transaction),
+			start: start,
+			end:   end,
+			typ:   Done,
+		}
+
+		t.pad.Delete(txnId)
 	}
-	stmt.ranges = stmt.ranges[:0]
-	stmt.cnCommit = stmt.cnCommit[:0]
 }
 
-func (stmt *statement) doLog(t *Transaction, txnId uuid.UUID, start, end int64) {
+func (txn *transaction) clear() {
+	for x := range txn.phaseDuration {
+		delete(txn.phaseDuration, x)
+	}
+	txn.ranges = txn.ranges[:0]
+	txn.cnCommit = txn.cnCommit[:0]
+}
+
+func maxInt64(a, b int64) int64 {
+	if a < b {
+		return b
+	}
+	return a
+}
+
+func (txn *transaction) operatorMerge() {
+	for name := range txn.phaseDuration {
+		phs := txn.phaseDuration[name]
+		sort.Slice(phs, func(i, j int) bool {
+			return phs[i].start < phs[j].start
+		})
+
+		shadow := []phase{phs[0]}
+		sIdx := 0
+		for idx := 1; idx < len(phs); idx++ {
+			if shadow[sIdx].end >= phs[idx].start {
+				// has overlap
+				shadow[sIdx].end = maxInt64(shadow[sIdx].end, phs[idx].end)
+			} else {
+				shadow = append(shadow, phs[idx])
+				sIdx++
+			}
+		}
+		txn.phaseDuration[name] = shadow
+	}
+}
+
+func (txn *transaction) doLog(t *Sketchpad, txnId uuid.UUID, start, end int64) {
 	defer func() {
-		stmt.clear()
-		t.pool.Put(stmt)
+		txn.clear()
+		t.pool.Put(txn)
 	}()
 
-	if _, ok := stmt.phaseDuration["MergeS3BlocksMetaLoc"]; ok {
+	if _, ok := txn.phaseDuration[" MergeS3BlocksMetaLoc "]; ok {
 		return
 	}
 
-	phaseStr := ""
+	txn.operatorMerge()
 
-	for k := range stmt.phaseDuration {
-		phs := stmt.phaseDuration[k]
+	phaseStr := ""
+	for k := range txn.phaseDuration {
+		phs := txn.phaseDuration[k]
 		phaseStr += fmt.Sprintf("%s:", k)
 		for x := range phs {
 			phaseStr += fmt.Sprintf("(%d,%d)", phs[x].start, phs[x].end)
@@ -170,16 +228,15 @@ func (stmt *statement) doLog(t *Transaction, txnId uuid.UUID, start, end int64) 
 	}
 
 	rangesStr := ""
-	for idx := range stmt.ranges {
-		rangesStr += fmt.Sprintf("[%d/%d=%.3f, %.3fms]; ",
-			stmt.ranges[idx].hit, stmt.ranges[idx].total,
-			float64(stmt.ranges[idx].hit)/float64(stmt.ranges[idx].total),
-			float64(stmt.ranges[idx].dur.Nanoseconds())/(1000*1000))
+	for idx := range txn.ranges {
+		rangesStr += fmt.Sprintf("(%d,%d);(%d,%d)",
+			txn.ranges[idx].hit, txn.ranges[idx].total,
+			txn.ranges[idx].start, txn.ranges[idx].end)
 	}
 
 	cnCommitStr := ""
-	for idx := range stmt.cnCommit {
-		cnCommitStr += fmt.Sprintf("(%d,%d)", stmt.cnCommit[idx].start, stmt.cnCommit[idx].end)
+	for idx := range txn.cnCommit {
+		cnCommitStr += fmt.Sprintf("(%d,%d)", txn.cnCommit[idx].start, txn.cnCommit[idx].end)
 	}
 
 	logutil.Info("Slow Insert",
@@ -191,7 +248,7 @@ func (stmt *statement) doLog(t *Transaction, txnId uuid.UUID, start, end int64) 
 		zap.String("cnCommit", cnCommitStr))
 }
 
-func (t *Transaction) collectTask() {
+func (t *Sketchpad) collectTask() {
 	for {
 		select {
 		case <-t.ctx.Done():
@@ -201,10 +258,9 @@ func (t *Transaction) collectTask() {
 
 			switch ph.typ {
 			case Done:
-				stmt := t.Stmts
-				t.Stmts = t.pool.Get().(*statement)
+				txn := ph.txn
 				t.ants.Submit(func() {
-					stmt.doLog(t, t.TxnId, ph.start, ph.end)
+					txn.doLog(t, txn.txnId, ph.start, ph.end)
 				})
 
 			case Operator:
@@ -216,18 +272,17 @@ func (t *Transaction) collectTask() {
 					ph.name = ph.name[:idx]
 				}
 
-				old := t.Stmts.phaseDuration[ph.name]
+				old := ph.txn.phaseDuration[ph.name]
 				old = append(old, ph)
-				t.Stmts.phaseDuration[ph.name] = old
+				ph.txn.phaseDuration[ph.name] = old
 
 			case Range:
-				t.Stmts.ranges = append(t.Stmts.ranges, struct {
-					hit, total int
-					dur        time.Duration
-				}{hit: ph.hit, total: ph.total, dur: ph.dur})
+				ph.txn.ranges = append(ph.txn.ranges, struct {
+					hit, total, start, end int64
+				}{hit: ph.hit, total: ph.total, start: ph.start, end: ph.end})
 
 			case CNCommit:
-				t.Stmts.cnCommit = append(t.Stmts.cnCommit,
+				ph.txn.cnCommit = append(ph.txn.cnCommit,
 					struct{ start, end int64 }{start: ph.start, end: ph.end})
 			}
 		}

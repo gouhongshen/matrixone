@@ -449,7 +449,6 @@ func (tc *txnOperator) Commit(ctx context.Context) error {
 	defer func() {
 		dur := time.Since(tc.commitAt)
 		v2.TxnCNCommitDurationHistogram.Observe(dur.Seconds())
-		common.InsertLogger.RecordCNCommit(uuid.UUID(tc.txnID), tc.commitAt.UnixNano(), time.Now().UnixNano())
 	}()
 
 	_, task := gotrace.NewTask(context.TODO(), "transaction.Commit")
@@ -597,6 +596,7 @@ func (tc *txnOperator) doWrite(ctx context.Context, requests []txn.TxnRequest, c
 		}
 		tc.mu.Lock()
 		defer func() {
+			common.InsertLogger.RecordCNCommit(uuid.UUID(tc.txnID), tc.commitAt.UnixNano(), time.Now().UnixNano())
 			tc.closeLocked()
 			tc.mu.Unlock()
 		}()

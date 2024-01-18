@@ -132,7 +132,7 @@ func Run(ins Instructions, proc *process.Process) (end bool, err error) {
 		result, err := root.Call(proc)
 		name := bytes.Buffer{}
 		root.String(&name)
-		common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), start.UnixNano(), time.Now().UnixNano())
+		common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), start.UnixMicro(), time.Now().UnixMicro())
 		if err != nil {
 			return true, err
 		}

@@ -53,7 +53,7 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 
 	name := bytes.Buffer{}
 	arg.children[0].String(&name)
-	common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), start.UnixNano(), time.Now().UnixNano())
+	common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), start.UnixMicro(), time.Now().UnixMicro())
 	if err != nil {
 		return result, err
 	}

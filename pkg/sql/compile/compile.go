@@ -216,6 +216,13 @@ func (c *Compile) Compile(ctx context.Context, pn *plan.Plan, u any, fill func(a
 		v2.TxnStatementCompileDurationHistogram.Observe(time.Since(start).Seconds())
 	}()
 
+	sp := c.proc.GetStmtProfile()
+	if strings.Contains(c.sql, "statement_cu") ||
+		strings.Contains(c.sql, "cluster_pk_tables") {
+
+		common.InsertLogger.SetTxnId(sp.GetTxnId())
+	}
+
 	_, task := gotrace.NewTask(context.TODO(), "pipeline.Compile")
 	defer task.End()
 	defer func() {
@@ -415,12 +422,6 @@ func (c *Compile) Run(_ uint64) (result *util2.RunResult, err error) {
 	}
 
 	sp := c.proc.GetStmtProfile()
-	if strings.Contains(c.sql, "statement_cu") ||
-		strings.Contains(c.sql, "cluster_pk_tables") {
-
-		common.InsertLogger.SetTxnId(sp.GetTxnId())
-	}
-
 	c.ctx, span = trace.Start(c.ctx, "Compile.Run", trace.WithKind(trace.SpanKindStatement))
 	_, task := gotrace.NewTask(context.TODO(), "pipeline.Run")
 	defer func() {
