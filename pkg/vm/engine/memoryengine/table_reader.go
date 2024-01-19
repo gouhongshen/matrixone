@@ -17,6 +17,9 @@ package memoryengine
 import (
 	"context"
 	"encoding/binary"
+	"github.com/google/uuid"
+	"github.com/matrixorigin/matrixone/pkg/common"
+	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
@@ -144,7 +147,18 @@ func (t *Table) NewReader(
 
 var _ engine.Reader = new(TableReader)
 
-func (t *TableReader) Read(ctx context.Context, colNames []string, plan *plan.Expr, mp *mpool.MPool, _ engine.VectorPool) (*batch.Batch, error) {
+func (t *TableReader) Read(
+	ctx context.Context, colNames []string,
+	plan *plan.Expr, mp *mpool.MPool, _ engine.VectorPool) (result *batch.Batch, err error) {
+	start := time.Now()
+	defer func() {
+		if result == nil {
+			return
+		}
+		bytes := result.Size()
+		common.InsertLogger.RecordReader(uuid.UUID(t.txnOperator.Txn().ID), "tableReader", bytes, start, time.Now())
+	}()
+
 	if t == nil {
 		return nil, nil
 	}
@@ -178,6 +192,7 @@ func (t *TableReader) Read(ctx context.Context, colNames []string, plan *plan.Ex
 			continue
 		}
 
+		result = resp.Batch
 		logutil.Debug(testutil.OperatorCatchBatch("table reader", resp.Batch))
 		return resp.Batch, nil
 	}

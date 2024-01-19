@@ -92,7 +92,7 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 
 		name := bytes.Buffer{}
 		arg.children[0].String(&name)
-		common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), start.UnixMicro(), time.Now().UnixMicro())
+		common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), start, time.Now())
 		return result, err
 	}
 
@@ -113,7 +113,7 @@ func callNonBlocking(
 
 	name := bytes.Buffer{}
 	arg.children[0].String(&name)
-	common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), start.UnixMicro(), time.Now().UnixMicro())
+	common.InsertLogger.RecordPhase(name.String(), proc.StmtProfile.GetTxnId(), start, time.Now())
 	if err != nil {
 		return result, err
 	}

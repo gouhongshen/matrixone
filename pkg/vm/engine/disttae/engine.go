@@ -385,6 +385,9 @@ func (e *Engine) New(ctx context.Context, op client.TxnOperator) error {
 		nil,
 	)
 
+	proc.StmtProfile = &process.StmtProfile{}
+	proc.StmtProfile.SetTxnId(op.Txn().ID)
+
 	id := objectio.NewSegmentid()
 	bytes := types.EncodeUuid(id)
 	txn := &Transaction{

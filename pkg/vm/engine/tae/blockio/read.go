@@ -16,6 +16,8 @@ package blockio
 
 import (
 	"context"
+	"github.com/matrixorigin/matrixone/pkg/common"
+	"github.com/matrixorigin/matrixone/pkg/vm/process"
 	"math"
 	"time"
 
@@ -119,14 +121,23 @@ func BlockRead(
 	fs fileservice.FileService,
 	mp *mpool.MPool,
 	vp engine.VectorPool,
-) (*batch.Batch, error) {
+	proc *process.Process,
+) (result *batch.Batch, err error) {
 	if logutil.GetSkip1Logger().Core().Enabled(zap.DebugLevel) {
 		logutil.Debugf("read block %s, columns %v, types %v", info.BlockID.String(), columns, colTypes)
 	}
 
+	start := time.Now()
+	defer func() {
+		if result == nil {
+			return
+		}
+		bytes := result.Size()
+		common.InsertLogger.RecordReader(proc.StmtProfile.GetTxnId(), "blockReader", bytes, start, time.Now())
+	}()
+
 	var (
 		sels []int32
-		err  error
 	)
 
 	if filter != nil && info.Sorted {
@@ -145,7 +156,7 @@ func BlockRead(
 		}
 
 		if len(sels) == 0 {
-			result := batch.NewWithSize(len(colTypes))
+			result = batch.NewWithSize(len(colTypes))
 			for i, typ := range colTypes {
 				if vp == nil {
 					result.Vecs[i] = vector.NewVec(typ)
@@ -157,7 +168,7 @@ func BlockRead(
 		}
 	}
 
-	columnBatch, err := BlockReadInner(
+	result, err = BlockReadInner(
 		ctx, info, inputDeletes, columns, colTypes,
 		types.TimestampToTS(ts), sels, fs, mp, vp,
 	)
@@ -165,8 +176,8 @@ func BlockRead(
 		return nil, err
 	}
 
-	columnBatch.SetRowCount(columnBatch.Vecs[0].Length())
-	return columnBatch, nil
+	result.SetRowCount(result.Vecs[0].Length())
+	return result, nil
 }
 
 func BlockCompactionRead(

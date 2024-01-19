@@ -16,6 +16,9 @@ package disttae
 
 import (
 	"context"
+	"github.com/google/uuid"
+	"github.com/matrixorigin/matrixone/pkg/common"
+	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/testutil"
@@ -109,6 +112,7 @@ func (p *PartitionReader) Read(
 	_ *plan.Expr,
 	mp *mpool.MPool,
 	pool engine.VectorPool) (result *batch.Batch, err error) {
+	start := time.Now()
 	if p == nil {
 		return
 	}
@@ -125,6 +129,14 @@ func (p *PartitionReader) Read(
 				pool.PutBatch(result)
 			}
 		}
+
+		if result == nil {
+			return
+		}
+		bytes := result.Size()
+		txnId := p.table.db.txn.op.Txn().ID
+		common.InsertLogger.RecordReader(uuid.UUID(txnId), "partitionReader", bytes, start, time.Now())
+
 	}()
 	result = batch.NewWithSize(len(colNames))
 	result.SetAttributes(colNames)

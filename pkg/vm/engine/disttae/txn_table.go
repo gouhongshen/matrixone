@@ -922,7 +922,7 @@ func (tbl *txnTable) rangesOnePart(
 
 	//fmt.Println(string(debug.Stack()))
 	common.InsertLogger.RecordRanges(
-		uuid.UUID(tbl.db.txn.op.Txn().ID), int64(bhit), int64(btotal), start.UnixMicro(), time.Now().UnixMicro())
+		uuid.UUID(tbl.db.txn.op.Txn().ID), int64(bhit), int64(btotal), start, time.Now())
 
 	return
 }
@@ -2161,7 +2161,7 @@ func (tbl *txnTable) readNewRowid(vec *vector.Vector, row int,
 		bat, err := blockio.BlockRead(
 			tbl.proc.Load().Ctx, &blk, nil, columns, colTypes, tbl.db.txn.op.SnapshotTS(),
 			nil, nil, nil,
-			tbl.db.txn.engine.fs, tbl.proc.Load().Mp(), tbl.proc.Load(),
+			tbl.db.txn.engine.fs, tbl.proc.Load().Mp(), tbl.proc.Load(), tbl.proc.Load(),
 		)
 		if err != nil {
 			return rowid, false, err

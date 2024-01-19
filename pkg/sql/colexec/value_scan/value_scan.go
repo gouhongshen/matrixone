@@ -22,7 +22,7 @@ import (
 )
 
 func (arg *Argument) String(buf *bytes.Buffer) {
-	buf.WriteString(" table_scan ")
+	buf.WriteString(" value_scan ")
 }
 
 func (arg *Argument) Prepare(proc *process.Process) (err error) {

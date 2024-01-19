@@ -285,6 +285,11 @@ func newBlockReader(
 		},
 		blks: blks,
 	}
+
+	if proc.StmtProfile == nil {
+		x := 0
+		x++
+	}
 	r.filterState.expr = filterExpr
 	return r
 }
@@ -363,6 +368,7 @@ func (r *blockReader) Read(
 		r.filterState.colTypes,
 		filter,
 		r.fs, mp, vp,
+		r.proc,
 	)
 	if err != nil {
 		return nil, err

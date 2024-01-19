@@ -142,6 +142,11 @@ func (db *txnDatabase) Relation(ctx context.Context, name string, proc any) (eng
 	if proc != nil {
 		p = proc.(*process.Process)
 	}
+
+	if p.StmtProfile == nil {
+		p.StmtProfile = db.txn.proc.StmtProfile
+	}
+
 	rel := db.txn.getCachedTable(ctx, key,
 		db.txn.op.SnapshotTS())
 	if rel != nil {

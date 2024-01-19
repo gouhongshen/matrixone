@@ -596,7 +596,7 @@ func (tc *txnOperator) doWrite(ctx context.Context, requests []txn.TxnRequest, c
 		}
 		tc.mu.Lock()
 		defer func() {
-			common.InsertLogger.RecordCNCommit(uuid.UUID(tc.txnID), tc.commitAt.UnixNano(), time.Now().UnixNano())
+			common.InsertLogger.RecordCNCommit(uuid.UUID(tc.txnID), tc.commitAt, time.Now())
 			tc.closeLocked()
 			tc.mu.Unlock()
 		}()
