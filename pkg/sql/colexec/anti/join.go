@@ -26,6 +26,10 @@ import (
 
 const argName = "anti"
 
+func (arg *Argument) DebugArgName() string {
+	return argName
+}
+
 func (arg *Argument) String(buf *bytes.Buffer) {
 	buf.WriteString(argName)
 	buf.WriteString(": anti join ")

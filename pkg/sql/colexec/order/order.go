@@ -29,6 +29,10 @@ import (
 
 const argName = "order"
 
+func (arg *Argument) DebugArgName() string {
+	return argName
+}
+
 func (ctr *container) appendBatch(proc *process.Process, bat *batch.Batch) (enoughToSend bool, err error) {
 	s1, s2 := 0, bat.Size()
 	if ctr.batWaitForSort != nil {

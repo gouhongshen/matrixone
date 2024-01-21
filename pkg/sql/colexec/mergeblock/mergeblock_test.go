@@ -123,7 +123,10 @@ func TestMergeBlock(t *testing.T) {
 	resetChildren(&argument1, batch1)
 
 	argument1.Prepare(proc)
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 	_, err := argument1.Call(proc)
+	task.End()
 	require.NoError(t, err)
 	require.Equal(t, uint64(15*3), argument1.affectedRows)
 	// Check Tbl

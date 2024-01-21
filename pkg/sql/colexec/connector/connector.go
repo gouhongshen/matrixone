@@ -16,6 +16,7 @@ package connector
 
 import (
 	"bytes"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/vm"
@@ -23,6 +24,10 @@ import (
 )
 
 const argName = "connector"
+
+func (arg *Argument) DebugArgName() string {
+	return argName
+}
 
 func (arg *Argument) String(buf *bytes.Buffer) {
 	buf.WriteString(argName)
@@ -40,7 +45,10 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 
 	reg := arg.Reg
 
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.Children[0].DebugArgName())
 	result, err := arg.Children[0].Call(proc)
+	task.End()
 	if err != nil {
 		return result, err
 	}

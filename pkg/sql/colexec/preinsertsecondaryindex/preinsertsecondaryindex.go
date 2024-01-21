@@ -16,6 +16,7 @@ package preinsertsecondaryindex
 
 import (
 	"bytes"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -35,6 +36,10 @@ const (
 
 const argName = "pre_insert_secondary_index"
 
+func (arg *Argument) DebugArgName() string {
+	return argName
+}
+
 func (arg *Argument) String(buf *bytes.Buffer) {
 	buf.WriteString(argName)
 	buf.WriteString(": pre processing insert secondary key")
@@ -49,7 +54,10 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 	result, err := arg.children[0].Call(proc)
+	task.End()
 	if err != nil {
 		return result, err
 	}

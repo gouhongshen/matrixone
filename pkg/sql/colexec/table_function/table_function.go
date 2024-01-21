@@ -17,6 +17,7 @@ package table_function
 import (
 	"bytes"
 	"fmt"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/vm"
 
@@ -27,6 +28,10 @@ import (
 )
 
 const argName = "table_function"
+
+func (arg *Argument) DebugArgName() string {
+	return argName
+}
 
 func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	if err, isCancel := vm.CancelCheck(proc); isCancel {
@@ -40,7 +45,10 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	)
 	idx := arg.info.Idx
 
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 	result, err := arg.children[0].Call(proc)
+	task.End()
 	if err != nil {
 		return result, err
 	}

@@ -60,7 +60,10 @@ func TestCallLockOpWithNoConflict(t *testing.T) {
 		func(proc *process.Process, arg *Argument) {
 			require.NoError(t, arg.Prepare(proc))
 			arg.rt.hasNewVersionInRange = testFunc
+			var task *gotrace.Task
+			proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 			result, err := arg.Call(proc)
+			task.End()
 			require.NoError(t, err)
 
 			vec := result.Batch.GetVector(1)
@@ -98,7 +101,10 @@ func TestCallLockOpWithConflict(t *testing.T) {
 			c := make(chan struct{})
 			go func() {
 				defer close(c)
+				var task *gotrace.Task
+				proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 				result, err := arg.Call(proc)
+				task.End()
 				require.NoError(t, err)
 
 				vec := result.Batch.GetVector(1)
@@ -156,11 +162,17 @@ func TestCallLockOpWithConflictWithRefreshNotEnabled(t *testing.T) {
 				resetChildren(arg2, valueScan.Batchs[0])
 				defer arg2.rt.parker.FreeMem()
 
+				var task *gotrace.Task
+				proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 				_, err = arg2.Call(proc)
+				task.End()
 				assert.NoError(t, err)
 
 				resetChildren(arg2, nil)
+				var task *gotrace.Task
+				proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 				_, err = arg2.Call(proc)
+				task.End()
 				require.Error(t, err)
 				assert.True(t, moerr.IsMoErrCode(err, moerr.ErrTxnNeedRetry))
 			}()
@@ -222,11 +234,17 @@ func TestCallLockOpWithHasPrevCommit(t *testing.T) {
 				resetChildren(arg2, valueScan.Batchs[0])
 				defer arg2.rt.parker.FreeMem()
 
+				var task *gotrace.Task
+				proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 				_, err = arg2.Call(proc)
+				task.End()
 				assert.NoError(t, err)
 
 				resetChildren(arg2, nil)
+				var task *gotrace.Task
+				proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 				_, err = arg2.Call(proc)
+				task.End()
 				require.Error(t, err)
 				assert.True(t, moerr.IsMoErrCode(err, moerr.ErrTxnNeedRetry))
 			}()
@@ -290,11 +308,17 @@ func TestCallLockOpWithHasPrevCommitLessMe(t *testing.T) {
 
 				proc.TxnOperator.TxnRef().SnapshotTS = timestamp.Timestamp{PhysicalTime: math.MaxInt64}
 
+				var task *gotrace.Task
+				proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 				_, err = arg2.Call(proc)
+				task.End()
 				assert.NoError(t, err)
 
 				resetChildren(arg2, nil)
+				var task *gotrace.Task
+				proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 				_, err = arg2.Call(proc)
+				task.End()
 				require.NoError(t, err)
 			}()
 			require.NoError(t, lockservice.WaitWaiters(proc.LockService, 0, tableID, conflictRow, 1))
@@ -322,7 +346,10 @@ func TestLockWithBlocking(t *testing.T) {
 				IsFirst: isFirst,
 				IsLast:  isLast,
 			}
+			var task *gotrace.Task
+			proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 			end, err := arg.Call(proc)
+			task.End()
 			require.NoError(t, err)
 			if end.Batch != nil {
 				end.Batch.Clean(proc.GetMPool())
@@ -383,7 +410,10 @@ func TestLockWithBlockingWithConflict(t *testing.T) {
 				IsFirst: isFirst,
 				IsLast:  isLast,
 			}
+			var task *gotrace.Task
+			proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 			ok, err := arg.Call(proc)
+			task.End()
 			return ok.Status == vm.ExecStop, err
 		},
 		func(arg *Argument, proc *process.Process) {
@@ -426,7 +456,10 @@ func TestLockWithHasNewVersionInLockedTS(t *testing.T) {
 				return true, nil
 			}
 
+			var task *gotrace.Task
+			proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 			_, err := arg.Call(proc)
+			task.End()
 			require.NoError(t, err)
 			require.Error(t, arg.rt.retryError)
 			require.True(t, moerr.IsMoErrCode(arg.rt.retryError, moerr.ErrTxnNeedRetry))

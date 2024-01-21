@@ -157,7 +157,10 @@ func TestMergeDelete(t *testing.T) {
 
 	require.NoError(t, argument1.Prepare(proc))
 	resetChildren(&argument1, batch1)
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 	_, err = argument1.Call(proc)
+	task.End()
 	require.NoError(t, err)
 	require.Equal(t, uint64(15), argument1.AffectedRows)
 
@@ -177,7 +180,10 @@ func TestMergeDelete(t *testing.T) {
 	}
 
 	resetChildren(&argument1, batch2)
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 	_, err = argument1.Call(proc)
+	task.End()
 	require.NoError(t, err)
 	require.Equal(t, uint64(60), argument1.AffectedRows)
 

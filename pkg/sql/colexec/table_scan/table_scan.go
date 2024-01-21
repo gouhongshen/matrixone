@@ -25,6 +25,11 @@ import (
 )
 
 const argName = "table_scan"
+
+func (arg *Argument) DebugArgName() string {
+	return argName
+}
+
 const maxBatchMemSize = colexec.DefaultBatchSize * 1024
 
 func (arg *Argument) String(buf *bytes.Buffer) {

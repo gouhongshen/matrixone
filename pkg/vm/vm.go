@@ -16,6 +16,7 @@ package vm
 
 import (
 	"bytes"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
@@ -132,7 +133,10 @@ func Run(ins Instructions, proc *process.Process) (end bool, err error) {
 	root := ins[len(ins)-1].Arg
 	end = false
 	for !end {
+		var task *gotrace.Task
+		proc.Ctx, task = gotrace.NewTask(proc.Ctx, root.DebugArgName())
 		result, err := root.Call(proc)
+		task.End()
 		if err != nil {
 			return true, err
 		}

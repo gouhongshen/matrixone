@@ -30,6 +30,10 @@ import (
 
 const argName = "merge_order"
 
+func (arg *Argument) DebugArgName() string {
+	return argName
+}
+
 func (ctr *container) mergeAndEvaluateOrderColumn(proc *process.Process, bat *batch.Batch) error {
 	ctr.batchList = append(ctr.batchList, bat)
 	ctr.orderCols = append(ctr.orderCols, nil)

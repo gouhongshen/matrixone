@@ -62,6 +62,10 @@ type EncodeGroupConcat struct {
 
 const argName = "group_concat"
 
+func (arg *Argument) DebugArgName() string {
+	return argName
+}
+
 func (m *EncodeGroupConcat) MarshalBinary() ([]byte, error) {
 	return m.Marshal()
 }

@@ -92,7 +92,10 @@ func TestPreInsertNormal(t *testing.T) {
 	}
 	checkResultBat, _ := batch1.Dup(proc.Mp())
 	resetChildren(&argument1, batch1)
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 	callResult, err := argument1.Call(proc)
+	task.End()
 	require.NoError(t, err)
 	{
 		result := callResult.Batch
@@ -163,7 +166,10 @@ func TestPreInsertNullCheck(t *testing.T) {
 		},
 	}
 	resetChildren(&argument2, batch2)
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 	_, err2 := argument2.Call(proc)
+	task.End()
 	require.Error(t, err2, "should return error when insert null into primary key column")
 }
 

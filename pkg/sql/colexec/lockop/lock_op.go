@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	gotrace "runtime/trace"
 	"strings"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -42,6 +43,10 @@ var (
 )
 
 const argName = "lock_op"
+
+func (arg *Argument) DebugArgName() string {
+	return argName
+}
 
 func (arg *Argument) String(buf *bytes.Buffer) {
 	buf.WriteString(argName)
@@ -89,7 +94,10 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 
 	txnOp := proc.TxnOperator
 	if !txnOp.Txn().IsPessimistic() {
+		var task *gotrace.Task
+		proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 		return arg.children[0].Call(proc)
+		task.End()
 	}
 
 	if !arg.block {
@@ -104,7 +112,10 @@ func callNonBlocking(
 	proc *process.Process,
 	arg *Argument) (vm.CallResult, error) {
 
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 	result, err := arg.children[0].Call(proc)
+	task.End()
 	if err != nil {
 		return result, err
 	}

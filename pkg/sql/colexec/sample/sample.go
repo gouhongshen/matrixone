@@ -28,9 +28,14 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 	"math/rand"
+	gotrace "runtime/trace"
 )
 
 const argName = "sample"
+
+func (arg *Argument) DebugArgName() string {
+	return argName
+}
 
 func (arg *Argument) String(buf *bytes.Buffer) {
 	buf.WriteString(argName)
@@ -99,7 +104,10 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	}
 
 	// duplicate code from other operators.
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 	result, lastErr := arg.children[0].Call(proc)
+	task.End()
 	if lastErr != nil {
 		return result, lastErr
 	}

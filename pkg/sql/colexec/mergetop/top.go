@@ -29,6 +29,10 @@ import (
 
 const argName = "merge_top"
 
+func (arg *Argument) DebugArgName() string {
+	return argName
+}
+
 func (arg *Argument) String(buf *bytes.Buffer) {
 	buf.WriteString(argName)
 	ap := arg

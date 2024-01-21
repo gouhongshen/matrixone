@@ -25,6 +25,10 @@ import (
 
 const argName = "product"
 
+func (arg *Argument) DebugArgName() string {
+	return argName
+}
+
 func (arg *Argument) String(buf *bytes.Buffer) {
 	buf.WriteString(argName)
 	buf.WriteString(": cross join ")

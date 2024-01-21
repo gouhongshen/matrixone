@@ -87,7 +87,10 @@ func TestPreInsertUnique(t *testing.T) {
 
 	types.T_int64.ToType()
 	resetChildren(&argument, testBatch)
+	var task *gotrace.Task
+	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 	_, err := argument.Call(proc)
+	task.End()
 	require.NoError(t, err)
 }
 
