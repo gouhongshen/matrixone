@@ -16,6 +16,7 @@ package disttae
 
 import (
 	"context"
+	gotrace "runtime/trace"
 	"strconv"
 	"time"
 	"unsafe"
@@ -596,8 +597,11 @@ func (tbl *txnTable) resetSnapshot() {
 // return all unmodified blocks
 func (tbl *txnTable) Ranges(ctx context.Context, exprs []*plan.Expr) (ranges engine.Ranges, err error) {
 	start := time.Now()
+	var task *gotrace.Task
+	ctx, task = gotrace.NewTask(ctx, "Ranges")
 	defer func() {
 		v2.TxnTableRangeDurationHistogram.Observe(time.Since(start).Seconds())
+		task.End()
 	}()
 
 	tbl.writes = tbl.writes[:0]
