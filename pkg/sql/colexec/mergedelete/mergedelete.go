@@ -17,8 +17,6 @@ package mergedelete
 import (
 	"bytes"
 	"fmt"
-	gotrace "runtime/trace"
-
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"github.com/matrixorigin/matrixone/pkg/vm"
@@ -49,10 +47,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	var name string
 	ap := arg
 
-	var task *gotrace.Task
-	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 	result, err := arg.children[0].Call(proc)
-	task.End()
+
 	if err != nil {
 		return result, err
 	}

@@ -24,7 +24,6 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/sql/util"
 	"github.com/matrixorigin/matrixone/pkg/vm"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
-	gotrace "runtime/trace"
 )
 
 const (
@@ -53,10 +52,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	var task *gotrace.Task
-	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 	result, err := arg.children[0].Call(proc)
-	task.End()
+
 	if err != nil {
 		return result, err
 	}

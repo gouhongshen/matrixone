@@ -98,8 +98,7 @@ func TestInsertOperator(t *testing.T) {
 	resetChildren(&argument1, batch1)
 	err := argument1.Prepare(proc)
 	require.NoError(t, err)
-	var task *gotrace.Task
-	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
+
 	_, err = argument1.Call(proc)
 	task.End()
 	require.NoError(t, err)

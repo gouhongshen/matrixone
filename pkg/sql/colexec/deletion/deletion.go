@@ -16,7 +16,6 @@ package deletion
 
 import (
 	"bytes"
-	gotrace "runtime/trace"
 	"sync/atomic"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
@@ -202,10 +201,9 @@ func (arg *Argument) remoteDelete(proc *process.Process) (vm.CallResult, error) 
 }
 
 func (arg *Argument) normalDelete(proc *process.Process) (vm.CallResult, error) {
-	var task *gotrace.Task
-	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
+
 	result, err := arg.children[0].Call(proc)
-	task.End()
+
 	if err != nil {
 		return result, err
 	}

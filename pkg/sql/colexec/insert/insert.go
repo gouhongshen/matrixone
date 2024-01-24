@@ -16,7 +16,6 @@ package insert
 
 import (
 	"bytes"
-	gotrace "runtime/trace"
 	"sync/atomic"
 	"time"
 
@@ -191,10 +190,8 @@ func (arg *Argument) insert_table(proc *process.Process) (vm.CallResult, error) 
 	anal.Start()
 	defer anal.Stop()
 
-	var task *gotrace.Task
-	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 	result, err := arg.children[0].Call(proc)
-	task.End()
+
 	if err != nil {
 		return result, err
 	}

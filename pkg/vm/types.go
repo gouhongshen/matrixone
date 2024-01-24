@@ -16,7 +16,6 @@ package vm
 
 import (
 	"bytes"
-	gotrace "runtime/trace"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -178,10 +177,7 @@ func CancelCheck(proc *process.Process) (error, bool) {
 
 func ChildrenCall(o Operator, proc *process.Process, anal process.Analyze) (CallResult, error) {
 	beforeChildrenCall := time.Now()
-	var task *gotrace.Task
-	proc.Ctx, task = gotrace.NewTask(proc.Ctx, o.DebugArgName())
 	result, err := o.Call(proc)
-	task.End()
 	anal.ChildrenCallStop(beforeChildrenCall)
 	return result, err
 }

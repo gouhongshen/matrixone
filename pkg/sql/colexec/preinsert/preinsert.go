@@ -16,8 +16,6 @@ package preinsert
 
 import (
 	"bytes"
-	gotrace "runtime/trace"
-
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -50,10 +48,8 @@ func (arg *Argument) Call(proc *proc) (vm.CallResult, error) {
 		return vm.CancelResult, err
 	}
 
-	var task *gotrace.Task
-	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
 	result, err := arg.children[0].Call(proc)
-	task.End()
+
 	if err != nil {
 		return result, err
 	}

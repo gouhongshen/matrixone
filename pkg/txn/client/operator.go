@@ -214,7 +214,9 @@ type txnOperator struct {
 	clock                clock.Clock
 	createAt             time.Time
 	commitAt             time.Time
-	task                 *gotrace.Task
+	lifeSpanTrace        *gotrace.Task
+	workspaceTrace       *gotrace.Task
+	sendCommitTrace      *gotrace.Task
 }
 
 func newTxnOperator(
@@ -227,7 +229,7 @@ func newTxnOperator(
 	tc.txnID = txnMeta.ID
 	tc.clock = clock
 	tc.createAt = time.Now()
-	_, tc.task = gotrace.NewTask(context.Background(), "txnLifeSpan")
+	_, tc.lifeSpanTrace = gotrace.NewTask(context.Background(), "txnLifeSpan")
 	for _, opt := range options {
 		opt(tc)
 	}
@@ -474,13 +476,13 @@ func (tc *txnOperator) WriteAndCommit(ctx context.Context, requests []txn.TxnReq
 }
 
 func (tc *txnOperator) Commit(ctx context.Context) error {
+	_, task := gotrace.NewTask(context.TODO(), "transaction.CNCommit")
 	tc.commitAt = time.Now()
 	defer func() {
 		v2.TxnCNCommitDurationHistogram.Observe(time.Since(tc.commitAt).Seconds())
+		task.End()
 	}()
 
-	_, task := gotrace.NewTask(context.TODO(), "transaction.CNCommit")
-	defer task.End()
 	util.LogTxnCommit(tc.getTxnMeta(false))
 
 	if tc.option.readyOnly {
@@ -633,7 +635,10 @@ func (tc *txnOperator) doWrite(ctx context.Context, requests []txn.TxnRequest, c
 	var payload []txn.TxnRequest
 	if commit {
 		if tc.workspace != nil {
+			_, tc.workspaceTrace = gotrace.NewTask(ctx, "WorkSpace.Commit")
 			reqs, err := tc.workspace.Commit(ctx)
+			tc.workspaceTrace.End()
+
 			if err != nil {
 				return nil, errors.Join(err, tc.Rollback(ctx))
 			}
@@ -690,7 +695,12 @@ func (tc *txnOperator) doWrite(ctx context.Context, requests []txn.TxnRequest, c
 				Disable1PCOpt: tc.option.disable1PCOpt,
 			}})
 	}
-	return tc.trimResponses(tc.handleError(tc.doSend(ctx, requests, commit)))
+
+	_, tc.sendCommitTrace = gotrace.NewTask(ctx, "send.Commit")
+	result, err := tc.trimResponses(tc.handleError(tc.doSend(ctx, requests, commit)))
+	tc.sendCommitTrace.End()
+
+	return result, err
 }
 
 func (tc *txnOperator) updateWritePartitions(requests []txn.TxnRequest, locked bool) {

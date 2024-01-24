@@ -17,8 +17,6 @@ package dispatch
 import (
 	"bytes"
 	"context"
-	gotrace "runtime/trace"
-
 	"github.com/matrixorigin/matrixone/pkg/logutil"
 
 	"github.com/google/uuid"
@@ -119,10 +117,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 
 	ap := arg
 
-	var task *gotrace.Task
-	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.Children[0].DebugArgName())
 	result, err := arg.Children[0].Call(proc)
-	task.End()
+
 	if err != nil {
 		return result, err
 	}

@@ -16,8 +16,6 @@ package output
 
 import (
 	"bytes"
-	gotrace "runtime/trace"
-
 	"github.com/matrixorigin/matrixone/pkg/vm"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 )
@@ -43,10 +41,8 @@ func (arg *Argument) Call(proc *process.Process) (vm.CallResult, error) {
 	}
 
 	ap := arg
-	var task *gotrace.Task
-	proc.Ctx, task = gotrace.NewTask(proc.Ctx, arg.children[0].DebugArgName())
+
 	result, err := arg.children[0].Call(proc)
-	task.End()
 	if err != nil {
 		return result, err
 	}

@@ -624,34 +624,34 @@ func (tbl *txnTable) AddDeleteNode(id *common.ID, node txnif.DeleteNode) error {
 }
 
 func (tbl *txnTable) Append(ctx context.Context, data *containers.Batch) (err error) {
-	if tbl.schema.HasPK() {
-		dedupType := tbl.store.txn.GetDedupType()
-		if dedupType == txnif.FullDedup {
-			//do PK deduplication check against txn's work space.
-			if err = tbl.DedupWorkSpace(
-				data.Vecs[tbl.schema.GetSingleSortKeyIdx()]); err != nil {
-				return
-			}
-			//do PK deduplication check against txn's snapshot data.
-			if err = tbl.DedupSnapByPK(
-				ctx,
-				data.Vecs[tbl.schema.GetSingleSortKeyIdx()], false); err != nil {
-				return
-			}
-		} else if dedupType == txnif.FullSkipWorkSpaceDedup {
-			if err = tbl.DedupSnapByPK(
-				ctx,
-				data.Vecs[tbl.schema.GetSingleSortKeyIdx()], false); err != nil {
-				return
-			}
-		} else if dedupType == txnif.IncrementalDedup {
-			if err = tbl.DedupSnapByPK(
-				ctx,
-				data.Vecs[tbl.schema.GetSingleSortKeyIdx()], true); err != nil {
-				return
-			}
-		}
-	}
+	//if tbl.schema.HasPK() {
+	//	dedupType := tbl.store.txn.GetDedupType()
+	//	if dedupType == txnif.FullDedup {
+	//		//do PK deduplication check against txn's work space.
+	//		if err = tbl.DedupWorkSpace(
+	//			data.Vecs[tbl.schema.GetSingleSortKeyIdx()]); err != nil {
+	//			return
+	//		}
+	//		//do PK deduplication check against txn's snapshot data.
+	//		if err = tbl.DedupSnapByPK(
+	//			ctx,
+	//			data.Vecs[tbl.schema.GetSingleSortKeyIdx()], false); err != nil {
+	//			return
+	//		}
+	//	} else if dedupType == txnif.FullSkipWorkSpaceDedup {
+	//		if err = tbl.DedupSnapByPK(
+	//			ctx,
+	//			data.Vecs[tbl.schema.GetSingleSortKeyIdx()], false); err != nil {
+	//			return
+	//		}
+	//	} else if dedupType == txnif.IncrementalDedup {
+	//		if err = tbl.DedupSnapByPK(
+	//			ctx,
+	//			data.Vecs[tbl.schema.GetSingleSortKeyIdx()], true); err != nil {
+	//			return
+	//		}
+	//	}
+	//}
 	if tbl.tableSpace == nil {
 		tbl.tableSpace = newTableSpace(tbl)
 	}
