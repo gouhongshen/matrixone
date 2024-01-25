@@ -244,9 +244,9 @@ func (client *txnClient) adjust() {
 	if client.limiter == nil {
 		client.limiter = ratelimit.NewUnlimited()
 	}
-	if client.maxActiveTxn == 0 {
-		client.maxActiveTxn = math.MaxInt
-	}
+	//if client.maxActiveTxn == 0 {
+	client.maxActiveTxn = math.MaxInt
+	//}
 }
 
 func (client *txnClient) New(

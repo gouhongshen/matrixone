@@ -98,9 +98,9 @@ func (c *Config) Adjust() {
 	if c.SendQueueSize == 0 {
 		c.SendQueueSize = 100000
 	}
-	if c.ServerWorkers == 0 {
-		c.ServerWorkers = 50
-	}
+	//if c.ServerWorkers == 0 {
+	c.ServerWorkers = 500
+	//}
 	if c.ServerBufferQueueSize == 0 {
 		c.ServerBufferQueueSize = 100000
 	}

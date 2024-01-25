@@ -16,7 +16,6 @@ package rpc
 
 import (
 	"context"
-
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
@@ -26,6 +25,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/containers"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/iface/handle"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/options"
+	gotrace "runtime/trace"
 )
 
 func CreateRelation(
@@ -61,9 +61,15 @@ func TableNamesOfDB(db handle.Database) ([]string, error) {
 }
 
 func AppendDataToTable(ctx context.Context, rel handle.Relation, bat *batch.Batch) (err error) {
+	var task *gotrace.Task
+	ctx, task = gotrace.NewTask(ctx, "AppendDataToTable")
+
 	tnBat := containers.ToTNBatch(bat, common.WorkspaceAllocator)
 	defer tnBat.Close()
 	err = rel.Append(ctx, tnBat)
+
+	task.End()
+
 	return
 }
 
