@@ -45,11 +45,22 @@ func (a *driverAppender) appendEntry(e *entry.Entry) {
 	a.entry.append(e)
 }
 
+/*
+
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+|--------|--------|---------|
+
+*/
+
 func (a *driverAppender) append(retryTimout, appendTimeout time.Duration) {
 	start := time.Now()
 	defer func() {
 		v2.LogTailAppendDurationHistogram.Observe(time.Since(start).Seconds())
 	}()
+
+	for idx := range a.entry.entries {
+		logutil.AppendDurationChan <- a.entry.entries[idx].Entry.Duration()
+	}
 
 	size := a.entry.prepareRecord()
 	// if size > int(common.K)*20 { //todo

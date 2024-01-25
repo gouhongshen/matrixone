@@ -15,8 +15,6 @@
 package logservicedriver
 
 import (
-	"context"
-	gotrace "runtime/trace"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -66,11 +64,7 @@ func (d *LogServiceDriver) onAppendQueue(appender *driverAppender) {
 	appender.contextDuration = d.config.NewClientDuration
 	appender.wg.Add(1)
 
-	_, task := gotrace.NewTask(context.Background(), "AppenderWaitToSchedule")
 	d.appendPool.Submit(func() {
-		// let us see if the pool is running out of its capacity,
-		// and how long this appender will block until being re-schedule.
-		task.End()
 		appender.append(d.config.RetryTimeout, d.config.ClientAppendDuration)
 	})
 }
