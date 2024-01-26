@@ -281,6 +281,7 @@ func (mgr *TxnManager) heartbeat(ctx context.Context) {
 		case <-heartbeatTicker.C:
 			op := mgr.newHeartbeatOpTxn(ctx)
 			op.Txn.(*Txn).Add(1)
+			op.Ts = time.Now()
 			_, err := mgr.PreparingSM.EnqueueRecevied(op)
 			if err != nil {
 				panic(err)

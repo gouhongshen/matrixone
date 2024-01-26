@@ -51,7 +51,7 @@ func doLog() {
 			maxDur = durCache[idx]
 		}
 	}
-	
+
 	step := time.Duration(int64(maxDur-minDur+1) / (fixedBucketCnt - 2))
 	bucket := make([]int, fixedBucketCnt)
 
@@ -64,8 +64,8 @@ func doLog() {
 
 	buf := &bytes.Buffer{}
 	for idx := range bucket {
-		lo := minDur + time.Duration(idx)*step
-		hi := minDur + time.Duration(idx+1)*step
+		lo := minDur + time.Duration(idx*int(step))
+		hi := minDur + time.Duration((idx+1)*int(step))
 
 		mid := (lo + hi) / 2
 
@@ -76,7 +76,7 @@ func doLog() {
 		} else if mid < time.Second*10 {
 			buf.WriteString(fmt.Sprintf("%5dms: %8d", mid.Milliseconds(), bucket[idx]))
 		} else {
-			buf.WriteString(fmt.Sprintf("%5ds: %8d", mid.Seconds(), bucket[idx]))
+			buf.WriteString(fmt.Sprintf("%5fs: %8d", mid.Seconds(), bucket[idx]))
 		}
 
 		buf.WriteString("\n")

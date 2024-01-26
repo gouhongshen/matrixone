@@ -16,6 +16,7 @@ package txnbase
 
 import (
 	"context"
+	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
@@ -36,6 +37,8 @@ func (txn *Txn) rollback1PC(ctx context.Context) (err error) {
 		ctx: ctx,
 		Txn: txn,
 		Op:  OpRollback,
+		Dur: 0,
+		Ts:  time.Now(),
 	})
 	if err != nil {
 		_ = txn.PrepareRollback()
@@ -62,6 +65,8 @@ func (txn *Txn) commit1PC(ctx context.Context, _ bool) (err error) {
 			ctx: ctx,
 			Txn: txn,
 			Op:  OpCommit,
+			Dur: 0,
+			Ts:  time.Now(),
 		})
 	}
 
@@ -95,6 +100,8 @@ func (txn *Txn) rollback2PC(ctx context.Context) (err error) {
 			ctx: ctx,
 			Txn: txn,
 			Op:  OpRollback,
+			Dur: 0,
+			Ts:  time.Now(),
 		})
 		if err != nil {
 			_ = txn.PrepareRollback()

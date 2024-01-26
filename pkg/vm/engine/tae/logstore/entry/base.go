@@ -294,6 +294,9 @@ func (b *Base) Free() {
 		logutil.Debugf("payload size is %d", b.GetPayloadSize())
 		panic("wrong payload size")
 	}
+
+	b.Dur = 0
+
 	_basePool.Put(b)
 }
 
