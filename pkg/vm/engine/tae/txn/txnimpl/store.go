@@ -702,7 +702,7 @@ func (store *txnStore) PreApplyCommit() (err error) {
 	return
 }
 
-func (store *txnStore) PrepareWAL() (err error) {
+func (store *txnStore) PrepareWAL(dur time.Duration, ts time.Time) (err error) {
 	if err = store.CollectCmd(); err != nil {
 		return
 	}
@@ -714,7 +714,7 @@ func (store *txnStore) PrepareWAL() (err error) {
 	// Apply the record from the command list.
 	// Split the commands by max message size.
 	for store.cmdMgr.cmd.MoreCmds() {
-		logEntry, err := store.cmdMgr.ApplyTxnRecord(store.txn)
+		logEntry, err := store.cmdMgr.ApplyTxnRecord(store.txn, dur, ts)
 		if err != nil {
 			return err
 		}

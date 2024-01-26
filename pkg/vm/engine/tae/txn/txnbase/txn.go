@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"runtime/trace"
 	"sync/atomic"
+	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logstore/entry"
 
@@ -50,6 +51,9 @@ type OpTxn struct {
 	ctx context.Context
 	Txn txnif.AsyncTxn
 	Op  OpType
+
+	Dur time.Duration
+	Ts  time.Time
 }
 
 func (txn *OpTxn) IsReplay() bool { return txn.Txn.IsReplay() }
@@ -183,6 +187,8 @@ func (txn *Txn) Prepare(ctx context.Context) (pts types.TS, err error) {
 		ctx: ctx,
 		Txn: txn,
 		Op:  OpPrepare,
+		Dur: 0,
+		Ts:  time.Now(),
 	})
 	// TxnManager is closed
 	if err != nil {
@@ -332,8 +338,8 @@ func (txn *Txn) PreApplyCommit() (err error) {
 	return
 }
 
-func (txn *Txn) PrepareWAL() (err error) {
-	err = txn.Store.PrepareWAL()
+func (txn *Txn) PrepareWAL(dur time.Duration, ts time.Time) (err error) {
+	err = txn.Store.PrepareWAL(dur, ts)
 	return
 }
 

@@ -16,6 +16,7 @@ package logservicedriver
 
 import (
 	"context"
+	entry2 "github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logstore/entry"
 	"sync"
 	"time"
 
@@ -59,7 +60,7 @@ func (a *driverAppender) append(retryTimout, appendTimeout time.Duration) {
 	}()
 
 	for idx := range a.entry.entries {
-		logutil.AppendDurationChan <- a.entry.entries[idx].Entry.Duration()
+		logutil.AppendDurationChan <- a.entry.entries[idx].Entry.(*entry2.Base).Dur
 	}
 
 	size := a.entry.prepareRecord()

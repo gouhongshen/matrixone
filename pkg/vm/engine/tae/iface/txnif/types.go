@@ -18,6 +18,7 @@ import (
 	"context"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/objectio"
 
@@ -45,7 +46,7 @@ type Txn2PC interface {
 	PrePrepare(ctx context.Context) error
 	PrepareCommit() error
 	PreApplyCommit() error
-	PrepareWAL() error
+	PrepareWAL(dur time.Duration, ts time.Time) error
 	ApplyCommit() error
 }
 

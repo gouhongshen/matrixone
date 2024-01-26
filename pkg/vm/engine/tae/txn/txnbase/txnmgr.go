@@ -266,6 +266,7 @@ func (mgr *TxnManager) GetTxn(id string) txnif.AsyncTxn {
 }
 
 func (mgr *TxnManager) EnqueueFlushing(op any) (err error) {
+	op.(*OpTxn).Ts = time.Now()
 	_, err = mgr.PreparingSM.EnqueueCheckpoint(op)
 	return
 }
@@ -479,6 +480,8 @@ func (mgr *TxnManager) dequeuePreparing(items ...any) {
 	for _, item := range items {
 		op := item.(*OpTxn)
 		t0 := time.Now()
+		op.Dur += t0.Sub(op.Ts)
+
 		// Idempotent check
 		if state := op.Txn.GetTxnState(false); state != txnif.TxnStateActive {
 			op.Txn.WaitDone(moerr.NewTxnNotActiveNoCtx(txnif.TxnStrState(state)), false)
@@ -530,8 +533,10 @@ func (mgr *TxnManager) onPrepareWAL(items ...any) {
 		op := item.(*OpTxn)
 		var t1, t2, t3, t4, t5, t6 time.Time
 		t1 = time.Now()
+		op.Dur += t1.Sub(op.Ts)
+
 		if op.Txn.GetError() == nil && op.Op == OpCommit || op.Op == OpPrepare {
-			if err := op.Txn.PrepareWAL(); err != nil {
+			if err := op.Txn.PrepareWAL(op.Dur, op.Ts); err != nil {
 				panic(err)
 			}
 

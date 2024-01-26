@@ -223,11 +223,15 @@ func (info *Info) ToString() string {
 
 type Base struct {
 	*descriptor
-	payload   []byte
-	info      any
-	infobuf   []byte
-	wg        sync.WaitGroup
-	t0        time.Time
+	payload []byte
+	info    any
+	infobuf []byte
+	wg      sync.WaitGroup
+	t0      time.Time
+
+	Dur time.Duration
+	Ts  time.Time
+
 	printTime bool
 	err       error
 }

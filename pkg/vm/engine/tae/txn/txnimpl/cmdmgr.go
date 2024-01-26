@@ -54,7 +54,7 @@ func (mgr *commandManager) AddCmd(cmd txnif.TxnCmd) {
 	mgr.csn++
 }
 
-func (mgr *commandManager) ApplyTxnRecord(txn txnif.AsyncTxn) (logEntry entry.Entry, err error) {
+func (mgr *commandManager) ApplyTxnRecord(txn txnif.AsyncTxn, dur time.Duration, ts time.Time) (logEntry entry.Entry, err error) {
 	if mgr.driver == nil {
 		return
 	}
@@ -66,8 +66,12 @@ func (mgr *commandManager) ApplyTxnRecord(txn txnif.AsyncTxn) (logEntry entry.En
 	}
 	// logutil.Info("", common.OperationField("suxi-replay-cmd"),
 	// common.OperandField(mgr.cmd.Desc()))
-	logEntry = entry.GetBase()
-	logEntry.StartTime()
+	b := entry.GetBase()
+	b.Dur = dur
+	b.Ts = ts
+	logEntry = b
+
+	//logEntry.StartTime()
 	logEntry.SetType(IOET_WALEntry_TxnRecord)
 	if err = logEntry.SetPayload(buf); err != nil {
 		return

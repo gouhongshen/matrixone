@@ -15,6 +15,7 @@
 package logservicedriver
 
 import (
+	entry2 "github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logstore/entry"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -27,6 +28,7 @@ var ErrTooMuchPenddings = moerr.NewInternalErrorNoCtx("too much penddings")
 func (d *LogServiceDriver) Append(e *entry.Entry) error {
 	d.driverLsnMu.Lock()
 	e.Lsn = d.allocateDriverLsn()
+	e.Entry.(*entry2.Base).Ts = time.Now()
 	_, err := d.preAppendLoop.Enqueue(e)
 	if err != nil {
 		panic(err)
@@ -52,6 +54,9 @@ func (d *LogServiceDriver) appendAppender() {
 func (d *LogServiceDriver) onPreAppend(items ...any) {
 	for _, item := range items {
 		e := item.(*entry.Entry)
+		b := e.Entry.(*entry2.Base)
+		b.Dur += time.Since(b.Ts)
+
 		appender := d.getAppender()
 		appender.appendEntry(e)
 	}
