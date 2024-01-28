@@ -16,6 +16,7 @@ package sm
 
 import (
 	"context"
+	"fmt"
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
 	"runtime"
 	"sync"
@@ -130,6 +131,9 @@ func (q *safeQueue) Start() {
 	q.wg.Add(1)
 	items := make([]any, 0, q.batchSize)
 	go func() {
+		id, _ := goid()
+		fmt.Println(id, GetFunctionName(q.onItemsCB))
+
 		defer q.wg.Done()
 		for {
 			select {

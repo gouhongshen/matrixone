@@ -4,18 +4,32 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/panjf2000/ants/v2"
 	"math"
+	"runtime"
+	"runtime/pprof"
+	"sync"
 	"time"
 )
 
 var AppendDurationChan chan time.Duration
 var durCache []time.Duration
 var fixedBucketCnt int64 = 30
-var maxCacheLen int = 1000 * 100
+var maxCacheLen int = 1000 * 10 * 8
+var pool *ants.Pool
+var caches sync.Pool
+
+var threadProfile = pprof.Lookup("threadcreate")
 
 func InitDebug() {
+	fmt.Println("threads num:", threadProfile.Count(), runtime.NumGoroutine(), runtime.NumCPU())
+
 	AppendDurationChan = make(chan time.Duration, 1000*100)
-	durCache = make([]time.Duration, 0)
+	pool, _ = ants.NewPool(5)
+	caches.New = func() any {
+		return make([]time.Duration, 0)
+	}
+	durCache = caches.Get().([]time.Duration)
 }
 
 func DebugLoop(ctx context.Context) {
@@ -26,41 +40,53 @@ func DebugLoop(ctx context.Context) {
 			close(AppendDurationChan)
 			return
 		case <-logTicker.C:
-			doLog()
+			tmpCache := durCache
+			pool.Submit(func() {
+				doLog(tmpCache)
+			})
+
+			durCache = caches.Get().([]time.Duration)
+
 		case dur := <-AppendDurationChan:
 			durCache = append(durCache, dur)
 			if len(durCache) >= maxCacheLen {
-				doLog()
+				tmpCache := durCache
+				pool.Submit(func() {
+					doLog(tmpCache)
+				})
+
+				durCache = caches.Get().([]time.Duration)
 			}
 		}
 	}
 }
 
-func doLog() {
-	if len(durCache) == 0 {
+func doLog(cache []time.Duration) {
+	fmt.Println("threads num:", threadProfile.Count(), runtime.NumGoroutine(), runtime.NumCPU())
+	if len(cache) == 0 {
 		return
 	}
 
 	minDur, maxDur := time.Duration(math.MaxInt64), time.Duration(0)
-	for idx := range durCache {
-		if durCache[idx] < minDur {
-			minDur = durCache[idx]
+	for idx := range cache {
+		if cache[idx] < minDur {
+			minDur = cache[idx]
 		}
 
-		if durCache[idx] > maxDur {
-			maxDur = durCache[idx]
+		if cache[idx] > maxDur {
+			maxDur = cache[idx]
 		}
 	}
 
 	step := time.Duration(int64(maxDur-minDur+1) / (fixedBucketCnt - 2))
 	bucket := make([]int, fixedBucketCnt)
 
-	for idx := range durCache {
-		gap := (durCache[idx] - minDur) / step
+	for idx := range cache {
+		gap := (cache[idx] - minDur) / step
 		bucket[gap]++
 	}
 
-	durCache = durCache[:0]
+	cache = cache[:0]
 
 	buf := &bytes.Buffer{}
 	for idx := range bucket {
@@ -85,5 +111,7 @@ func doLog() {
 	buf.WriteString("\n\n\n")
 
 	fmt.Println(buf.String())
+
+	caches.Put(cache)
 
 }

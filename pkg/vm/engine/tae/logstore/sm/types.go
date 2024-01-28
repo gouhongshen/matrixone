@@ -15,6 +15,12 @@
 package sm
 
 import (
+	"bytes"
+	"errors"
+	"reflect"
+	"runtime"
+	"strconv"
+	"strings"
 	"sync/atomic"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -61,4 +67,48 @@ type StateMachine interface {
 	Stop()
 	EnqueueRecevied(any) (any, error)
 	EnqueueCheckpoint(any) (any, error)
+}
+
+var goroutinePrefix = []byte("goroutine ")
+var errBadStack = errors.New("invalid runtime.Stack output")
+
+func goid() (int, error) {
+	buf := make([]byte, 32)
+	n := runtime.Stack(buf, false)
+	buf = buf[:n]
+	// goroutine 1 [running]: ...
+
+	buf, ok := bytes.CutPrefix(buf, goroutinePrefix)
+	if !ok {
+		return 0, errBadStack
+	}
+
+	i := bytes.IndexByte(buf, ' ')
+	if i < 0 {
+		return 0, errBadStack
+	}
+
+	return strconv.Atoi(string(buf[:i]))
+}
+
+func GetFunctionName(i interface{}, seps ...rune) string {
+	// 获取函数名称
+	fn := runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
+
+	// 用 seps 进行分割
+	fields := strings.FieldsFunc(fn, func(sep rune) bool {
+		for _, s := range seps {
+			if sep == s {
+				return true
+			}
+		}
+		return false
+	})
+
+	// fmt.Println(fields)
+
+	if size := len(fields); size > 0 {
+		return fields[size-1]
+	}
+	return ""
 }

@@ -480,8 +480,12 @@ func (mgr *TxnManager) dequeuePreparing(items ...any) {
 	now := time.Now()
 	for _, item := range items {
 		op := item.(*OpTxn)
+		op.Dur += now.Sub(op.Ts)
+	}
+
+	for _, item := range items {
+		op := item.(*OpTxn)
 		t0 := time.Now()
-		op.Dur += t0.Sub(op.Ts)
 
 		// Idempotent check
 		if state := op.Txn.GetTxnState(false); state != txnif.TxnStateActive {
@@ -529,12 +533,15 @@ func (mgr *TxnManager) dequeuePreparing(items ...any) {
 
 func (mgr *TxnManager) onPrepareWAL(items ...any) {
 	now := time.Now()
+	for _, item := range items {
+		op := item.(*OpTxn)
+		op.Dur += now.Sub(op.Ts)
+	}
 
 	for _, item := range items {
 		op := item.(*OpTxn)
 		var t1, t2, t3, t4, t5, t6 time.Time
 		t1 = time.Now()
-		op.Dur += t1.Sub(op.Ts)
 
 		if op.Txn.GetError() == nil && op.Op == OpCommit || op.Op == OpPrepare {
 			if err := op.Txn.PrepareWAL(op.Dur, op.Ts); err != nil {

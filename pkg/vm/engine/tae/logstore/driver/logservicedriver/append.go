@@ -52,11 +52,14 @@ func (d *LogServiceDriver) appendAppender() {
 }
 
 func (d *LogServiceDriver) onPreAppend(items ...any) {
+	cur := time.Now()
+	for _, item := range items {
+		b := item.(*entry.Entry).Entry.(*entry2.Base)
+		b.Dur += cur.Sub(b.Ts)
+	}
+
 	for _, item := range items {
 		e := item.(*entry.Entry)
-		b := e.Entry.(*entry2.Base)
-		b.Dur += time.Since(b.Ts)
-
 		appender := d.getAppender()
 		appender.appendEntry(e)
 	}

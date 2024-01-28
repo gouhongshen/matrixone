@@ -141,11 +141,14 @@ func (w *StoreImpl) doAppend(gid uint32, e entry.Entry) (drEntry *driverEntry.En
 }
 
 func (w *StoreImpl) onDriverAppendQueue(items ...any) {
+	cur := time.Now()
+	for _, item := range items {
+		b := item.(*driverEntry.Entry).Entry.(*entry.Base)
+		b.Dur += cur.Sub(b.Ts)
+	}
+
 	for _, item := range items {
 		driverEntry := item.(*driverEntry.Entry)
-		b := driverEntry.Entry.(*entry.Base)
-		b.Dur += time.Since(b.Ts)
-
 		driverEntry.Entry.PrepareWrite()
 		err := w.driver.Append(driverEntry)
 		if err != nil {
