@@ -183,13 +183,20 @@ func (txn *Txn) Prepare(ctx context.Context) (pts types.TS, err error) {
 		return types.TS{}, txn.Err
 	}
 	txn.Add(1)
-	err = txn.Mgr.OnOpTxn(&OpTxn{
-		ctx: ctx,
-		Txn: txn,
-		Op:  OpPrepare,
-		Dur: 0,
-		Ts:  time.Now(),
-	})
+	opTxn := txn.Mgr.OpTxnPool.Get().(*OpTxn)
+	opTxn.Txn = txn
+	opTxn.ctx = ctx
+	opTxn.Op = OpPrepare
+	opTxn.Dur = 0
+	opTxn.Ts = time.Now()
+	//err = txn.Mgr.OnOpTxn(&OpTxn{
+	//	ctx: ctx,
+	//	Txn: txn,
+	//	Op:  OpPrepare,
+	//	Dur: 0,
+	//	Ts:  time.Now(),
+	//})
+	err = txn.Mgr.OnOpTxn(opTxn)
 	// TxnManager is closed
 	if err != nil {
 		txn.SetError(err)
@@ -199,6 +206,7 @@ func (txn *Txn) Prepare(ctx context.Context) (pts types.TS, err error) {
 		txn.DoneWithErr(err, true)
 	}
 	txn.Wait()
+	txn.Mgr.OpTxnPool.Put(opTxn)
 
 	if txn.Err != nil {
 		txn.Mgr.DeleteTxn(txn.GetID())

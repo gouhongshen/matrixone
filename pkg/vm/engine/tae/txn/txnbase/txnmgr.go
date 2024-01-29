@@ -100,6 +100,8 @@ type TxnManager struct {
 	prevPrepareTS             types.TS
 	prevPrepareTSInPreparing  types.TS
 	prevPrepareTSInPrepareWAL types.TS
+
+	OpTxnPool sync.Pool
 }
 
 func NewTxnManager(txnStoreFactory TxnStoreFactory, txnFactory TxnFactory, clock clock.Clock) *TxnManager {
@@ -121,6 +123,10 @@ func NewTxnManager(txnStoreFactory TxnStoreFactory, txnFactory TxnFactory, clock
 	prepareWALQueue := sm.NewSafeQueue(sm.TxnMgrPreparingCkpQueue, 20000, 1000, mgr.onPrepareWAL)
 	mgr.FlushQueue = sm.NewSafeQueue(sm.TxnMgrFlushQueue, 20000, 1000, mgr.dequeuePrepared)
 	mgr.PreparingSM = sm.NewStateMachine(new(sync.WaitGroup), mgr, pqueue, prepareWALQueue)
+
+	mgr.OpTxnPool.New = func() any {
+		return &OpTxn{}
+	}
 
 	mgr.ctx, mgr.cancel = context.WithCancel(context.Background())
 	return mgr
