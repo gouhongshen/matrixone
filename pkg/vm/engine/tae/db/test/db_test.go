@@ -4978,9 +4978,15 @@ func TestBlockRead(t *testing.T) {
 	fs := tae.DB.Runtime.Fs.Service
 	pool, err := mpool.NewMPool("test", 0, mpool.NoFixed)
 	assert.NoError(t, err)
+<<<<<<< HEAD
 	infos := make([][]*objectio.BlockInfo, 0)
 	infos = append(infos, []*objectio.BlockInfo{info})
 	err = blockio.BlockPrefetch(colIdxs, fs, infos, false)
+=======
+	infos := make([][]*pkgcatalog.BlockInfo, 0)
+	infos = append(infos, []*pkgcatalog.BlockInfo{info})
+	err = blockio.BlockPrefetch(colIdxs, fs, infos)
+>>>>>>> parent of 1acee8a6e (tune ap cache policy (#12822))
 	assert.NoError(t, err)
 	b1, err := blockio.BlockReadInner(
 		context.Background(), info, nil, colIdxs, colTyps,

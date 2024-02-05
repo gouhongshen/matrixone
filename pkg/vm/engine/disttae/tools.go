@@ -1484,7 +1484,7 @@ func newBlockReaders(ctx context.Context, fs fileservice.FileService, tblDef *pl
 	return rds
 }
 
-func distributeBlocksToBlockReaders(rds []*blockReader, numOfReaders int, numOfBlocks int, infos [][]*objectio.BlockInfo, steps []int) []*blockReader {
+func distributeBlocksToBlockReaders(rds []*blockReader, num int, infos [][]*objectio.BlockInfo, steps []int) []*blockReader {
 	readerIndex := 0
 	for i := range infos {
 		//distribute objects and steps for prefetch
@@ -1494,17 +1494,8 @@ func distributeBlocksToBlockReaders(rds []*blockReader, numOfReaders int, numOfB
 			//distribute block
 			rds[readerIndex].blks = append(rds[readerIndex].blks, infos[i][j])
 			readerIndex++
-			readerIndex = readerIndex % numOfReaders
+			readerIndex = readerIndex % num
 		}
-	}
-	scanType := NORMAL
-	if numOfBlocks < SMALLSCAN_THRESHOLD {
-		scanType = SMALL
-	} else if (numOfReaders * LARGESCAN_THRESHOLD) <= numOfBlocks {
-		scanType = LARGE
-	}
-	for i := range rds {
-		rds[i].scanType = scanType
 	}
 	return rds
 }
