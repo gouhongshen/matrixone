@@ -50,6 +50,8 @@ type OpTxn struct {
 	ctx context.Context
 	Txn txnif.AsyncTxn
 	Op  OpType
+
+	beforeWALTask *trace.Task
 }
 
 func (txn *OpTxn) IsReplay() bool { return txn.Txn.IsReplay() }

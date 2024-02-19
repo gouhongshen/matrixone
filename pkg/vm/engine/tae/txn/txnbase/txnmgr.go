@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	gotrace "runtime/trace"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -589,16 +590,25 @@ func (mgr *TxnManager) onPrepareWAL(items ...any) {
 
 // 1PC and 2PC
 func (mgr *TxnManager) dequeuePrepared(items ...any) {
+	for _, item := range items {
+		op := item.(*OpTxn)
+		if op.beforeWALTask != nil {
+			op.beforeWALTask.End()
+		}
+	}
+
 	now := time.Now()
 	for _, item := range items {
 		op := item.(*OpTxn)
 		mgr.workers.Submit(func() {
 			//Notice that WaitPrepared do nothing when op is OpRollback
 			t0 := time.Now()
+			_, task := gotrace.NewTask(context.Background(), "waitAndApply")
 			if err := op.Txn.WaitPrepared(op.ctx); err != nil {
 				// v0.6 TODO: Error handling
 				panic(err)
 			}
+			task.End()
 
 			if op.Is2PC() {
 				mgr.on2PCPrepared(op)
