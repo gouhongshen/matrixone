@@ -16,6 +16,7 @@ package txnbase
 
 import (
 	"context"
+	gotrace "runtime/trace"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
@@ -58,11 +59,13 @@ func (txn *Txn) commit1PC(ctx context.Context, _ bool) (err error) {
 	}
 	txn.Add(1)
 	if err = txn.Freeze(); err == nil {
-		err = txn.Mgr.OnOpTxn(&OpTxn{
+		op := &OpTxn{
 			ctx: ctx,
 			Txn: txn,
 			Op:  OpCommit,
-		})
+		}
+		_, op.beforeWALTask = gotrace.NewTask(context.Background(), "beforeWALTask")
+		err = txn.Mgr.OnOpTxn(op)
 	}
 
 	// TxnManager is closed

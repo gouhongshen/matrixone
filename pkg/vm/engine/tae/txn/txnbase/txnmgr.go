@@ -17,6 +17,7 @@ package txnbase
 import (
 	"context"
 	"fmt"
+	gotrace "runtime/trace"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -581,6 +582,15 @@ func (mgr *TxnManager) onPrepareWAL(items ...any) {
 
 // 1PC and 2PC
 func (mgr *TxnManager) dequeuePrepared(items ...any) {
+	for _, item := range items {
+		op := item.(*OpTxn)
+		if op.beforeWALTask != nil {
+			op.beforeWALTask.End()
+		}
+
+		_, op.waitAndApplyTask = gotrace.NewTask(context.Background(), "waitAndApply")
+	}
+
 	var err error
 	now := time.Now()
 	for _, item := range items {
@@ -599,6 +609,8 @@ func (mgr *TxnManager) dequeuePrepared(items ...any) {
 		}
 		dequeuePreparedDuration := time.Since(t0)
 		v2.TxnDequeuePreparedDurationHistogram.Observe(dequeuePreparedDuration.Seconds())
+
+		op.waitAndApplyTask.End()
 	}
 	common.DoIfDebugEnabled(func() {
 		logutil.Debug("[dequeuePrepared]",
