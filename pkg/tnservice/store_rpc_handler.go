@@ -17,6 +17,7 @@ package tnservice
 import (
 	"context"
 	"github.com/matrixorigin/matrixone/pkg/util/trace"
+	gotrace "runtime/trace"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -103,6 +104,9 @@ func (s *store) handleCommit(ctx context.Context, request *txn.TxnRequest, respo
 	_, span := trace.Start(ctx, "store.handleCommit",
 		trace.WithKind(trace.SpanKindStatement))
 	defer span.End()
+
+	_, task := gotrace.NewTask(context.Background(), "TNCommit")
+	defer task.End()
 
 	r := s.validTNShard(ctx, request, response)
 	if r == nil {

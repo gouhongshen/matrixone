@@ -16,6 +16,7 @@ package txnimpl
 
 import (
 	"context"
+	gotrace "runtime/trace"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -55,7 +56,8 @@ type txnStore struct {
 	dataFactory *tables.DataFactory
 	writeOps    atomic.Uint32
 
-	wg sync.WaitGroup
+	beforeWALTask *gotrace.Task
+	wg            sync.WaitGroup
 }
 
 var TxnStoreFactory = func(
@@ -77,7 +79,7 @@ func newStore(
 	rt *dbutils.Runtime,
 	dataFactory *tables.DataFactory,
 	maxMessageSize uint64) *txnStore {
-	return &txnStore{
+	s := &txnStore{
 		ctx:         ctx,
 		rt:          rt,
 		dbs:         make(map[uint64]*txnDB),
@@ -88,6 +90,9 @@ func newStore(
 		dataFactory: dataFactory,
 		wg:          sync.WaitGroup{},
 	}
+
+	_, s.beforeWALTask = gotrace.NewTask(context.Background(), "beforeWAL")
+	return s
 }
 
 func (store *txnStore) GetContext() context.Context    { return store.ctx }
@@ -625,6 +630,10 @@ func (store *txnStore) ApplyRollback() (err error) {
 }
 
 func (store *txnStore) WaitPrepared(ctx context.Context) (err error) {
+	if store.beforeWALTask != nil {
+		store.beforeWALTask.End()
+	}
+
 	for _, db := range store.dbs {
 		if err = db.WaitPrepared(); err != nil {
 			return

@@ -214,6 +214,9 @@ type txnOperator struct {
 	clock                clock.Clock
 	createAt             time.Time
 	commitAt             time.Time
+
+	commitTask *gotrace.Task
+	unlockTask *gotrace.Task
 }
 
 func newTxnOperator(
@@ -477,8 +480,6 @@ func (tc *txnOperator) Commit(ctx context.Context) error {
 		v2.TxnCNCommitDurationHistogram.Observe(time.Since(tc.commitAt).Seconds())
 	}()
 
-	_, task := gotrace.NewTask(context.TODO(), "transaction.Commit")
-	defer task.End()
 	util.LogTxnCommit(tc.getTxnMeta(false))
 
 	if tc.option.readyOnly {
@@ -487,6 +488,9 @@ func (tc *txnOperator) Commit(ctx context.Context) error {
 		tc.closeLocked()
 		return nil
 	}
+
+	_, tc.commitTask = gotrace.NewTask(context.Background(), "CNCommit")
+	defer tc.commitTask.End()
 
 	result, err := tc.doWrite(ctx, nil, true)
 	if err != nil {
