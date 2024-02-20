@@ -185,7 +185,7 @@ func (store *txnStore) StartTrace() {
 		return
 	}
 	store.tracer = getTracer()
-	store.tracer.Trigger(0)
+	store.tracer.Trigger(txnif.TraceStart)
 }
 
 func (store *txnStore) EndTrace() {
@@ -194,6 +194,7 @@ func (store *txnStore) EndTrace() {
 	}
 	tracer := store.tracer
 	store.tracer = nil
+	tracer.Stop()
 	putTracer(tracer)
 }
 
