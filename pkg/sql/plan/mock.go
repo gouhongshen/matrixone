@@ -808,6 +808,11 @@ func (m *MockCompilerContext) GetUserName() string {
 	return "root"
 }
 
+func (m *MockCompilerContext) ResolveWithCopyTblDef(dbName string, tableName string) (*ObjectRef, *TableDef) {
+	objRef, tblDef := m.Resolve(dbName, tableName)
+	return objRef, DeepCopyTableDef(tblDef, true)
+}
+
 func (m *MockCompilerContext) Resolve(dbName string, tableName string) (*ObjectRef, *TableDef) {
 	name := strings.ToLower(tableName)
 	tableDef := DeepCopyTableDef(m.tables[name], true)

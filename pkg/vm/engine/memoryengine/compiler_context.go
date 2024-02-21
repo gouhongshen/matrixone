@@ -16,6 +16,7 @@ package memoryengine
 
 import (
 	"context"
+	plan2 "github.com/matrixorigin/matrixone/pkg/pb/plan"
 	"strconv"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
@@ -161,6 +162,11 @@ func (c *CompilerContext) ResolveById(tableId uint64) (objRef *plan.ObjectRef, t
 		return nil, nil
 	}
 	return c.Resolve(dbName, tableName)
+}
+
+func (c *CompilerContext) ResolveWithCopyTblDef(dbName string, tableName string) (*plan2.ObjectRef, *plan2.TableDef) {
+	objRef, tblDef := c.Resolve(dbName, tableName)
+	return objRef, plan.DeepCopyTableDef(tblDef, true)
 }
 
 func (c *CompilerContext) Resolve(schemaName string, tableName string) (objRef *plan.ObjectRef, tableDef *plan.TableDef) {

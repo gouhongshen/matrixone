@@ -3457,10 +3457,8 @@ func (builder *QueryBuilder) buildTable(stmt tree.TableExpr, ctx *BindContext, p
 			return 0, moerr.NewParseError(builder.GetContext(), "table %q does not exist", table)
 		}
 
-		tableDef.Name2ColIndex = map[string]int32{}
-		for i := 0; i < len(tableDef.Cols); i++ {
-			tableDef.Name2ColIndex[tableDef.Cols[i].Name] = int32(i)
-		}
+		//tableDef = DeepCopyTableDef(tableDef, true)
+
 		nodeType := plan.Node_TABLE_SCAN
 		if tableDef.TableType == catalog.SystemExternalRel {
 			nodeType = plan.Node_EXTERNAL_SCAN

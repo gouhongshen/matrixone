@@ -288,6 +288,11 @@ func (tcc *TxnCompilerContext) ResolveById(tableId uint64) (*plan2.ObjectRef, *p
 	return obj, tableDef
 }
 
+func (tcc *TxnCompilerContext) ResolveWithCopyTblDef(dbName string, tableName string) (*plan2.ObjectRef, *plan2.TableDef) {
+	objRef, tblDef := tcc.Resolve(dbName, tableName)
+	return objRef, plan2.DeepCopyTableDef(tblDef, true)
+}
+
 func (tcc *TxnCompilerContext) Resolve(dbName string, tableName string) (*plan2.ObjectRef, *plan2.TableDef) {
 	start := time.Now()
 	defer func() {

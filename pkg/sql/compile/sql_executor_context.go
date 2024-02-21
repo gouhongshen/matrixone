@@ -195,6 +195,11 @@ func (c *compilerContext) ResolveById(tableId uint64) (objRef *plan.ObjectRef, t
 	return c.Resolve(dbName, tableName)
 }
 
+func (c *compilerContext) ResolveWithCopyTblDef(dbName string, tableName string) (*plan.ObjectRef, *plan.TableDef) {
+	objRef, tblDef := c.Resolve(dbName, tableName)
+	return objRef, plan.DeepCopyTableDef(tblDef, true)
+}
+
 func (c *compilerContext) Resolve(dbName string, tableName string) (*plan.ObjectRef, *plan.TableDef) {
 	dbName, err := c.ensureDatabaseIsNotEmpty(dbName)
 	if err != nil {

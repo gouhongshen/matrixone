@@ -77,6 +77,7 @@ type CompilerContext interface {
 	DatabaseExists(name string) bool
 	// get table definition by database/schema
 	Resolve(schemaName string, tableName string) (*ObjectRef, *TableDef)
+	ResolveWithCopyTblDef(schemaName string, tableName string) (*ObjectRef, *TableDef)
 	// get table definition by table id
 	ResolveById(tableId uint64) (*ObjectRef, *TableDef)
 	// get the value of variable

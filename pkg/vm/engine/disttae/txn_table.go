@@ -1262,9 +1262,14 @@ func (tbl *txnTable) GetTableDef(ctx context.Context) *plan.TableDef {
 			Indexes:       indexes,
 			Version:       tbl.version,
 		}
+		//tmpDef.Name2ColIndex = map[string]int32{}
+		//for i := 0; i < len(tmpDef.Cols); i++ {
+		//	tmpDef.Name2ColIndex[tmpDef.Cols[i].Name] = int32(i)
+		//}
 	}
-	tableDef := plan2.DeepCopyTableDef(tbl.tableDef, true)
-	tableDef.IsTemporary = tbl.GetEngineType() == engine.Memory
+	//tableDef := plan2.DeepCopyTableDef(tbl.tableDef, true)
+	tableDef := tbl.tableDef
+	//tableDef.IsTemporary = tbl.GetEngineType() == engine.Memory
 	return tableDef
 }
 
