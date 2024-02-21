@@ -245,25 +245,22 @@ func setTableExprToDmlTableInfo(ctx CompilerContext, tbl tree.TableExpr, tblInfo
 		dbName = ctx.DefaultDatabase()
 	}
 
-	obj, tableDef := ctx.Resolve(dbName, tblName)
+	obj, tableDef := ctx.ResolveWithCopyTblDef(dbName, tblName)
 	if tableDef == nil {
 		return moerr.NewNoSuchTable(ctx.GetContext(), dbName, tblName)
 	}
-
-	copiedTableDef := DeepCopyTableDef(tableDef, true)
-
-	if copiedTableDef.TableType == catalog.SystemSourceRel {
+	if tableDef.TableType == catalog.SystemSourceRel {
 		return moerr.NewInvalidInput(ctx.GetContext(), "cannot insert/update/delete from source")
-	} else if copiedTableDef.TableType == catalog.SystemExternalRel {
+	} else if tableDef.TableType == catalog.SystemExternalRel {
 		return moerr.NewInvalidInput(ctx.GetContext(), "cannot insert/update/delete from external table")
-	} else if copiedTableDef.TableType == catalog.SystemViewRel {
+	} else if tableDef.TableType == catalog.SystemViewRel {
 		return moerr.NewInvalidInput(ctx.GetContext(), "cannot insert/update/delete from view")
-	} else if copiedTableDef.TableType == catalog.SystemSequenceRel && ctx.GetContext().Value(defines.BgKey{}) == nil {
+	} else if tableDef.TableType == catalog.SystemSequenceRel && ctx.GetContext().Value(defines.BgKey{}) == nil {
 		return moerr.NewInvalidInput(ctx.GetContext(), "Cannot insert/update/delete from sequence")
 	}
 
 	var newCols []*ColDef
-	for _, col := range copiedTableDef.Cols {
+	for _, col := range tableDef.Cols {
 		if col.Hidden && tblInfo.typ == "insert" {
 			if col.Name == catalog.FakePrimaryKeyColName {
 				// fake pk is auto increment, need to fill.
@@ -276,9 +273,9 @@ func setTableExprToDmlTableInfo(ctx CompilerContext, tbl tree.TableExpr, tblInfo
 			newCols = append(newCols, col)
 		}
 	}
-	copiedTableDef.Cols = newCols
+	tableDef.Cols = newCols
 
-	isClusterTable := util.TableIsClusterTable(copiedTableDef.GetTableType())
+	isClusterTable := util.TableIsClusterTable(tableDef.GetTableType())
 	accountId, err := ctx.GetAccountId()
 	if err != nil {
 		return err
@@ -287,20 +284,20 @@ func setTableExprToDmlTableInfo(ctx CompilerContext, tbl tree.TableExpr, tblInfo
 		return moerr.NewInternalError(ctx.GetContext(), "only the sys account can insert/update/delete the cluster table")
 	}
 
-	if util.TableIsClusterTable(copiedTableDef.GetTableType()) && accountId != catalog.System_Account {
-		return moerr.NewInternalError(ctx.GetContext(), "only the sys account can insert/update/delete the cluster table %s", copiedTableDef.GetName())
+	if util.TableIsClusterTable(tableDef.GetTableType()) && accountId != catalog.System_Account {
+		return moerr.NewInternalError(ctx.GetContext(), "only the sys account can insert/update/delete the cluster table %s", tableDef.GetName())
 	}
 	if obj.PubInfo != nil {
 		return moerr.NewInternalError(ctx.GetContext(), "cannot insert/update/delete from public table")
 	}
 
 	if !tblInfo.haveConstraint {
-		if len(copiedTableDef.RefChildTbls) > 0 {
+		if len(tableDef.RefChildTbls) > 0 {
 			tblInfo.haveConstraint = true
-		} else if len(copiedTableDef.Fkeys) > 0 {
+		} else if len(tableDef.Fkeys) > 0 {
 			tblInfo.haveConstraint = true
 		} else {
-			for _, indexdef := range copiedTableDef.Indexes {
+			for _, indexdef := range tableDef.Indexes {
 				if indexdef.Unique {
 					tblInfo.haveConstraint = true
 					break
@@ -312,14 +309,14 @@ func setTableExprToDmlTableInfo(ctx CompilerContext, tbl tree.TableExpr, tblInfo
 	nowIdx := len(tblInfo.tableDefs)
 	tblInfo.isClusterTable = append(tblInfo.isClusterTable, isClusterTable)
 	tblInfo.objRef = append(tblInfo.objRef, &ObjectRef{
-		Obj:        int64(copiedTableDef.TblId),
+		Obj:        int64(tableDef.TblId),
 		SchemaName: dbName,
 		ObjName:    tblName,
 	})
-	tblInfo.tableDefs = append(tblInfo.tableDefs, copiedTableDef)
+	tblInfo.tableDefs = append(tblInfo.tableDefs, tableDef)
 	key := dbName + "." + tblName
 	tblInfo.nameToIdx[key] = nowIdx
-	tblInfo.idToName[copiedTableDef.TblId] = key
+	tblInfo.idToName[tableDef.TblId] = key
 	if alias == "" {
 		alias = tblName
 	}
