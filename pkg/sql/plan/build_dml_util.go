@@ -1311,7 +1311,7 @@ func makeInsertPlan(
 				multiTableIndexes[indexdef.IndexName].IndexDefs[catalog.ToLower(indexdef.IndexAlgoTableType)] = indexdef
 			} else if indexdef.TableExist && catalog.IsMasterIndexAlgo(indexdef.IndexAlgo) {
 
-				idxRef, idxTableDef := ctx.Resolve(objRef.SchemaName, indexdef.IndexTableName)
+				idxRef, idxTableDef := ctx.ResolveWithCopyTblDef(objRef.SchemaName, indexdef.IndexTableName)
 				// remove row_id
 				for i, colVal := range idxTableDef.Cols {
 					if colVal.Name == catalog.Row_ID {
@@ -1349,9 +1349,9 @@ func makeInsertPlan(
 
 			var idxRefs = make([]*ObjectRef, 3)
 			var idxTableDefs = make([]*TableDef, 3)
-			idxRefs[0], idxTableDefs[0] = ctx.Resolve(objRef.SchemaName, multiTableIndex.IndexDefs[catalog.SystemSI_IVFFLAT_TblType_Metadata].IndexTableName)
-			idxRefs[1], idxTableDefs[1] = ctx.Resolve(objRef.SchemaName, multiTableIndex.IndexDefs[catalog.SystemSI_IVFFLAT_TblType_Centroids].IndexTableName)
-			idxRefs[2], idxTableDefs[2] = ctx.Resolve(objRef.SchemaName, multiTableIndex.IndexDefs[catalog.SystemSI_IVFFLAT_TblType_Entries].IndexTableName)
+			idxRefs[0], idxTableDefs[0] = ctx.ResolveWithCopyTblDef(objRef.SchemaName, multiTableIndex.IndexDefs[catalog.SystemSI_IVFFLAT_TblType_Metadata].IndexTableName)
+			idxRefs[1], idxTableDefs[1] = ctx.ResolveWithCopyTblDef(objRef.SchemaName, multiTableIndex.IndexDefs[catalog.SystemSI_IVFFLAT_TblType_Centroids].IndexTableName)
+			idxRefs[2], idxTableDefs[2] = ctx.ResolveWithCopyTblDef(objRef.SchemaName, multiTableIndex.IndexDefs[catalog.SystemSI_IVFFLAT_TblType_Entries].IndexTableName)
 			// remove row_id
 			for i := range idxTableDefs {
 				for j, column := range idxTableDefs[i].Cols {
@@ -3502,6 +3502,10 @@ func appendDeleteIvfTablePlan(builder *QueryBuilder, bindCtx *BindContext,
 		ProjectList: scanNodeProject,
 	}, bindCtx)
 
+	if entriesRowIdPos == -1 {
+		x := 0
+		x++
+	}
 	// append projection
 	projectList = append(projectList,
 		&plan.Expr{
