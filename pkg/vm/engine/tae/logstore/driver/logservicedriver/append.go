@@ -15,6 +15,8 @@
 package logservicedriver
 
 import (
+	"context"
+	gotrace "runtime/trace"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -27,6 +29,7 @@ var ErrTooMuchPenddings = moerr.NewInternalErrorNoCtx("too much penddings")
 func (d *LogServiceDriver) Append(e *entry.Entry) error {
 	d.driverLsnMu.Lock()
 	e.Lsn = d.allocateDriverLsn()
+	_, e.Task = gotrace.NewTask(context.Background(), "enPreAppendLoop")
 	_, err := d.preAppendLoop.Enqueue(e)
 	if err != nil {
 		panic(err)

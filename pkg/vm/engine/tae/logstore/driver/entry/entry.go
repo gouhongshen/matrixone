@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	gotrace "runtime/trace"
 	"sync"
 
 	"github.com/matrixorigin/matrixone/pkg/container/types"
@@ -32,6 +33,7 @@ type Entry struct {
 	err   error
 	wg    *sync.WaitGroup
 
+	Task *gotrace.Task
 	//for replay
 	isEnd bool
 }
