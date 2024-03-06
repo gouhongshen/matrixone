@@ -1095,6 +1095,14 @@ func (c *Compile) compilePlanScope(ctx context.Context, step int32, curNodeIdx i
 		}
 	}()
 	n := ns[curNodeIdx]
+
+	//if strings.Contains(c.sql, "hhh") {
+	//	fmt.Println("block filter list", n.String())
+	//	//fmt.Println("filter list", n.FilterList)
+	//	fmt.Println()
+	//	fmt.Println()
+	//}
+
 	switch n.NodeType {
 	case plan.Node_VALUE_SCAN:
 		var bat *batch.Batch
