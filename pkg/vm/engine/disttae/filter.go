@@ -16,6 +16,7 @@ package disttae
 
 import (
 	"context"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"sort"
 
 	"github.com/matrixorigin/matrixone/pkg/container/types"
@@ -1086,6 +1087,10 @@ func ExecuteBlockFilter(
 			var pos int
 			if seekOp != nil {
 				pos = seekOp(dataMeta)
+			}
+
+			if objStats.Rows() == 0 {
+				logutil.Fatalf("obj rows is 0, details: %s", obj.String())
 			}
 
 			for ; pos < blockCnt; pos++ {
