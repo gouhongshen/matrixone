@@ -1087,16 +1087,6 @@ func ExecuteBlockFilter(
 			if seekOp != nil {
 				pos = seekOp(dataMeta)
 			}
-			// TODO: cannot remove now. fix me later
-			if dataMeta == nil && obj.Rows() == 0 {
-				location := obj.ObjectLocation()
-				if meta, err2 = objectio.FastLoadObjectMeta(
-					proc.Ctx, &location, false, fs,
-				); err2 != nil {
-					return
-				}
-				dataMeta = meta.MustDataMeta()
-			}
 
 			for ; pos < blockCnt; pos++ {
 				var blkMeta objectio.BlockObject
