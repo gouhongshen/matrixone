@@ -658,6 +658,7 @@ func CompileFilterExpr(
 				}
 				return false, ok, nil
 			}
+			// test ok
 		case "prefix_eq":
 			colExpr, vals, ok := mustColConstValueFromBinaryFuncExpr(exprImpl, tableDef, proc)
 			if !ok {
@@ -686,10 +687,25 @@ func CompileFilterExpr(
 			blockFilterOp = func(
 				_ int, blkMeta objectio.BlockObject, bf objectio.BloomFilter,
 			) (bool, bool, error) {
-				// TODO: define canQuickBreak
-				return false, blkMeta.MustGetColumn(uint16(seqNum)).ZoneMap().PrefixEq(vals[0]), nil
+				zm := blkMeta.MustGetColumn(uint16(seqNum)).ZoneMap()
+				isPrefixEq := zm.PrefixEq(vals[0])
+				if isSorted {
+					canBreak := types.PrefixCompare(zm.GetMinBuf(), vals[0]) > 0
+					return canBreak, isPrefixEq, nil
+				}
+				return false, isPrefixEq, nil
 			}
-			// TODO: define seekOp
+
+			if isSorted {
+				seekOp = func(meta objectio.ObjectDataMeta) int {
+					return sort.Search(int(meta.BlockCount()), func(j int) bool {
+						zm := meta.GetBlockMeta(uint32(j)).MustGetColumn(uint16(seqNum)).ZoneMap()
+						return types.PrefixCompare(vals[0], zm.GetMaxBuf()) <= 0
+					})
+				}
+			}
+
+			// test ok
 		case "prefix_between":
 			colExpr, vals, ok := mustColConstValueFromBinaryFuncExpr(exprImpl, tableDef, proc)
 			if !ok {
@@ -718,11 +734,26 @@ func CompileFilterExpr(
 			blockFilterOp = func(
 				_ int, blkMeta objectio.BlockObject, bf objectio.BloomFilter,
 			) (bool, bool, error) {
-				// TODO: define canQuickBreak
-				return false, blkMeta.MustGetColumn(uint16(seqNum)).ZoneMap().PrefixBetween(vals[0], vals[1]), nil
+				zm := blkMeta.MustGetColumn(uint16(seqNum)).ZoneMap()
+				isPrefixBetween := zm.PrefixBetween(vals[0], vals[1])
+				if isSorted {
+					canBreak := types.PrefixCompare(zm.GetMinBuf(), vals[1]) > 0
+					return canBreak, isPrefixBetween, nil
+				}
+
+				return false, isPrefixBetween, nil
 			}
-			// TODO: define seekOp
-			// ok
+			if isSorted {
+				seekOp = func(meta objectio.ObjectDataMeta) int {
+					// find the first blk which zm.max >= vals[0]
+					return sort.Search(int(meta.BlockCount()), func(j int) bool {
+						zm := meta.GetBlockMeta(uint32(j)).MustGetColumn(uint16(seqNum)).ZoneMap()
+						return types.PrefixCompare(zm.GetMaxBuf(), vals[0]) >= 0
+					})
+				}
+			}
+
+			// test ok
 		case "between":
 			colExpr, vals, ok := mustColConstValueFromBinaryFuncExpr(exprImpl, tableDef, proc)
 			if !ok {
@@ -751,10 +782,26 @@ func CompileFilterExpr(
 			blockFilterOp = func(
 				_ int, blkMeta objectio.BlockObject, bf objectio.BloomFilter,
 			) (bool, bool, error) {
-				// TODO: define canQuickBreak
-				return false, blkMeta.MustGetColumn(uint16(seqNum)).ZoneMap().Between(vals[0], vals[1]), nil
+				zm := blkMeta.MustGetColumn(uint16(seqNum)).ZoneMap()
+				hasIntersect := zm.Between(vals[0], vals[1])
+
+				if isSorted {
+					canBreak := zm.AllGTByValue(vals[1])
+					return canBreak, hasIntersect, nil
+				}
+				return false, hasIntersect, nil
 			}
-			// TODO: define seekOp
+
+			if isSorted {
+				seekOp = func(meta objectio.ObjectDataMeta) int {
+					pos := sort.Search(int(meta.BlockCount()), func(j int) bool {
+						return meta.GetBlockMeta(uint32(j)).MustGetColumn(uint16(seqNum)).ZoneMap().AnyGEByValue(vals[0])
+					})
+					return pos
+				}
+			}
+
+			// test ok
 		case "prefix_in":
 			colExpr, val, ok := mustColVecValueFromBinaryFuncExpr(exprImpl, tableDef, proc)
 			if !ok {
@@ -763,6 +810,7 @@ func CompileFilterExpr(
 			}
 			vec := vector.NewVec(types.T_any.ToType())
 			_ = vec.UnmarshalBinary(val)
+			vec.SetSorted(true)
 			colDef := getColDefByName(colExpr.Col.Name, tableDef)
 			_, isSorted := isSortedKey(colDef)
 			if isSorted {
@@ -786,14 +834,28 @@ func CompileFilterExpr(
 			blockFilterOp = func(
 				_ int, blkMeta objectio.BlockObject, bf objectio.BloomFilter,
 			) (bool, bool, error) {
-				// TODO: define canQuickBreak
-				if !blkMeta.IsEmpty() && !blkMeta.MustGetColumn(uint16(seqNum)).ZoneMap().PrefixIn(vec) {
-					return false, false, nil
+				if blkMeta.IsEmpty() {
+					return false, true, nil
 				}
-				return false, true, nil
+				zm := blkMeta.MustGetColumn(uint16(seqNum)).ZoneMap()
+				isPrefixIn := zm.PrefixIn(vec)
+
+				if isSorted {
+					canBreak := zm.AllGTByVector(vec, true)
+					return canBreak, isPrefixIn, nil
+				}
+				return false, isPrefixIn, nil
 			}
-			// TODO: define seekOp
-			// ok
+
+			if isSorted {
+				seekOp = func(meta objectio.ObjectDataMeta) int {
+					return sort.Search(int(meta.BlockCount()), func(j int) bool {
+						zm := meta.GetBlockMeta(uint32(j)).MustGetColumn(uint16(seqNum)).ZoneMap()
+						return zm.AnyGEByVector(vec, true)
+					})
+				}
+			}
+
 		case "isnull", "is_null":
 			colExpr, _, ok := mustColConstValueFromBinaryFuncExpr(exprImpl, tableDef, proc)
 			if !ok {
@@ -835,6 +897,7 @@ func CompileFilterExpr(
 				return false, blkMeta.MustGetColumn(uint16(seqNum)).NullCnt() < blkMeta.GetRows(), nil
 			}
 
+			// test ok
 		case "in":
 			colExpr, val, ok := mustColVecValueFromBinaryFuncExpr(exprImpl, tableDef, proc)
 			if !ok {
@@ -843,6 +906,7 @@ func CompileFilterExpr(
 			}
 			vec := vector.NewVec(types.T_any.ToType())
 			_ = vec.UnmarshalBinary(val)
+			vec.SetSorted(true)
 			colDef := getColDefByName(colExpr.Col.Name, tableDef)
 			isPK, isSorted := isSortedKey(colDef)
 			if isSorted {
@@ -870,23 +934,38 @@ func CompileFilterExpr(
 			blockFilterOp = func(
 				blkIdx int, blkMeta objectio.BlockObject, bf objectio.BloomFilter,
 			) (bool, bool, error) {
-				// TODO: define canQuickBreak
-				if !blkMeta.MustGetColumn(uint16(seqNum)).ZoneMap().AnyIn(vec) {
-					return false, false, nil
+				var canBreak bool
+				zm := blkMeta.MustGetColumn(uint16(seqNum)).ZoneMap()
+
+				if isSorted {
+					canBreak = zm.AllGTByVector(vec, false)
+				}
+
+				if !zm.AnyIn(vec) {
+					return canBreak, false, nil
 				}
 				if isPK {
 					blkBf := bf.GetBloomFilter(uint32(blkIdx))
 					blkBfIdx := index.NewEmptyBinaryFuseFilter()
 					if err := index.DecodeBloomFilter(blkBfIdx, blkBf); err != nil {
-						return false, false, err
+						return canBreak, false, err
 					}
 					if exist := blkBfIdx.MayContainsAny(vec); !exist {
-						return false, false, nil
+						return canBreak, false, nil
 					}
 				}
-				return false, true, nil
+				return canBreak, true, nil
 			}
-			// TODO: define seekOp
+
+			if isSorted {
+				seekOp = func(meta objectio.ObjectDataMeta) int {
+					return sort.Search(int(meta.BlockCount()), func(j int) bool {
+						zm := meta.GetBlockMeta(uint32(j)).MustGetColumn(uint16(seqNum)).ZoneMap()
+						return zm.AnyGEByVector(vec, false)
+					})
+				}
+			}
+
 		case "=":
 			colExpr, vals, ok := mustColConstValueFromBinaryFuncExpr(exprImpl, tableDef, proc)
 			if !ok {

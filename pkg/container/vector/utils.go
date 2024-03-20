@@ -190,6 +190,33 @@ func Decimal64GetSum(vec *Vector) (sum types.Decimal64) {
 // If the vector has null, the null value will be ignored
 func OrderedGetMinAndMax[T types.OrderedT](vec *Vector) (minv, maxv T) {
 	col := MustFixedCol[T](vec)
+
+	if vec.sorted {
+		var i, j int
+
+		for i = 0; i < vec.length && vec.IsNull(uint64(i)); i++ {
+			continue
+		}
+		if i < vec.length {
+			minv = col[i]
+		}
+
+		for j = vec.length - 1; j >= 0 && vec.IsNull(uint64(j)); j-- {
+			continue
+		}
+
+		if j >= 0 {
+			maxv = col[j]
+		}
+
+		if minv > maxv {
+			tmp := maxv
+			maxv = minv
+			minv = tmp
+		}
+		return
+	}
+
 	if vec.HasNull() {
 		first := true
 		for i, j := 0, vec.Length(); i < j; i++ {

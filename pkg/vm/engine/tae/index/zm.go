@@ -492,6 +492,44 @@ func (zm ZM) CompareMin(o ZM) int {
 	return compute.Compare(zm.GetMinBuf(), o.GetMinBuf(), zm.GetType(), zm.GetScale(), o.GetScale())
 }
 
+// AllGTByVector check if zm.min > vec.max holds
+//
+// assumes that vec has ascending order
+func (zm ZM) AllGTByVector(vec *vector.Vector, prefix bool) bool {
+	if prefix {
+		col, area := vector.MustVarlenaRawData(vec)
+		vecMax := col[vec.Length()-1].GetByteSlice(area)
+		return types.PrefixCompare(zm.GetMinBuf(), vecMax) > 0
+	}
+
+	if ok, _, vecMax := vec.GetMinMaxValue(); ok {
+		return zm.AllGTByValue(vecMax)
+	}
+	return false
+}
+
+// AllGTByValue check if zm.min > val holds
+func (zm ZM) AllGTByValue(val []byte) bool {
+	if !zm.IsInited() {
+		return false
+	}
+	if !zm.IsString() || len(val) < 31 {
+		return compute.Compare(zm.GetMinBuf(), val, zm.GetType(), 0, 0) > 0
+	}
+	zm2 := BuildZM(zm.GetType(), val)
+	ok1, ok2 := zm.AllGT(zm2)
+	return ok1 && ok2
+}
+
+// AllGT check if (zm.min > o.max) holds.
+// = !(zm.min <= o.max).
+// = !(o.max >= zm.min).
+func (zm ZM) AllGT(o ZM) (res bool, ok bool) {
+	//o.max >= zm.min
+	res, ok = o.AnyGE(zm)
+	return res, !ok
+}
+
 func (zm ZM) AnyGT(o ZM) (res bool, ok bool) {
 	if !zm.compareCheck(o) {
 		ok = false
@@ -514,7 +552,23 @@ func (zm ZM) AnyGE(o ZM) (res bool, ok bool) {
 	return
 }
 
-// zm.min >= k
+// AnyGEByVector test if zm.max >= vec.min holds
+//
+// assumes that vec has ascending order
+func (zm ZM) AnyGEByVector(vec *vector.Vector, prefix bool) bool {
+	if prefix {
+		col, area := vector.MustVarlenaRawData(vec)
+		vecMin := col[0].GetByteSlice(area)
+		return types.PrefixCompare(vecMin, zm.GetMaxBuf()) <= 0
+	}
+
+	if ok, vecMin, _ := vec.GetMinMaxValue(); ok {
+		return zm.AnyGEByValue(vecMin)
+	}
+	return false
+}
+
+// zm.max >= k
 func (zm ZM) AnyGEByValue(k []byte) bool {
 	if !zm.IsInited() {
 		return false
