@@ -47,7 +47,7 @@ func init() {
 
 type PartitionState struct {
 	// also modify the Copy method if adding fields
-
+	ID int64
 	// data
 	rows *btree.BTreeG[RowEntry] // use value type to avoid locking on elements
 	//table data objects
@@ -480,6 +480,10 @@ func (p *PartitionState) HandleObjectInsert(ctx context.Context, bat *api.Batch,
 			logutil.Errorf("prefetch object meta failed. %v", err)
 		}
 
+		if objEntry.ObjectStats.Rows() == 0 {
+			logutil.Fatalf("object stats when handle object insert")
+		}
+		logutil.Infof("handle object insert %d %s\n", p.ID, objEntry.String())
 		p.dataObjects.Set(objEntry)
 		p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
 		{
@@ -835,6 +839,7 @@ func (p *PartitionState) HandleMetadataInsert(
 					if uint32(blkCnt) > objEntry.BlkCnt() {
 						objectio.SetObjectStatsBlkCnt(&objEntry.ObjectStats, uint32(blkCnt))
 					}
+					logutil.Infof("handle meta insert %d %s\n", p.ID, objEntry.String())
 					p.dataObjects.Set(objEntry)
 					p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
 					return
@@ -853,6 +858,7 @@ func (p *PartitionState) HandleMetadataInsert(
 					objectio.SetObjectStatsBlkCnt(&objEntry.ObjectStats, uint32(blkCnt))
 				}
 
+				logutil.Infof("handle meta insert %d %s\n", p.ID, objEntry.String())
 				p.dataObjects.Set(objEntry)
 
 				//prefetch the object meta

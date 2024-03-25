@@ -17,6 +17,8 @@ package logtailreplay
 import (
 	"bytes"
 	"context"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
+	"math"
 	"sync/atomic"
 
 	"github.com/matrixorigin/matrixone/pkg/container/types"
@@ -57,10 +59,21 @@ func (*Partition) CheckPoint(ctx context.Context, ts timestamp.Timestamp) error 
 	panic("unimplemented")
 }
 
+var IDS atomic.Int64
+
 func (p *Partition) MutateState() (*PartitionState, func()) {
 	curState := p.state.Load()
 	state := curState.Copy()
+	state.ID = IDS.Add(1)
 	return state, func() {
+		state.dataObjects.Scan(func(item ObjectEntry) bool {
+			if item.Rows() == 0 {
+				logutil.Fatalf("object stats empty when doneMutate")
+			}
+			return true
+		})
+
+		state.ID = math.MaxInt64
 		if !p.state.CompareAndSwap(curState, state) {
 			panic("concurrent mutation")
 		}
