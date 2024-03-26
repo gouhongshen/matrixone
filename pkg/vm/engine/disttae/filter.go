@@ -16,12 +16,13 @@ package disttae
 
 import (
 	"context"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
+	"github.com/matrixorigin/matrixone/pkg/util"
 	"sort"
 
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
-	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
 	"github.com/matrixorigin/matrixone/pkg/pb/plan"
 	"github.com/matrixorigin/matrixone/pkg/pb/timestamp"
@@ -1062,9 +1063,11 @@ func ExecuteBlockFilter(
 				pos = seekOp(dataMeta)
 			}
 
-			if objStats.Rows() == 0 {
-				logutil.Fatalf("object stats has zero rows, detail: %s", obj.String())
-			}
+			//if objStats.Rows() == 0 {
+			logutil.Errorf("object stats has zero rows, detail: %s", obj.String())
+			util.EnableCoreDump()
+			util.CoreDump()
+			//}
 
 			for ; pos < blockCnt; pos++ {
 				var blkMeta objectio.BlockObject
