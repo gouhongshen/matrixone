@@ -550,34 +550,34 @@ func (tbl *txnTable) AddDeleteNode(id *common.ID, node txnif.DeleteNode) error {
 }
 
 func (tbl *txnTable) Append(ctx context.Context, data *containers.Batch) (err error) {
-	if tbl.schema.HasPK() {
-		dedupType := tbl.store.txn.GetDedupType()
-		if dedupType == txnif.FullDedup {
-			//do PK deduplication check against txn's work space.
-			if err = tbl.DedupWorkSpace(
-				data.Vecs[tbl.schema.GetSingleSortKeyIdx()]); err != nil {
-				return
-			}
-			//do PK deduplication check against txn's snapshot data.
-			if err = tbl.DedupSnapByPK(
-				ctx,
-				data.Vecs[tbl.schema.GetSingleSortKeyIdx()], false); err != nil {
-				return
-			}
-		} else if dedupType == txnif.FullSkipWorkSpaceDedup {
-			if err = tbl.DedupSnapByPK(
-				ctx,
-				data.Vecs[tbl.schema.GetSingleSortKeyIdx()], false); err != nil {
-				return
-			}
-		} else if dedupType == txnif.IncrementalDedup {
-			if err = tbl.DedupSnapByPK(
-				ctx,
-				data.Vecs[tbl.schema.GetSingleSortKeyIdx()], true); err != nil {
-				return
-			}
-		}
-	}
+	//if tbl.schema.HasPK() {
+	//	dedupType := tbl.store.txn.GetDedupType()
+	//	if dedupType == txnif.FullDedup {
+	//		//do PK deduplication check against txn's work space.
+	//		if err = tbl.DedupWorkSpace(
+	//			data.Vecs[tbl.schema.GetSingleSortKeyIdx()]); err != nil {
+	//			return
+	//		}
+	//		//do PK deduplication check against txn's snapshot data.
+	//		if err = tbl.DedupSnapByPK(
+	//			ctx,
+	//			data.Vecs[tbl.schema.GetSingleSortKeyIdx()], false); err != nil {
+	//			return
+	//		}
+	//	} else if dedupType == txnif.FullSkipWorkSpaceDedup {
+	//		if err = tbl.DedupSnapByPK(
+	//			ctx,
+	//			data.Vecs[tbl.schema.GetSingleSortKeyIdx()], false); err != nil {
+	//			return
+	//		}
+	//	} else if dedupType == txnif.IncrementalDedup {
+	//		if err = tbl.DedupSnapByPK(
+	//			ctx,
+	//			data.Vecs[tbl.schema.GetSingleSortKeyIdx()], true); err != nil {
+	//			return
+	//		}
+	//	}
+	//}
 	if tbl.tableSpace == nil {
 		tbl.tableSpace = newTableSpace(tbl)
 	}
@@ -619,54 +619,54 @@ func (tbl *txnTable) addObjsWithMetaLoc(ctx context.Context, stats objectio.Obje
 
 		metaLocs = append(metaLocs, metaloc)
 	}
-	if tbl.schema.HasPK() {
-		dedupType := tbl.store.txn.GetDedupType()
-		if dedupType == txnif.FullDedup {
-			//TODO::parallel load pk.
-			for _, loc := range metaLocs {
-				var vectors []containers.Vector
-				var closeFunc func()
-				//Extend lifetime of vectors is within the function.
-				//No NeedCopy. closeFunc is required after use.
-				//VectorPool is nil.
-				vectors, closeFunc, err = blockio.LoadColumns2(
-					ctx,
-					[]uint16{uint16(tbl.schema.GetSingleSortKeyIdx())},
-					nil,
-					tbl.store.rt.Fs.Service,
-					loc,
-					fileservice.Policy(0),
-					false,
-					nil,
-				)
-				if err != nil {
-					return err
-				}
-				closeFuncs = append(closeFuncs, closeFunc)
-				pkVecs = append(pkVecs, vectors[0])
-			}
-			for _, v := range pkVecs {
-				//do PK deduplication check against txn's work space.
-				if err = tbl.DedupWorkSpace(v); err != nil {
-					return
-				}
-				//do PK deduplication check against txn's snapshot data.
-				if err = tbl.DedupSnapByPK(ctx, v, false); err != nil {
-					return
-				}
-			}
-		} else if dedupType == txnif.FullSkipWorkSpaceDedup {
-			//do PK deduplication check against txn's snapshot data.
-			if err = tbl.DedupSnapByMetaLocs(ctx, metaLocs, false); err != nil {
-				return
-			}
-		} else if dedupType == txnif.IncrementalDedup {
-			//do PK deduplication check against txn's snapshot data.
-			if err = tbl.DedupSnapByMetaLocs(ctx, metaLocs, true); err != nil {
-				return
-			}
-		}
-	}
+	//if tbl.schema.HasPK() {
+	//	dedupType := tbl.store.txn.GetDedupType()
+	//	if dedupType == txnif.FullDedup {
+	//		//TODO::parallel load pk.
+	//		for _, loc := range metaLocs {
+	//			var vectors []containers.Vector
+	//			var closeFunc func()
+	//			//Extend lifetime of vectors is within the function.
+	//			//No NeedCopy. closeFunc is required after use.
+	//			//VectorPool is nil.
+	//			vectors, closeFunc, err = blockio.LoadColumns2(
+	//				ctx,
+	//				[]uint16{uint16(tbl.schema.GetSingleSortKeyIdx())},
+	//				nil,
+	//				tbl.store.rt.Fs.Service,
+	//				loc,
+	//				fileservice.Policy(0),
+	//				false,
+	//				nil,
+	//			)
+	//			if err != nil {
+	//				return err
+	//			}
+	//			closeFuncs = append(closeFuncs, closeFunc)
+	//			pkVecs = append(pkVecs, vectors[0])
+	//		}
+	//		for _, v := range pkVecs {
+	//			//do PK deduplication check against txn's work space.
+	//			if err = tbl.DedupWorkSpace(v); err != nil {
+	//				return
+	//			}
+	//			//do PK deduplication check against txn's snapshot data.
+	//			if err = tbl.DedupSnapByPK(ctx, v, false); err != nil {
+	//				return
+	//			}
+	//		}
+	//	} else if dedupType == txnif.FullSkipWorkSpaceDedup {
+	//		//do PK deduplication check against txn's snapshot data.
+	//		if err = tbl.DedupSnapByMetaLocs(ctx, metaLocs, false); err != nil {
+	//			return
+	//		}
+	//	} else if dedupType == txnif.IncrementalDedup {
+	//		//do PK deduplication check against txn's snapshot data.
+	//		if err = tbl.DedupSnapByMetaLocs(ctx, metaLocs, true); err != nil {
+	//			return
+	//		}
+	//	}
+	//}
 	if tbl.tableSpace == nil {
 		tbl.tableSpace = newTableSpace(tbl)
 	}
@@ -1037,6 +1037,7 @@ func (tbl *txnTable) tryGetCurrentObjectBF(
 // which are visible and not dropped at txn's snapshot timestamp.
 // 2. It is called when appending data into this table.
 func (tbl *txnTable) DedupSnapByPK(ctx context.Context, keys containers.Vector, dedupAfterSnapshotTS bool) (err error) {
+	return nil
 	r := trace.StartRegion(ctx, "DedupSnapByPK")
 	defer r.End()
 	it := newObjectItOnSnap(tbl)
@@ -1207,6 +1208,7 @@ func (tbl *txnTable) DedupSnapByMetaLocs(ctx context.Context, metaLocs []objecti
 //  3. we should make this function run quickly as soon as possible.
 //     TODO::it would be used to do deduplication with the logtail.
 func (tbl *txnTable) DoPrecommitDedupByPK(pks containers.Vector, pksZM index.ZM) (err error) {
+	return nil
 	moprobe.WithRegion(context.Background(), moprobe.TxnTableDoPrecommitDedupByPK, func() {
 		objIt := tbl.entry.MakeObjectIt(false)
 		for objIt.Valid() {
@@ -1261,6 +1263,7 @@ func (tbl *txnTable) DoPrecommitDedupByPK(pks containers.Vector, pksZM index.ZM)
 }
 
 func (tbl *txnTable) DoPrecommitDedupByNode(ctx context.Context, node InsertNode) (err error) {
+	return
 	objIt := tbl.entry.MakeObjectIt(false)
 	var pks containers.Vector
 	//loaded := false
@@ -1327,6 +1330,7 @@ func (tbl *txnTable) DoPrecommitDedupByNode(ctx context.Context, node InsertNode
 }
 
 func (tbl *txnTable) DedupWorkSpace(key containers.Vector) (err error) {
+	return
 	index := NewSimpleTableIndex()
 	//Check whether primary key is duplicated.
 	if err = index.BatchInsert(
@@ -1349,6 +1353,7 @@ func (tbl *txnTable) DedupWorkSpace(key containers.Vector) (err error) {
 }
 
 func (tbl *txnTable) DoBatchDedup(key containers.Vector) (err error) {
+	return
 	index := NewSimpleTableIndex()
 	//Check whether primary key is duplicated.
 	if err = index.BatchInsert(
@@ -1373,6 +1378,7 @@ func (tbl *txnTable) DoBatchDedup(key containers.Vector) (err error) {
 }
 
 func (tbl *txnTable) BatchDedupLocal(bat *containers.Batch) (err error) {
+	return
 	if tbl.tableSpace == nil || !tbl.schema.HasPK() {
 		return
 	}

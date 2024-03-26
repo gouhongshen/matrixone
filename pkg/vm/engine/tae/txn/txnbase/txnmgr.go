@@ -290,7 +290,7 @@ func (mgr *TxnManager) onPrePrepare(op *OpTxn) {
 	defer mgr.CommitListener.OnEndPrePrepare(op.Txn)
 	// If txn is trying committing, call txn.PrePrepare()
 	now := time.Now()
-	op.Txn.SetError(op.Txn.PrePrepare(op.ctx))
+	//op.Txn.SetError(op.Txn.PrePrepare(op.ctx))
 	common.DoIfDebugEnabled(func() {
 		logutil.Debug("[PrePrepare]", TxnField(op.Txn), common.DurationField(time.Since(now)))
 	})
