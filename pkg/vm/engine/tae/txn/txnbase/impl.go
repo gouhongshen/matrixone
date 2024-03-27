@@ -59,7 +59,6 @@ func (txn *Txn) commit1PC(ctx context.Context, _ bool) (err error) {
 	txn.Add(1)
 	if err = txn.Freeze(); err == nil {
 		txn.GetStore().StartTrace()
-		txn.PrePrepare(ctx)
 		err = txn.Mgr.OnOpTxn(&OpTxn{
 			ctx: ctx,
 			Txn: txn,
