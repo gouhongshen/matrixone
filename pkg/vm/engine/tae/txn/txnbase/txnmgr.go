@@ -444,8 +444,41 @@ func (mgr *TxnManager) on2PCPrepared(op *OpTxn) {
 // OpCommit : the commit of 1PC txn
 // OpPrepare: the prepare of 2PC txn
 // OPRollback:the rollback of 2PC or 1PC
+
+var invokeCnt int64
+var itemsCnt int64
+var totalRun time.Duration
+var totalDur time.Duration
+var lastSched time.Time
+var lastItemsCnt int64
+
+func fooStart(now time.Time, icnt int) {
+	if lastSched.IsZero() {
+		lastSched = now
+		return
+	}
+
+	totalDur += now.Sub(lastSched)
+	lastSched = now
+	invokeCnt++
+	itemsCnt += int64(icnt)
+
+	if itemsCnt-lastItemsCnt >= 1000 {
+		x1 := totalDur.Microseconds() / invokeCnt
+		x2 := totalRun.Microseconds() / invokeCnt
+		fmt.Printf("avg invoke interval: %dus, avg execute took: %dus, diff: %dus, avg item cnt: %d\n",
+			x1, x2, x1-x2, itemsCnt/invokeCnt)
+		lastItemsCnt = itemsCnt
+	}
+}
+
+func fooEnd(dur time.Duration) {
+	totalRun += dur
+}
+
 func (mgr *TxnManager) dequeuePreparing(items ...any) {
 	now := time.Now()
+	fooStart(now, len(items))
 	for _, item := range items {
 		op := item.(*OpTxn)
 		store := op.Txn.GetStore()
@@ -487,12 +520,14 @@ func (mgr *TxnManager) dequeuePreparing(items ...any) {
 			panic(err)
 		}
 	}
+	dur := time.Since(now)
 	common.DoIfDebugEnabled(func() {
 		logutil.Debug("[dequeuePreparing]",
 			common.NameSpaceField("txns"),
-			common.DurationField(time.Since(now)),
+			common.DurationField(dur),
 			common.CountField(len(items)))
 	})
+	fooEnd(dur)
 }
 
 func (mgr *TxnManager) onPrepareWAL(items ...any) {
