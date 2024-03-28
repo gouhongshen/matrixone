@@ -125,8 +125,6 @@ func NewTxnManager(txnStoreFactory TxnStoreFactory, txnFactory TxnFactory, clock
 	mgr.ts.allocator = types.NewTsAlloctor(clock)
 	mgr.initMaxCommittedTS()
 	pqueue := sm.NewSafeQueue(20000, 1000, mgr.dequeuePreparing)
-	pqueue.Check = true
-	pqueue.Name = "preparing"
 	prepareWALQueue := sm.NewSafeQueue(20000, 1000, mgr.onPrepareWAL)
 	mgr.FlushQueue = sm.NewSafeQueue(20000, 1000, mgr.dequeuePrepared)
 	mgr.PreparingSM = sm.NewStateMachine(new(sync.WaitGroup), mgr, pqueue, prepareWALQueue)
