@@ -101,7 +101,7 @@ func (c *Config) Adjust() {
 		c.SendQueueSize = 100000
 	}
 	if c.ServerWorkers == 0 {
-		c.ServerWorkers = int(math.Max(100, float64(8*runtime.NumCPU())))
+		c.ServerWorkers = int(math.Max(500, float64(8*runtime.NumCPU())))
 	}
 	if c.ServerBufferQueueSize == 0 {
 		c.ServerBufferQueueSize = 100000
