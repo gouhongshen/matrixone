@@ -16,6 +16,7 @@ package txnimpl
 
 import (
 	"context"
+	"fmt"
 	"runtime/trace"
 	"sync"
 	"sync/atomic"
@@ -67,12 +68,24 @@ type txnTracer struct {
 	stamp time.Time
 }
 
+var last time.Time
+var counter int64
+
 func (tracer *txnTracer) Trigger(state uint8) {
 	switch state {
 	case 0: // start preparing wait
 		_, tracer.task = trace.NewTask(context.Background(), "1-PreparingWait")
 		tracer.stamp = time.Now()
 		tracer.state = 0
+
+		counter++
+		if last.IsZero() {
+			last = tracer.stamp
+		} else if tracer.stamp.Sub(last).Seconds() > 10 {
+			fmt.Printf("%d every 10s\n", counter)
+			counter = 0
+			last = tracer.stamp
+		}
 
 	case 1: // end preparing wait and start preparing
 		if tracer.task != nil && tracer.state == 0 {

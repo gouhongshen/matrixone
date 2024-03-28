@@ -125,6 +125,8 @@ func NewTxnManager(txnStoreFactory TxnStoreFactory, txnFactory TxnFactory, clock
 	mgr.ts.allocator = types.NewTsAlloctor(clock)
 	mgr.initMaxCommittedTS()
 	pqueue := sm.NewSafeQueue(20000, 1000, mgr.dequeuePreparing)
+	pqueue.Check = true
+	pqueue.Name = "preparing"
 	prepareWALQueue := sm.NewSafeQueue(20000, 1000, mgr.onPrepareWAL)
 	mgr.FlushQueue = sm.NewSafeQueue(20000, 1000, mgr.dequeuePrepared)
 	mgr.PreparingSM = sm.NewStateMachine(new(sync.WaitGroup), mgr, pqueue, prepareWALQueue)
@@ -448,27 +450,24 @@ func (mgr *TxnManager) on2PCPrepared(op *OpTxn) {
 var invokeCnt int64
 var itemsCnt int64
 var totalRun time.Duration
-var totalDur time.Duration
-var lastSched time.Time
-var lastItemsCnt int64
+
+var last time.Time
 
 func fooStart(now time.Time, icnt int) {
-	if lastSched.IsZero() {
-		lastSched = now
-		return
-	}
-
-	totalDur += now.Sub(lastSched)
-	lastSched = now
 	invokeCnt++
 	itemsCnt += int64(icnt)
+	if last.IsZero() {
+		last = now
+	}
 
-	if itemsCnt-lastItemsCnt >= 1000 {
-		x1 := totalDur.Microseconds() / invokeCnt
-		x2 := totalRun.Microseconds() / invokeCnt
-		fmt.Printf("avg invoke interval: %dus, avg execute took: %dus, diff: %dus, avg item cnt: %d\n",
-			x1, x2, x1-x2, itemsCnt/invokeCnt)
-		lastItemsCnt = itemsCnt
+	if now.Sub(last).Seconds() >= 10 {
+		x2 := totalRun.Microseconds()
+		fmt.Printf("every 10s: run time: %dus, items: %d, invoke cnt: %d\n",
+			x2, itemsCnt, invokeCnt)
+		itemsCnt = 0
+		last = now
+		invokeCnt = 0
+		totalRun = 0
 	}
 }
 

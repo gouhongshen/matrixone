@@ -16,6 +16,7 @@ package sm
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -40,6 +41,8 @@ type safeQueue struct {
 	onItemsCB OnItemsCB
 	// value is true by default
 	blocking bool
+	Check    bool
+	Name     string
 }
 
 // NewSafeQueue is blocking queue by default
@@ -131,6 +134,16 @@ func (q *safeQueue) Enqueue(item any) (any, error) {
 
 	if q.blocking {
 		q.pending.Add(1)
+
+		if q.Check {
+			select {
+			case q.queue <- item:
+				return item, nil
+			default:
+				fmt.Printf("%s is full\n", q.Name)
+			}
+		}
+
 		q.queue <- item
 		return item, nil
 	} else {
