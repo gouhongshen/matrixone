@@ -461,9 +461,9 @@ func fooStart(now time.Time, icnt int) {
 	}
 
 	if now.Sub(last).Seconds() >= 10 {
-		x2 := totalRun.Microseconds()
-		fmt.Printf("every 10s: run time: %dus, items: %d, invoke cnt: %d\n",
-			x2, itemsCnt, invokeCnt)
+		x2 := totalRun.Microseconds() / invokeCnt
+		fmt.Printf("every 10s: %dus/1invoke, total items: %d, %d/1invoke\n",
+			x2, itemsCnt, itemsCnt/invokeCnt)
 		itemsCnt = 0
 		last = now
 		invokeCnt = 0

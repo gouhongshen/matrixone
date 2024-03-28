@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	gotrace "runtime/trace"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -202,6 +203,7 @@ type txnOperator struct {
 	timestampWaiter      TimestampWaiter
 	clock                clock.Clock
 	createAt             time.Time
+	task                 *gotrace.Task
 	commitAt             time.Time
 	commitSeq            uint64
 	lockService          lockservice.LockService
@@ -236,6 +238,7 @@ func newTxnOperator(
 	tc.txnID = txnMeta.ID
 	tc.clock = clock
 	tc.createAt = time.Now()
+	_, tc.task = gotrace.NewTask(context.Background(), "TxnLifeSpan")
 	tc.createTs, _ = clock.Now()
 	for _, opt := range options {
 		opt(tc)

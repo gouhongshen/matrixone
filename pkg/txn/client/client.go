@@ -495,6 +495,7 @@ func (client *txnClient) closeTxn(event TxnEvent) {
 	op, ok := client.mu.activeTxns[key]
 	if ok {
 		v2.TxnLifeCycleDurationHistogram.Observe(time.Since(op.createAt).Seconds())
+		op.task.End()
 
 		delete(client.mu.activeTxns, key)
 		client.removeFromLeakCheck(txn.ID)
