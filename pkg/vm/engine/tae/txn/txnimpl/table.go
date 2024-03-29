@@ -946,6 +946,7 @@ func (tbl *txnTable) NeedRollback() bool {
 
 // PrePrepareDedup do deduplication check for 1PC Commit or 2PC Prepare
 func (tbl *txnTable) PrePrepareDedup(ctx context.Context) (err error) {
+	return
 	if tbl.tableSpace == nil || !tbl.schema.HasPK() {
 		return
 	}

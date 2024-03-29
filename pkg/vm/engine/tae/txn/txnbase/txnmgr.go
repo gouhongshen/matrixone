@@ -448,6 +448,7 @@ func (mgr *TxnManager) on2PCPrepared(op *OpTxn) {
 var invokeCnt int64
 var itemsCnt int64
 var totalRun time.Duration
+var totalT1, totalT2, totalT3 time.Duration
 
 var last time.Time
 
@@ -459,23 +460,33 @@ func fooStart(now time.Time, icnt int) {
 	}
 
 	if now.Sub(last).Seconds() >= 10 {
-		x2 := totalRun.Microseconds() / invokeCnt
-		fmt.Printf("every 10s: %dus/1invoke, total items: %d, %d/1invoke\n",
-			x2, itemsCnt, itemsCnt/invokeCnt)
+		x1 := totalRun.Microseconds() / invokeCnt
+		t1 := totalT1.Microseconds() / invokeCnt
+		t2 := totalT2.Microseconds() / invokeCnt
+		t3 := totalT3.Microseconds() / invokeCnt
+		fmt.Printf("every 10s: %d-%d-%d-%dus/1invoke, total items: %d, %d/1invoke\n",
+			x1, t1, t2, t3, itemsCnt, itemsCnt/invokeCnt)
 		itemsCnt = 0
 		last = now
 		invokeCnt = 0
 		totalRun = 0
+		totalT1 = 0
+		totalT2 = 0
+		totalT3 = 0
 	}
 }
 
-func fooEnd(dur time.Duration) {
-	totalRun += dur
+func fooEnd(total, t1, t2, t3 time.Duration) {
+	totalRun += total
+	totalT1 += t1
+	totalT2 += t2
+	totalT3 += t3
 }
 
 func (mgr *TxnManager) dequeuePreparing(items ...any) {
 	now := time.Now()
 	fooStart(now, len(items))
+	var t1, t2, t3 time.Duration
 	for _, item := range items {
 		op := item.(*OpTxn)
 		store := op.Txn.GetStore()
@@ -489,19 +500,25 @@ func (mgr *TxnManager) dequeuePreparing(items ...any) {
 
 		// Mainly do : 1. conflict check for 1PC Commit or 2PC Prepare;
 		//   		   2. push the AppendNode into the MVCCHandle of block
+		t := time.Now()
 		mgr.onPrePrepare(op)
+		t1 += time.Now().Sub(t)
 
 		//Before this moment, all mvcc nodes of a txn has been pushed into the MVCCHandle.
 		//1. Allocate a timestamp , set it to txn's prepare timestamp and commit timestamp,
 		//   which would be changed in the future if txn is 2PC.
 		//2. Set transaction's state to Preparing or Rollbacking if op.Op is OpRollback.
+		t = time.Now()
 		ts := mgr.onBindPrepareTimeStamp(op)
+		t2 += time.Now().Sub(t)
 
+		t = time.Now()
 		if op.Txn.Is2PC() {
 			mgr.onPrepare2PC(op, ts)
 		} else {
 			mgr.onPrepare1PC(op, ts)
 		}
+		t3 += time.Now().Sub(t)
 		if !op.Txn.IsReplay() {
 			if !mgr.prevPrepareTSInPreparing.IsEmpty() {
 				prepareTS := op.Txn.GetPrepareTS()
@@ -524,7 +541,7 @@ func (mgr *TxnManager) dequeuePreparing(items ...any) {
 			common.DurationField(dur),
 			common.CountField(len(items)))
 	})
-	fooEnd(dur)
+	fooEnd(dur, t1, t2, t3)
 }
 
 func (mgr *TxnManager) onPrepareWAL(items ...any) {
