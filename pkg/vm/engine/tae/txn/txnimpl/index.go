@@ -367,6 +367,7 @@ func (idx *simpleTableIndex) BatchInsert(
 
 // TODO: rewrite
 func (idx *simpleTableIndex) BatchDedup(attr string, col containers.Vector) error {
+	return nil
 	idx.RLock()
 	defer idx.RUnlock()
 	colType := col.GetType()
