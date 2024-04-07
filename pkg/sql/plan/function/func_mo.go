@@ -15,7 +15,10 @@
 package function
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"strconv"
 	"strings"
 
@@ -44,6 +47,12 @@ func MoTableRows(ivecs []*vector.Vector, result vector.FunctionResultWrapper, pr
 	rs := vector.MustFunctionResult[int64](result)
 	dbs := vector.GenerateFunctionStrParameter(ivecs[0])
 	tbls := vector.GenerateFunctionStrParameter(ivecs[1])
+
+	var buf bytes.Buffer
+	defer func() {
+		buf.WriteString(fmt.Sprintf("err[%v]", err))
+		logutil.Infof("MoTableRows: %s\n", buf.String())
+	}()
 
 	// XXX WTF
 	e := proc.Ctx.Value(defines.EngineKey{}).(engine.Engine)
@@ -92,6 +101,9 @@ func MoTableRows(ivecs []*vector.Vector, result vector.FunctionResultWrapper, pr
 				}
 				return err
 			}
+
+			buf.WriteString(fmt.Sprintf("%s-%s;", dbStr, tblStr))
+
 			rel, err = dbo.Relation(ctx, tblStr, nil)
 			if err != nil {
 				return err
@@ -162,6 +174,12 @@ func MoTableSize(ivecs []*vector.Vector, result vector.FunctionResultWrapper, pr
 	dbs := vector.GenerateFunctionStrParameter(ivecs[0])
 	tbls := vector.GenerateFunctionStrParameter(ivecs[1])
 
+	var buf bytes.Buffer
+	defer func() {
+		buf.WriteString(fmt.Sprintf("err[%v]", err))
+		logutil.Infof("MoTableSize: %s\n", buf.String())
+	}()
+
 	e := proc.Ctx.Value(defines.EngineKey{}).(engine.Engine)
 	if proc.TxnOperator == nil {
 		return moerr.NewInternalError(proc.Ctx, "MoTableSize: txn operator is nil")
@@ -217,6 +235,9 @@ func MoTableSize(ivecs []*vector.Vector, result vector.FunctionResultWrapper, pr
 				}
 				return err
 			}
+
+			buf.WriteString(fmt.Sprintf("%s-%s;", dbStr, tblStr))
+
 			rel, err = dbo.Relation(ctx, tblStr, nil)
 			if err != nil {
 				return err
@@ -271,7 +292,8 @@ func getTableSize(ctx context.Context, db engine.Database, rel engine.Relation) 
 		for _, partitionTable := range partitionInfo.PartitionTableNames {
 			prel, err = db.Relation(ctx, partitionTable, nil)
 			if err != nil {
-				return 0, err
+				return 0, moerr.NewInternalErrorNoCtx(
+					fmt.Sprintf("getTableSize: get partitionTable %s[%s] failed", partitionTable, rel.GetTableName()))
 			}
 			if err = prel.UpdateObjectInfos(ctx); err != nil {
 				return 0, err
@@ -295,9 +317,19 @@ func getTableSize(ctx context.Context, db engine.Database, rel engine.Relation) 
 }
 
 func indexesTableSize(ctx context.Context, db engine.Database, rel engine.Relation) (totalSize uint64, err error) {
+	var buf bytes.Buffer
 	var irel engine.Relation
 	var size uint64
+
+	defer func() {
+		buf.WriteString(fmt.Sprintf("err[%v]", err))
+		logutil.Infof("getIndexesSize: %s\n", buf.String())
+	}()
+
+	buf.WriteString(fmt.Sprintf("[%s]: ", rel.GetTableName()))
+
 	for _, idef := range rel.GetTableDef(ctx).Indexes {
+		buf.WriteString(fmt.Sprintf("[%s];", idef.IndexTableName))
 		if irel, err = db.Relation(ctx, idef.IndexTableName, nil); err != nil {
 			return 0, err
 		}

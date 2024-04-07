@@ -1277,6 +1277,7 @@ func (tbl *txnTable) GetTableDef(ctx context.Context) *plan.TableDef {
 				switch k := ct.(type) {
 				case *engine.IndexDef:
 					indexes = k.Indexes
+					logutil.Infof("table %s has indexes: %s", tbl.tableName, k.DebugString())
 				case *engine.ForeignKeyDef:
 					foreignKeys = k.Fkeys
 				case *engine.RefChildTableDef:

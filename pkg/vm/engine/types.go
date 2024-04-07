@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
@@ -557,6 +558,20 @@ func (def *IndexDef) ToPBVersion() ConstraintPB {
 			IndexDef: def,
 		},
 	}
+}
+
+func (def *IndexDef) DebugString() string {
+	var buf bytes.Buffer
+	for _, def := range def.Indexes {
+		buf.WriteString(fmt.Sprintf(
+			"indexTableName:%s, indexName:%s, indexAlgo:%s, indexVisible:%v, indexAlgoParams:%s, "+
+				"indexAlgoTableType:%s, indexUnique:%v, indexTableExist:%v, indexComment:%s, indexParts:%v\n",
+			def.IndexTableName, def.IndexName, def.IndexAlgo,
+			def.Visible, def.IndexAlgoParams, def.IndexAlgoTableType,
+			def.Unique, def.TableExist, def.Comment, def.Parts))
+	}
+
+	return buf.String()
 }
 
 func (def *StreamConfigsDef) ToPBVersion() ConstraintPB {
