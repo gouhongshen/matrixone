@@ -16,6 +16,7 @@ package cache
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/pb/plan"
@@ -87,6 +88,12 @@ type DatabaseItem struct {
 
 	// Mark if it is a delete
 	deleted bool
+}
+
+func (item *TableItem) String() string {
+	ts := types.BuildTS(item.Ts.PhysicalTime, item.Ts.LogicalTime)
+	return fmt.Sprintf("%d-%d-%d-%s-%s-%v-%d",
+		item.AccountId, item.DatabaseId, item.Id, item.Name, ts.ToString(), item.deleted, item.Version)
 }
 
 type TableItem struct {

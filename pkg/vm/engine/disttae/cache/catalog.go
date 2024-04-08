@@ -646,7 +646,7 @@ func (c *tableCache) addTableItem(item *TableItem) {
 			}
 		}
 
-		logutil.Infof(fmt.Sprintf("addTableItem: tbl-%s: %s", item.Name, buf.String()))
+		logutil.Infof(fmt.Sprintf("addTableItem: tblItem-%s: %s", item.String(), buf.String()))
 	}
 
 	c.data.Set(item)
@@ -675,7 +675,7 @@ func getTableDef(tblItem *TableItem, coldefs []engine.TableDef) *plan.TableDef {
 		buf.WriteByte('\n')
 
 		defer func() {
-			logutil.Infof("getTableDef: tbl-%s, info: %s\n", tblItem.Name, buf.String())
+			logutil.Infof("getTableDef: tblItem-%s, info: %s\n", tblItem.String(), buf.String())
 		}()
 	}
 

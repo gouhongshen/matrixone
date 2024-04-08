@@ -184,6 +184,7 @@ func (db *txnDatabase) Relation(ctx context.Context, name string, proc any) (eng
 		AccountId:  accountId,
 		Ts:         db.txn.op.SnapshotTS(),
 	}
+	requestItem := *item
 	if ok := db.txn.engine.catalog.GetTable(item); !ok {
 		logutil.Debugf("txnDatabase.Relation table %q(acc %d db %d) does not exist", name, accountId, db.databaseId)
 		return nil, moerr.NewParseError(ctx, "table %q does not exist", name)
@@ -219,7 +220,7 @@ func (db *txnDatabase) Relation(ctx context.Context, name string, proc any) (eng
 		buf.WriteByte('\n')
 
 		buf.WriteString(fmt.Sprintf("indexes: %s", engine.DebugIndexString(tbl.tableDef.Indexes)))
-		logutil.Infof("Relation: tbl-%s, info: %s", tbl.tableName, buf.String())
+		logutil.Infof("Relation: requestItem-%s, tblItem-%s, info: %s", requestItem.String(), item.String(), buf.String())
 	}
 
 	db.txn.tableCache.tableMap.Store(key, tbl)
