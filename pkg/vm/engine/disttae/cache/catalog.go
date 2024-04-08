@@ -15,12 +15,14 @@
 package cache
 
 import (
+	"bytes"
 	"fmt"
-	"math"
-	"sort"
-
 	plan2 "github.com/matrixorigin/matrixone/pkg/sql/plan"
 	"github.com/matrixorigin/matrixone/pkg/sql/util"
+	"math"
+	"regexp"
+	"runtime/debug"
+	"sort"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/compress"
@@ -629,8 +631,28 @@ func (cc *CatalogCache) GetSchemaVersion(name TableKey) *TableVersion {
 
 // addTableItem inserts a new table item.
 func (c *tableCache) addTableItem(item *TableItem) {
+	if rexp.MatchString(item.Name) {
+		var buf bytes.Buffer
+		if len(item.Constraint) > 0 {
+			cc := &engine.ConstraintDef{}
+			if err := cc.UnmarshalBinary(item.Constraint); err == nil {
+				for _, ct := range cc.Cts {
+					switch k := ct.(type) {
+					case *engine.IndexDef:
+						buf.WriteString(fmt.Sprintf("indexes: %s", k.DebugString()))
+						buf.WriteByte('\n')
+					}
+				}
+			}
+		}
+
+		logutil.Infof(fmt.Sprintf("addTableItem: tbl-%s: %s", item.Name, buf.String()))
+	}
+
 	c.data.Set(item)
 }
+
+var rexp = regexp.MustCompile("ecbase_card|realname_order_info|db|procs_priv|tables_priv")
 
 func getTableDef(tblItem *TableItem, coldefs []engine.TableDef) *plan.TableDef {
 	var clusterByDef *plan.ClusterByDef
@@ -645,6 +667,17 @@ func getTableDef(tblItem *TableItem, coldefs []engine.TableDef) *plan.TableDef {
 	var primarykey *plan.PrimaryKeyDef
 	var indexes []*plan.IndexDef
 	var refChildTbls []uint64
+
+	var buf *bytes.Buffer
+	if rexp.MatchString(tblItem.Name) {
+		buf = &bytes.Buffer{}
+		buf.WriteString(string(debug.Stack()))
+		buf.WriteByte('\n')
+
+		defer func() {
+			logutil.Infof("getTableDef: tbl-%s, info: %s\n", tblItem.Name, buf.String())
+		}()
+	}
 
 	i := int32(0)
 	name2index := make(map[string]int32)
@@ -710,10 +743,16 @@ func getTableDef(tblItem *TableItem, coldefs []engine.TableDef) *plan.TableDef {
 			//panic(fmt.Sprintf("cannot unmarshal table constraint information: %s", err))
 			return nil
 		}
+
 		for _, ct := range c.Cts {
 			switch k := ct.(type) {
 			case *engine.IndexDef:
 				indexes = k.Indexes
+				if buf != nil {
+					buf.WriteString(fmt.Sprintf("indexes: %s", k.DebugString()))
+					buf.WriteByte('\n')
+				}
+
 			case *engine.ForeignKeyDef:
 				foreignKeys = k.Fkeys
 			case *engine.RefChildTableDef:

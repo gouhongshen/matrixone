@@ -15,7 +15,10 @@
 package disttae
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"runtime/debug"
 	"strconv"
 	"strings"
 
@@ -209,6 +212,15 @@ func (db *txnDatabase) Relation(ctx context.Context, name string, proc any) (eng
 		lastTS: txn.op.SnapshotTS(),
 	}
 	tbl.proc.Store(p)
+
+	if rexp.MatchString(tbl.tableName) && tbl.tableDef != nil {
+		var buf bytes.Buffer
+		buf.WriteString(string(debug.Stack()))
+		buf.WriteByte('\n')
+
+		buf.WriteString(fmt.Sprintf("indexes: %s", engine.DebugIndexString(tbl.tableDef.Indexes)))
+		logutil.Infof("Relation: tbl-%s, info: %s", tbl.tableName, buf.String())
+	}
 
 	db.txn.tableCache.tableMap.Store(key, tbl)
 	return tbl, nil

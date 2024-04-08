@@ -15,7 +15,11 @@
 package disttae
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"regexp"
+	"runtime/debug"
 	"strconv"
 	"time"
 	"unsafe"
@@ -1190,8 +1194,26 @@ func (tbl *txnTable) TableDefs(ctx context.Context) ([]engine.TableDef, error) {
 	return defs, nil
 }
 
+var rexp = regexp.MustCompile("ecbase_card|realname_order_info|db|procs_priv|tables_priv")
+
 func (tbl *txnTable) GetTableDef(ctx context.Context) *plan.TableDef {
+	var buf *bytes.Buffer
+	if rexp.MatchString(tbl.tableName) {
+		buf = &bytes.Buffer{}
+		buf.WriteString(string(debug.Stack()))
+		buf.WriteByte('\n')
+
+		defer func() {
+			logutil.Infof("GetTableDef: tbl-%s, info: %s\n", tbl.tableName, buf.String())
+		}()
+	}
+
 	if tbl.tableDef == nil {
+		if buf != nil {
+			buf.WriteString("tbl.tableDef is nil")
+			buf.WriteByte('\n')
+		}
+
 		var clusterByDef *plan.ClusterByDef
 		var cols []*plan.ColDef
 		var defs []*plan.TableDef_DefType
@@ -1273,11 +1295,21 @@ func (tbl *txnTable) GetTableDef(ctx context.Context) *plan.TableDef {
 				//panic(fmt.Sprintf("cannot unmarshal table constraint information: %s", err))
 				return nil
 			}
+
+			if buf != nil {
+				buf.WriteString(fmt.Sprintf("constraint: %v", c))
+				buf.WriteByte('\n')
+			}
+
 			for _, ct := range c.Cts {
 				switch k := ct.(type) {
 				case *engine.IndexDef:
 					indexes = k.Indexes
-					logutil.Infof("table %s has indexes: %s", tbl.tableName, k.DebugString())
+					if buf != nil {
+						buf.WriteString(fmt.Sprintf("Indexes: %s", k.DebugString()))
+						buf.WriteByte('\n')
+					}
+
 				case *engine.ForeignKeyDef:
 					foreignKeys = k.Fkeys
 				case *engine.RefChildTableDef:
@@ -1343,6 +1375,11 @@ func (tbl *txnTable) GetTableDef(ctx context.Context) *plan.TableDef {
 			Version:       tbl.version,
 		}
 	}
+	if buf != nil {
+		buf.WriteString(fmt.Sprintf("final indexes: %s", engine.DebugIndexString(tbl.tableDef.Indexes)))
+		buf.WriteByte('\n')
+	}
+
 	return tbl.tableDef
 }
 

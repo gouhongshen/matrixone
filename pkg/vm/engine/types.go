@@ -560,9 +560,9 @@ func (def *IndexDef) ToPBVersion() ConstraintPB {
 	}
 }
 
-func (def *IndexDef) DebugString() string {
+func DebugIndexString(indexes []*plan.IndexDef) string {
 	var buf bytes.Buffer
-	for _, def := range def.Indexes {
+	for _, def := range indexes {
 		buf.WriteString(fmt.Sprintf(
 			"indexTableName:%s, indexName:%s, indexAlgo:%s, indexVisible:%v, indexAlgoParams:%s, "+
 				"indexAlgoTableType:%s, indexUnique:%v, indexTableExist:%v, indexComment:%s, indexParts:%v\n",
@@ -572,6 +572,10 @@ func (def *IndexDef) DebugString() string {
 	}
 
 	return buf.String()
+}
+
+func (def *IndexDef) DebugString() string {
+	return DebugIndexString(def.Indexes)
 }
 
 func (def *StreamConfigsDef) ToPBVersion() ConstraintPB {
