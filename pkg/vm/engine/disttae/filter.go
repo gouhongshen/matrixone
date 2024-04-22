@@ -450,40 +450,40 @@ func CompileFilterExpr(
 			}
 		case "and":
 			leftFastOp, leftLoadOp, leftObjectOp, leftBlockOp, leftSeekOp,
-				leftFastSeekObjectOp, leftCan := CompileFilterExpr(exprImpl.F.Args[0], proc, tableDef, fs)
+				_, leftCan := CompileFilterExpr(exprImpl.F.Args[0], proc, tableDef, fs)
 			if !leftCan {
 				return nil, nil, nil, nil, nil, nil, false
 			}
 			rightFastOp, rightLoadOp, rightObjectOp, rightBlockOp, rightSeekOp,
-				rightFastSeekObjectOp, rightCan := CompileFilterExpr(exprImpl.F.Args[1], proc, tableDef, fs)
+				_, rightCan := CompileFilterExpr(exprImpl.F.Args[1], proc, tableDef, fs)
 			if !rightCan {
 				return nil, nil, nil, nil, nil, nil, false
 			}
 
-			if leftFastSeekObjectOp != nil || rightFastSeekObjectOp != nil {
-				fastSeekObjectOp = func(t types.T) (pivot objectio.ZoneMap, stop func(stats objectio.ObjectStats) bool) {
-					var s1, s2 func(stats objectio.ObjectStats) bool
-					if leftFastSeekObjectOp != nil {
-						pivot, s1 = leftFastSeekObjectOp(t)
-					}
-
-					var rp objectio.ZoneMap
-					if rightFastSeekObjectOp != nil {
-						rp, s2 = rightFastSeekObjectOp(t)
-						if rp.Compare(pivot) < 0 {
-							pivot = rp
-						}
-					}
-
-					stop = func(stats objectio.ObjectStats) bool {
-						if s1(stats) || s2(stats) {
-							return true
-						}
-						return false
-					}
-					return
-				}
-			}
+			//if leftFastSeekObjectOp != nil || rightFastSeekObjectOp != nil {
+			//	fastSeekObjectOp = func(t types.T) (pivot objectio.ZoneMap, stop func(stats objectio.ObjectStats) bool) {
+			//		var s1, s2 func(stats objectio.ObjectStats) bool
+			//		if leftFastSeekObjectOp != nil {
+			//			pivot, s1 = leftFastSeekObjectOp(t)
+			//		}
+			//
+			//		var rp objectio.ZoneMap
+			//		if rightFastSeekObjectOp != nil {
+			//			rp, s2 = rightFastSeekObjectOp(t)
+			//			if rp.Compare(pivot) < 0 {
+			//				pivot = rp
+			//			}
+			//		}
+			//
+			//		stop = func(stats objectio.ObjectStats) bool {
+			//			if s1(stats) || s2(stats) {
+			//				return true
+			//			}
+			//			return false
+			//		}
+			//		return
+			//	}
+			//}
 
 			if leftFastOp != nil || rightFastOp != nil {
 				fastFilterOp = func(obj objectio.ObjectStats) (bool, error) {

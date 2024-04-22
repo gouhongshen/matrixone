@@ -120,7 +120,7 @@ func (tbl *txnTable) stats(ctx context.Context) (*pb.StatsInfo, error) {
 
 			var ps *logtailreplay.PartitionState
 			if !tbl.db.op.IsSnapOp() {
-				ps = e.getOrCreateLatestPart(tbl.db.databaseId, partitionTable.Id).Snapshot()
+				ps = e.getOrCreateLatestPart(tbl.db.databaseId, partitionTable.Id, tbl.GetTableDef(ctx)).Snapshot()
 			} else {
 				p, err := e.getOrCreateSnapPart(
 					ctx,
@@ -877,6 +877,7 @@ func (tbl *txnTable) rangesOnePart(
 			)
 			return
 		},
+		nil,
 		state,
 		uncommittedObjects...,
 	); err != nil {
@@ -1199,6 +1200,7 @@ func (tbl *txnTable) tryFastRanges(
 
 			return
 		},
+		nil,
 		snapshot,
 		uncommittedObjects...,
 	); err != nil {
@@ -2244,7 +2246,7 @@ func (tbl *txnTable) getPartitionState(
 				return nil, err
 			}
 			tbl._partState.Store(tbl.getTxn().engine.
-				getOrCreateLatestPart(tbl.db.databaseId, tbl.tableId).Snapshot())
+				getOrCreateLatestPart(tbl.db.databaseId, tbl.tableId, tbl.GetTableDef(ctx)).Snapshot())
 		}
 		return tbl._partState.Load(), nil
 	}

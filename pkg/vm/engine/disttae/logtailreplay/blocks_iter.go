@@ -33,6 +33,7 @@ type objectsIter struct {
 	ts          types.TS
 	iter        btree.IterG[ObjectEntry]
 	firstCalled bool
+	canFast     bool
 }
 
 // not accurate!  only used by stats
@@ -44,18 +45,58 @@ func (p *PartitionState) NewObjectsIter(ts types.TS) (*objectsIter, error) {
 	if ts.Less(&p.minTS) {
 		return nil, moerr.NewTxnStaleNoCtx()
 	}
-	iter := p.dataObjects.Copy().Iter()
 	ret := &objectsIter{
-		ts:   ts,
-		iter: iter,
+		ts: ts,
 	}
+
+	//p.dataObjects.GetAt()
+
+	if p.dataObjectsSortKeyIndex != nil {
+		ret.iter = p.dataObjectsSortKeyIndex.Iter()
+		ret.canFast = true
+	} else {
+		ret.iter = p.dataObjects.Iter()
+		ret.canFast = false
+	}
+
 	return ret, nil
 }
 
 var _ ObjectsIter = new(objectsIter)
 
-func (b *objectsIter) Seek(onItem func() []objectio.ZoneMap) bool {
-	b.iter.Seek()
+func (b *objectsIter) Seek(op func(t types.T) (pivot objectio.ZoneMap, stop func(stats objectio.ObjectStats) bool)) (
+	func(stats objectio.ObjectStats) bool, bool) {
+
+	var item ObjectEntry
+	if b.iter.First() {
+		item = b.Entry()
+	} else {
+		return nil, false
+	}
+
+	return nil, true
+	if op == nil || !b.canFast {
+		return nil, true
+	}
+
+	zm, stop := op(item.SortKeyZoneMap().GetType())
+
+	piovt := ObjectEntry{}
+	objectio.SetObjectStatsSortKeyZoneMap(&piovt.ObjectStats, zm)
+
+	b.iter.Seek(piovt)
+	for b.iter.Prev() {
+		item = b.Entry()
+		if res, ok := item.SortKeyZoneMap().AnyGE(zm); res && ok {
+			continue
+		}
+
+		break
+	}
+
+	b.iter.Next()
+
+	return stop, true
 }
 
 func (b *objectsIter) Next() bool {

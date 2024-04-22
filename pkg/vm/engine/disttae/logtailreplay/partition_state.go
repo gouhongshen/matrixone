@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/util"
 	"runtime/trace"
 	"sync"
 	"sync/atomic"
@@ -175,7 +176,12 @@ type ObjectEntry struct {
 func (o ObjectEntry) LessBySortKey(than ObjectEntry) bool {
 	ozm := o.SortKeyZoneMap()
 	tzm := than.SortKeyZoneMap()
-	return ozm.Compare(tzm) < 0
+	ret := ozm.Compare(tzm)
+	if ret != 0 {
+		return ret < 0
+	}
+
+	return o.Less(than)
 }
 
 func (o ObjectEntry) Less(than ObjectEntry) bool {
@@ -282,11 +288,11 @@ func (b ObjectIndexByTSEntry) Less(than ObjectIndexByTSEntry) bool {
 	return false
 }
 
-func NewPartitionState(noData bool) *PartitionState {
+func NewPartitionState(noData bool, hasSortKey bool) *PartitionState {
 	opts := btree.Options{
 		Degree: 64,
 	}
-	return &PartitionState{
+	ps := &PartitionState{
 		noData:      noData,
 		rows:        btree.NewBTreeGOptions((RowEntry).Less, opts),
 		dataObjects: btree.NewBTreeGOptions((ObjectEntry).Less, opts),
@@ -297,6 +303,12 @@ func NewPartitionState(noData bool) *PartitionState {
 		objectIndexByTS: btree.NewBTreeGOptions((ObjectIndexByTSEntry).Less, opts),
 		shared:          new(sharedStates),
 	}
+
+	if hasSortKey {
+		ps.dataObjectsSortKeyIndex = btree.NewBTreeGOptions(ObjectEntry.LessBySortKey, opts)
+	}
+
+	return ps
 }
 
 func (p *PartitionState) Copy() *PartitionState {
@@ -316,6 +328,10 @@ func (p *PartitionState) Copy() *PartitionState {
 	if len(p.checkpoints) > 0 {
 		state.checkpoints = make([]string, len(p.checkpoints))
 		copy(state.checkpoints, p.checkpoints)
+	}
+
+	if p.dataObjectsSortKeyIndex != nil {
+		state.dataObjectsSortKeyIndex = p.dataObjectsSortKeyIndex.Copy()
 	}
 	return &state
 }
@@ -490,6 +506,16 @@ func (p *PartitionState) HandleObjectInsert(ctx context.Context, bat *api.Batch,
 		}
 
 		p.dataObjects.Set(objEntry)
+
+		if p.dataObjectsSortKeyIndex != nil {
+			if objEntry.ZMIsEmpty() {
+				logutil.Errorf("object stats has zero zonemap: %s\n", objEntry.String())
+				util.EnableCoreDump()
+				util.CoreDump()
+			}
+			p.dataObjectsSortKeyIndex.Set(objEntry)
+		}
+
 		//p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
 		{
 			//Need to insert an entry in objectIndexByTS, when soft delete appendable object.
@@ -852,6 +878,10 @@ func (p *PartitionState) HandleMetadataInsert(
 					objectio.SetObjectStatsBlkCnt(&objEntry.ObjectStats, uint32(blkCnt))
 				}
 				p.dataObjects.Set(objEntry)
+				//if p.dataObjectsSortKeyIndex != nil {
+				//	p.dataObjectsSortKeyIndex.Set(objEntry)
+				//}
+
 				// For deltaloc batch after block is removed,
 				// objEntry.CreateTime is empty.
 				// and it's temporary.
@@ -880,6 +910,7 @@ func (p *PartitionState) HandleMetadataInsert(
 				}
 
 				p.dataObjects.Set(objEntry)
+				//p.dataObjectsSortKeyIndex.Set(objEntry)
 
 				//if !objEntry.CreateTime.IsEmpty() {
 				//	p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
@@ -922,6 +953,10 @@ func (p *PartitionState) objectDeleteHelper(
 		// apply first delete
 		objEntry.DeleteTime = deleteTime
 		p.dataObjects.Set(objEntry)
+		if p.dataObjectsSortKeyIndex != nil {
+			p.dataObjectsSortKeyIndex.Set(objEntry)
+		}
+
 		//p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
 
 		{
@@ -952,6 +987,9 @@ func (p *PartitionState) objectDeleteHelper(
 			p.objectIndexByTS.Delete(old)
 			objEntry.DeleteTime = deleteTime
 			p.dataObjects.Set(objEntry)
+			if p.dataObjectsSortKeyIndex != nil {
+				p.dataObjectsSortKeyIndex.Set(objEntry)
+			}
 			//p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
 
 			new := ObjectIndexByTSEntry{
@@ -1103,6 +1141,10 @@ func (p *PartitionState) truncate(ids [2]uint64, ts types.TS) {
 
 		if !objEntry.DeleteTime.IsEmpty() && objEntry.DeleteTime.LessEq(&ts) {
 			p.dataObjects.Delete(objEntry)
+			if p.dataObjectsSortKeyIndex != nil {
+				p.dataObjectsSortKeyIndex.Delete(objEntry)
+			}
+
 			//p.dataObjectsByCreateTS.Delete(ObjectIndexByCreateTSEntry{
 			//	//CreateTime:   objEntry.CreateTime,
 			//	//ShortObjName: objEntry.ShortObjName,

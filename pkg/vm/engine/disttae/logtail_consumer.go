@@ -1058,7 +1058,7 @@ func dispatchSubscribeResponse(
 			return err
 		}
 		if len(lt.CkpLocation) == 0 {
-			p := e.getOrCreateLatestPart(tbl.DbId, tbl.TbId)
+			p := e.getOrCreateLatestPart(tbl.DbId, tbl.TbId, e.getLatestCatalogCache().GetTableById(tbl.DbId, tbl.TbId).TableDef)
 			p.UpdateDuration(types.TS{}, types.MaxTs())
 			c := e.getLatestCatalogCache()
 			c.UpdateDuration(types.TS{}, types.MaxTs())
@@ -1334,7 +1334,7 @@ func updatePartitionOfPush(
 	// get table info by table id
 	dbId, tblId := tl.Table.GetDbId(), tl.Table.GetTbId()
 
-	partition := e.getOrCreateLatestPart(dbId, tblId)
+	partition := e.getOrCreateLatestPart(dbId, tblId, e.getLatestCatalogCache().GetTableById(dbId, tblId).TableDef)
 
 	lockErr := partition.Lock(ctx)
 	if lockErr != nil {

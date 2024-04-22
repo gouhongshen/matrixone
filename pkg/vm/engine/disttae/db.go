@@ -17,6 +17,7 @@ package disttae
 import (
 	"context"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
+	"github.com/matrixorigin/matrixone/pkg/pb/plan"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/cache"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/db/checkpoint"
@@ -45,15 +46,15 @@ func (e *Engine) init(ctx context.Context) error {
 	defer put.Put()
 
 	{
-		e.partitions[[2]uint64{catalog.MO_CATALOG_ID, catalog.MO_DATABASE_ID}] = logtailreplay.NewPartition()
+		e.partitions[[2]uint64{catalog.MO_CATALOG_ID, catalog.MO_DATABASE_ID}] = logtailreplay.NewPartition(true)
 	}
 
 	{
-		e.partitions[[2]uint64{catalog.MO_CATALOG_ID, catalog.MO_TABLES_ID}] = logtailreplay.NewPartition()
+		e.partitions[[2]uint64{catalog.MO_CATALOG_ID, catalog.MO_TABLES_ID}] = logtailreplay.NewPartition(true)
 	}
 
 	{
-		e.partitions[[2]uint64{catalog.MO_CATALOG_ID, catalog.MO_COLUMNS_ID}] = logtailreplay.NewPartition()
+		e.partitions[[2]uint64{catalog.MO_CATALOG_ID, catalog.MO_COLUMNS_ID}] = logtailreplay.NewPartition(true)
 	}
 
 	{ // mo_catalog
@@ -419,8 +420,12 @@ func (e *Engine) getOrCreateSnapPart(
 			return snap, nil
 		}
 	}
+
+	tblDef := e.getLatestCatalogCache().GetTableById(databaseId, tableId).TableDef
+	hasSortKey := tblDef.ClusterBy != nil || (tblDef.Pkey != nil && tblDef.Pkey.PkeyColName != catalog.FakePrimaryKeyColName)
+
 	//new snapshot partition and apply checkpoints into it.
-	snap := logtailreplay.NewPartition()
+	snap := logtailreplay.NewPartition(hasSortKey)
 	//TODO::if tableId is mo_tables, or mo_colunms, or mo_database,
 	//      we should init the partition,ref to engine.init
 	ckps, err := checkpoint.ListSnapshotCheckpoint(ctx, e.fs, ts, tableId, nil)
@@ -463,19 +468,21 @@ func (e *Engine) getOrCreateSnapPart(
 	return snap, nil
 }
 
-func (e *Engine) getOrCreateLatestPart(databaseId, tableId uint64) *logtailreplay.Partition {
+func (e *Engine) getOrCreateLatestPart(databaseId, tableId uint64, tblDef *plan.TableDef) *logtailreplay.Partition {
 	e.Lock()
 	defer e.Unlock()
 	partition, ok := e.partitions[[2]uint64{databaseId, tableId}]
 	if !ok { // create a new table
-		partition = logtailreplay.NewPartition()
+		hasSortKey := tblDef.ClusterBy != nil || (tblDef.Pkey != nil && tblDef.Pkey.PkeyColName != catalog.FakePrimaryKeyColName)
+
+		partition = logtailreplay.NewPartition(hasSortKey)
 		e.partitions[[2]uint64{databaseId, tableId}] = partition
 	}
 	return partition
 }
 
 func (e *Engine) lazyLoadLatestCkp(ctx context.Context, tbl *txnTable) (*logtailreplay.Partition, error) {
-	part := e.getOrCreateLatestPart(tbl.db.databaseId, tbl.tableId)
+	part := e.getOrCreateLatestPart(tbl.db.databaseId, tbl.tableId, tbl.GetTableDef(ctx))
 	cache := e.getLatestCatalogCache()
 
 	if err := part.ConsumeCheckpoints(

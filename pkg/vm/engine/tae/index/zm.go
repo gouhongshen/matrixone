@@ -522,23 +522,21 @@ func (zm ZM) CompareMin(o ZM) int {
 	return compute.Compare(zm.GetMinBuf(), o.GetMinBuf(), zm.GetType(), zm.GetScale(), o.GetScale())
 }
 
-// Compare returns 0 if zm.min = o.min and zm.max = o.max
-//
-//					   1 if o.min < zm.min or o.max < zm.max if o.min = zm.min
-//	                -1 otherwise
+//-------------
+//   ----------
+//    ---------
+// 		----------- ------
+//   		-
+
+// -----
+
 func (zm ZM) Compare(o ZM) int {
-	if ret := zm.CompareMin(o); ret < 0 {
-		return -1
-	} else if ret > 0 {
-		return 1
-	}
-	if ret := zm.CompareMax(o); ret < 0 {
-		return -1
-	} else if ret > 0 {
-		return 1
+	minRet := zm.CompareMin(o)
+	if minRet != 0 {
+		return minRet
 	}
 
-	return 0
+	return zm.CompareMax(o)
 }
 
 func (zm ZM) AnyGT(o ZM) (res bool, ok bool) {

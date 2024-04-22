@@ -1827,12 +1827,23 @@ func ForeachSnapshotObjects(
 	}
 	defer iter.Close()
 
-	for iter.Next() {
+	stop, ok := iter.Seek(fastSeekObjectOp)
+
+	for ok {
 		obj := iter.Entry()
+		if stop != nil {
+			if stop(obj.ObjectStats) {
+				break
+			}
+		}
+
 		if err = onObject(obj.ObjectInfo, true); err != nil {
 			return
 		}
+
+		ok = iter.Next()
 	}
+
 	return
 }
 
