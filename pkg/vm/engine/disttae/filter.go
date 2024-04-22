@@ -16,8 +16,6 @@ package disttae
 
 import (
 	"context"
-	"sort"
-
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
@@ -31,6 +29,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/index"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/options"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
+	"sort"
 )
 
 type FastFilterOp func(objectio.ObjectStats) (bool, error)
@@ -41,6 +40,7 @@ type ObjectFilterOp func(objectio.ObjectMeta, objectio.BloomFilter) (bool, error
 type SeekFirstBlockOp func(objectio.ObjectDataMeta) int
 type BlockFilterOp func(int, objectio.BlockObject, objectio.BloomFilter) (bool, bool, error)
 type LoadOpFactory func(fileservice.FileService) LoadOp
+type FastSeekObjectOp func(t types.T) (pivot objectio.ZoneMap, stop func(stats objectio.ObjectStats) bool)
 
 var loadMetadataOnlyOpFactory LoadOpFactory
 var loadMetadataAndBFOpFactory LoadOpFactory
@@ -190,6 +190,7 @@ func CompileFilterExprs(
 	objectFilterOp ObjectFilterOp,
 	blockFilterOp BlockFilterOp,
 	seekOp SeekFirstBlockOp,
+	fastSeekObjectOp FastSeekObjectOp,
 	canCompile bool,
 ) {
 	canCompile = true
@@ -204,11 +205,16 @@ func CompileFilterExprs(
 	ops3 := make([]ObjectFilterOp, 0, len(exprs))
 	ops4 := make([]BlockFilterOp, 0, len(exprs))
 	ops5 := make([]SeekFirstBlockOp, 0, len(exprs))
+	ops6 := make([]FastSeekObjectOp, 0, len(exprs))
+
+	//if strings.Contains(tableDef.Name, "hhh") {
+	//	fmt.Println(tableDef.Name, plan2.FormatExprs(exprs))
+	//}
 
 	for _, expr := range exprs {
-		expr_op1, expr_op2, expr_op3, expr_op4, expr_op5, can := CompileFilterExpr(expr, proc, tableDef, fs)
+		expr_op1, expr_op2, expr_op3, expr_op4, expr_op5, expr_op6, can := CompileFilterExpr(expr, proc, tableDef, fs)
 		if !can {
-			return nil, nil, nil, nil, nil, false
+			return nil, nil, nil, nil, nil, nil, false
 		}
 		if expr_op1 != nil {
 			ops1 = append(ops1, expr_op1)
@@ -225,7 +231,12 @@ func CompileFilterExprs(
 		if expr_op5 != nil {
 			ops5 = append(ops5, expr_op5)
 		}
+
+		if expr_op6 != nil {
+			ops6 = append(ops6, expr_op6)
+		}
 	}
+
 	fastFilterOp = func(obj objectio.ObjectStats) (bool, error) {
 		for _, op := range ops1 {
 			ok, err := op(obj)
@@ -288,6 +299,26 @@ func CompileFilterExprs(
 		}
 		return pos
 	}
+
+	fastSeekObjectOp = func(t types.T) (pivot objectio.ZoneMap, stop func(stats objectio.ObjectStats) bool) {
+		for _, op := range ops6 {
+			p, _ := op(t)
+			if pivot.Compare(p) < 0 {
+				pivot = p
+			}
+		}
+
+		stop = func(stats objectio.ObjectStats) bool {
+			for _, op := range ops6 {
+				_, s := op(t)
+				if s(stats) {
+					return true
+				}
+			}
+			return false
+		}
+		return
+	}
 	return
 }
 
@@ -302,6 +333,7 @@ func CompileFilterExpr(
 	objectFilterOp ObjectFilterOp,
 	blockFilterOp BlockFilterOp,
 	seekOp SeekFirstBlockOp,
+	fastSeekObjectOp FastSeekObjectOp,
 	canCompile bool,
 ) {
 	canCompile = true
@@ -314,18 +346,21 @@ func CompileFilterExpr(
 	case *plan.Expr_F:
 		switch exprImpl.F.Func.ObjName {
 		case "or":
-			leftFastOp, leftLoadOp, leftObjectOp, leftBlockOp, leftSeekOp, leftCan := CompileFilterExpr(
+			leftFastOp, leftLoadOp, leftObjectOp,
+				leftBlockOp, leftSeekOp, _, leftCan := CompileFilterExpr(
 				exprImpl.F.Args[0], proc, tableDef, fs,
 			)
 			if !leftCan {
-				return nil, nil, nil, nil, nil, false
+				return nil, nil, nil, nil, nil, nil, false
 			}
-			rightFastOp, rightLoadOp, rightObjectOp, rightBlockOp, rightSeekOp, rightCan := CompileFilterExpr(
+			rightFastOp, rightLoadOp, rightObjectOp,
+				rightBlockOp, rightSeekOp, _, rightCan := CompileFilterExpr(
 				exprImpl.F.Args[1], proc, tableDef, fs,
 			)
 			if !rightCan {
-				return nil, nil, nil, nil, nil, false
+				return nil, nil, nil, nil, nil, nil, false
 			}
+
 			if leftFastOp != nil || rightFastOp != nil {
 				fastFilterOp = func(obj objectio.ObjectStats) (bool, error) {
 					if leftFastOp != nil {
@@ -414,18 +449,42 @@ func CompileFilterExpr(
 				}
 			}
 		case "and":
-			leftFastOp, leftLoadOp, leftObjectOp, leftBlockOp, leftSeekOp, leftCan := CompileFilterExpr(
-				exprImpl.F.Args[0], proc, tableDef, fs,
-			)
+			leftFastOp, leftLoadOp, leftObjectOp, leftBlockOp, leftSeekOp,
+				leftFastSeekObjectOp, leftCan := CompileFilterExpr(exprImpl.F.Args[0], proc, tableDef, fs)
 			if !leftCan {
-				return nil, nil, nil, nil, nil, false
+				return nil, nil, nil, nil, nil, nil, false
 			}
-			rightFastOp, rightLoadOp, rightObjectOp, rightBlockOp, rightSeekOp, rightCan := CompileFilterExpr(
-				exprImpl.F.Args[1], proc, tableDef, fs,
-			)
+			rightFastOp, rightLoadOp, rightObjectOp, rightBlockOp, rightSeekOp,
+				rightFastSeekObjectOp, rightCan := CompileFilterExpr(exprImpl.F.Args[1], proc, tableDef, fs)
 			if !rightCan {
-				return nil, nil, nil, nil, nil, false
+				return nil, nil, nil, nil, nil, nil, false
 			}
+
+			if leftFastSeekObjectOp != nil || rightFastSeekObjectOp != nil {
+				fastSeekObjectOp = func(t types.T) (pivot objectio.ZoneMap, stop func(stats objectio.ObjectStats) bool) {
+					var s1, s2 func(stats objectio.ObjectStats) bool
+					if leftFastSeekObjectOp != nil {
+						pivot, s1 = leftFastSeekObjectOp(t)
+					}
+
+					var rp objectio.ZoneMap
+					if rightFastSeekObjectOp != nil {
+						rp, s2 = rightFastSeekObjectOp(t)
+						if rp.Compare(pivot) < 0 {
+							pivot = rp
+						}
+					}
+
+					stop = func(stats objectio.ObjectStats) bool {
+						if s1(stats) || s2(stats) {
+							return true
+						}
+						return false
+					}
+					return
+				}
+			}
+
 			if leftFastOp != nil || rightFastOp != nil {
 				fastFilterOp = func(obj objectio.ObjectStats) (bool, error) {
 					if leftFastOp != nil {
@@ -909,6 +968,20 @@ func CompileFilterExpr(
 					return obj.SortKeyZoneMap().ContainsKey(vals[0]), nil
 				}
 			}
+
+			if isSorted {
+				fastSeekObjectOp = func(t types.T) (pivot objectio.ZoneMap, stop func(stats objectio.ObjectStats) bool) {
+					pivot = objectio.BuildZM(t, vals[0])
+					stop = func(stats objectio.ObjectStats) bool {
+						if stats.SortKeyZoneMap().AllGTByValue(vals[0]) {
+							return true
+						}
+						return false
+					}
+					return
+				}
+			}
+
 			if isPK {
 				loadOp = loadMetadataAndBFOpFactory(fs)
 			} else {
@@ -986,7 +1059,7 @@ func TryFastFilterBlocks(
 	fs fileservice.FileService,
 	proc *process.Process,
 ) (ok bool, err error) {
-	fastFilterOp, loadOp, objectFilterOp, blockFilterOp, seekOp, ok := CompileFilterExprs(exprs, proc, tableDef, fs)
+	fastFilterOp, loadOp, objectFilterOp, blockFilterOp, seekOp, fastSeekObjectOp, ok := CompileFilterExprs(exprs, proc, tableDef, fs)
 	if !ok {
 		return false, nil
 	}
@@ -997,6 +1070,7 @@ func TryFastFilterBlocks(
 		objectFilterOp,
 		blockFilterOp,
 		seekOp,
+		fastSeekObjectOp,
 		snapshot,
 		uncommittedObjects,
 		dirtyBlocks,
@@ -1014,6 +1088,7 @@ func ExecuteBlockFilter(
 	objectFilterOp ObjectFilterOp,
 	blockFilterOp BlockFilterOp,
 	seekOp SeekFirstBlockOp,
+	fastSeekObjectOp FastSeekObjectOp,
 	snapshot *logtailreplay.PartitionState,
 	uncommittedObjects []objectio.ObjectStats,
 	dirtyBlocks map[types.Blockid]struct{},
@@ -1142,6 +1217,7 @@ func ExecuteBlockFilter(
 
 			return
 		},
+		fastSeekObjectOp,
 		snapshot,
 		uncommittedObjects...,
 	)

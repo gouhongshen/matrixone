@@ -38,12 +38,12 @@ import (
 
 type PartitionState struct {
 	// also modify the Copy method if adding fields
-
 	// data
 	rows *btree.BTreeG[RowEntry] // use value type to avoid locking on elements
 	//table data objects
-	dataObjects           *btree.BTreeG[ObjectEntry]
-	dataObjectsByCreateTS *btree.BTreeG[ObjectIndexByCreateTSEntry]
+	dataObjects             *btree.BTreeG[ObjectEntry]
+	dataObjectsSortKeyIndex *btree.BTreeG[ObjectEntry]
+	//dataObjectsByCreateTS *btree.BTreeG[ObjectIndexByCreateTSEntry]
 	//TODO:: It's transient, should be removed in future PR.
 	blockDeltas *btree.BTreeG[BlockDeltaEntry]
 	checkpoints []string
@@ -172,6 +172,12 @@ type ObjectEntry struct {
 	ObjectInfo
 }
 
+func (o ObjectEntry) LessBySortKey(than ObjectEntry) bool {
+	ozm := o.SortKeyZoneMap()
+	tzm := than.SortKeyZoneMap()
+	return ozm.Compare(tzm) < 0
+}
+
 func (o ObjectEntry) Less(than ObjectEntry) bool {
 	return bytes.Compare((*o.ObjectShortName())[:], (*than.ObjectShortName())[:]) < 0
 }
@@ -281,31 +287,31 @@ func NewPartitionState(noData bool) *PartitionState {
 		Degree: 64,
 	}
 	return &PartitionState{
-		noData:                noData,
-		rows:                  btree.NewBTreeGOptions((RowEntry).Less, opts),
-		dataObjects:           btree.NewBTreeGOptions((ObjectEntry).Less, opts),
-		dataObjectsByCreateTS: btree.NewBTreeGOptions((ObjectIndexByCreateTSEntry).Less, opts),
-		blockDeltas:           btree.NewBTreeGOptions((BlockDeltaEntry).Less, opts),
-		primaryIndex:          btree.NewBTreeGOptions((*PrimaryIndexEntry).Less, opts),
-		dirtyBlocks:           btree.NewBTreeGOptions((types.Blockid).Less, opts),
-		objectIndexByTS:       btree.NewBTreeGOptions((ObjectIndexByTSEntry).Less, opts),
-		shared:                new(sharedStates),
+		noData:      noData,
+		rows:        btree.NewBTreeGOptions((RowEntry).Less, opts),
+		dataObjects: btree.NewBTreeGOptions((ObjectEntry).Less, opts),
+		//dataObjectsByCreateTS: btree.NewBTreeGOptions((ObjectIndexByCreateTSEntry).Less, opts),
+		blockDeltas:     btree.NewBTreeGOptions((BlockDeltaEntry).Less, opts),
+		primaryIndex:    btree.NewBTreeGOptions((*PrimaryIndexEntry).Less, opts),
+		dirtyBlocks:     btree.NewBTreeGOptions((types.Blockid).Less, opts),
+		objectIndexByTS: btree.NewBTreeGOptions((ObjectIndexByTSEntry).Less, opts),
+		shared:          new(sharedStates),
 	}
 }
 
 func (p *PartitionState) Copy() *PartitionState {
 	state := PartitionState{
-		rows:                  p.rows.Copy(),
-		dataObjects:           p.dataObjects.Copy(),
-		dataObjectsByCreateTS: p.dataObjectsByCreateTS.Copy(),
-		blockDeltas:           p.blockDeltas.Copy(),
-		primaryIndex:          p.primaryIndex.Copy(),
-		noData:                p.noData,
-		dirtyBlocks:           p.dirtyBlocks.Copy(),
-		objectIndexByTS:       p.objectIndexByTS.Copy(),
-		shared:                p.shared,
-		start:                 p.start,
-		end:                   p.end,
+		rows:        p.rows.Copy(),
+		dataObjects: p.dataObjects.Copy(),
+		//dataObjectsByCreateTS: p.dataObjectsByCreateTS.Copy(),
+		blockDeltas:     p.blockDeltas.Copy(),
+		primaryIndex:    p.primaryIndex.Copy(),
+		noData:          p.noData,
+		dirtyBlocks:     p.dirtyBlocks.Copy(),
+		objectIndexByTS: p.objectIndexByTS.Copy(),
+		shared:          p.shared,
+		start:           p.start,
+		end:             p.end,
 	}
 	if len(p.checkpoints) > 0 {
 		state.checkpoints = make([]string, len(p.checkpoints))
@@ -484,7 +490,7 @@ func (p *PartitionState) HandleObjectInsert(ctx context.Context, bat *api.Batch,
 		}
 
 		p.dataObjects.Set(objEntry)
-		p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
+		//p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
 		{
 			//Need to insert an entry in objectIndexByTS, when soft delete appendable object.
 			e := ObjectIndexByTSEntry{
@@ -850,9 +856,9 @@ func (p *PartitionState) HandleMetadataInsert(
 				// objEntry.CreateTime is empty.
 				// and it's temporary.
 				// Related dataObjectsByCreateTS will be set in HandleObjectInsert.
-				if !objEntry.CreateTime.IsEmpty() {
-					p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
-				}
+				//if !objEntry.CreateTime.IsEmpty() {
+				//	p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
+				//}
 			} else {
 
 				objEntry = objPivot
@@ -875,9 +881,9 @@ func (p *PartitionState) HandleMetadataInsert(
 
 				p.dataObjects.Set(objEntry)
 
-				if !objEntry.CreateTime.IsEmpty() {
-					p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
-				}
+				//if !objEntry.CreateTime.IsEmpty() {
+				//	p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
+				//}
 
 				{
 					e := ObjectIndexByTSEntry{
@@ -916,7 +922,7 @@ func (p *PartitionState) objectDeleteHelper(
 		// apply first delete
 		objEntry.DeleteTime = deleteTime
 		p.dataObjects.Set(objEntry)
-		p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
+		//p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
 
 		{
 			e := ObjectIndexByTSEntry{
@@ -946,7 +952,7 @@ func (p *PartitionState) objectDeleteHelper(
 			p.objectIndexByTS.Delete(old)
 			objEntry.DeleteTime = deleteTime
 			p.dataObjects.Set(objEntry)
-			p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
+			//p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
 
 			new := ObjectIndexByTSEntry{
 				Time:         objEntry.DeleteTime,
@@ -1102,7 +1108,7 @@ func (p *PartitionState) truncate(ids [2]uint64, ts types.TS) {
 			//	//ShortObjName: objEntry.ShortObjName,
 			//	ObjectInfo: objEntry.ObjectInfo,
 			//})
-			p.dataObjectsByCreateTS.Delete(ObjectIndexByCreateTSEntry(objEntry))
+			//p.dataObjectsByCreateTS.Delete(ObjectIndexByCreateTSEntry(objEntry))
 			if objGced {
 				objsToDelete = fmt.Sprintf("%s, %s", objsToDelete, objEntry.Location().Name().String())
 			} else {

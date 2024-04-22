@@ -347,6 +347,28 @@ func (zm ZM) ContainsKey(k []byte) bool {
 		compute.Compare(k, zm.GetMaxBuf(), t, 0, 0) <= 0
 }
 
+// AllGTByValue check if zm.min > val holds
+func (zm ZM) AllGTByValue(val []byte) bool {
+	if !zm.IsInited() {
+		return false
+	}
+	if !zm.IsString() || len(val) < 31 {
+		return compute.Compare(zm.GetMinBuf(), val, zm.GetType(), 0, 0) > 0
+	}
+	zm2 := BuildZM(zm.GetType(), val)
+	ok1, ok2 := zm.AllGT(zm2)
+	return ok1 && ok2
+}
+
+// AllGT check if (zm.min > o.max) holds.
+// = !(zm.min <= o.max).
+// = !(o.max >= zm.min).
+func (zm ZM) AllGT(o ZM) (res bool, ok bool) {
+	//o.max >= zm.min
+	res, ok = o.AnyGE(zm)
+	return res, !ok
+}
+
 // zm.min < k
 func (zm ZM) AnyLTByValue(k []byte) bool {
 	if !zm.IsInited() {
@@ -498,6 +520,25 @@ func (zm ZM) CompareMax(o ZM) int {
 
 func (zm ZM) CompareMin(o ZM) int {
 	return compute.Compare(zm.GetMinBuf(), o.GetMinBuf(), zm.GetType(), zm.GetScale(), o.GetScale())
+}
+
+// Compare returns 0 if zm.min = o.min and zm.max = o.max
+//
+//					   1 if o.min < zm.min or o.max < zm.max if o.min = zm.min
+//	                -1 otherwise
+func (zm ZM) Compare(o ZM) int {
+	if ret := zm.CompareMin(o); ret < 0 {
+		return -1
+	} else if ret > 0 {
+		return 1
+	}
+	if ret := zm.CompareMax(o); ret < 0 {
+		return -1
+	} else if ret > 0 {
+		return 1
+	}
+
+	return 0
 }
 
 func (zm ZM) AnyGT(o ZM) (res bool, ok bool) {

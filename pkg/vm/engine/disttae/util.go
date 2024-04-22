@@ -1802,6 +1802,7 @@ func ForeachCommittedObjects(
 func ForeachSnapshotObjects(
 	ts timestamp.Timestamp,
 	onObject func(obj logtailreplay.ObjectInfo, isCommitted bool) error,
+	fastSeekObjectOp FastSeekObjectOp,
 	tableSnapshot *logtailreplay.PartitionState,
 	uncommitted ...objectio.ObjectStats,
 ) (err error) {
@@ -1825,6 +1826,7 @@ func ForeachSnapshotObjects(
 		return
 	}
 	defer iter.Close()
+
 	for iter.Next() {
 		obj := iter.Entry()
 		if err = onObject(obj.ObjectInfo, true); err != nil {
