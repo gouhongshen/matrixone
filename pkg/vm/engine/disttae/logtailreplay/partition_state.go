@@ -37,6 +37,8 @@ import (
 )
 
 type PartitionState struct {
+	TableName string
+	Exprs     any
 	// also modify the Copy method if adding fields
 	// data
 	rows *btree.BTreeG[RowEntry] // use value type to avoid locking on elements

@@ -681,6 +681,8 @@ func (tbl *txnTable) Ranges(ctx context.Context, exprs []*plan.Expr) (ranges eng
 	if part, err = tbl.getPartitionState(ctx); err != nil {
 		return
 	}
+	part.TableName = tbl.tableName
+	part.Exprs = exprs
 
 	blocks.AppendBlockInfo(objectio.EmptyBlockInfo)
 

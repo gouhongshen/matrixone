@@ -97,9 +97,7 @@ func (b *objectsIter) Seek(op func(t types.T) (pivot objectio.ZoneMap, stop func
 	//	ok = b.Next()
 	//}
 
-	if !b.iter.Seek(piovt) {
-		return stop, false
-	}
+	b.iter.Seek(piovt)
 
 	for b.Prev() {
 		item = b.Entry()

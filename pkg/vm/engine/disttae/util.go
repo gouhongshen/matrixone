@@ -1827,7 +1827,14 @@ func ForeachSnapshotObjects(
 	}
 	defer iter.Close()
 
-	stop, ok := iter.Seek(fastSeekObjectOp)
+	stop, ok, zm := iter.Seek(fastSeekObjectOp)
+
+	//if strings.Contains(tableSnapshot.TableName, "bmsql") {
+	//	fmt.Println(stop, ok, fastSeekObjectOp, zm == nil)
+	//	if zm != nil {
+	//		fmt.Println(zm)
+	//	}
+	//}
 
 	for ok {
 		obj := iter.Entry()
