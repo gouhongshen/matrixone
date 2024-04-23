@@ -49,13 +49,11 @@ func (p *PartitionState) NewObjectsIter(ts types.TS) (*objectsIter, error) {
 		ts: ts,
 	}
 
-	//p.dataObjects.GetAt()
-
 	if p.dataObjectsSortKeyIndex != nil {
-		ret.iter = p.dataObjectsSortKeyIndex.Iter()
+		ret.iter = p.dataObjectsSortKeyIndex.Copy().Iter()
 		ret.canFast = true
 	} else {
-		ret.iter = p.dataObjects.Iter()
+		ret.iter = p.dataObjects.Copy().Iter()
 		ret.canFast = false
 	}
 
@@ -68,33 +66,50 @@ func (b *objectsIter) Seek(op func(t types.T) (pivot objectio.ZoneMap, stop func
 	func(stats objectio.ObjectStats) bool, bool) {
 
 	var item ObjectEntry
-	if b.iter.First() {
+	if b.Next() {
 		item = b.Entry()
 	} else {
 		return nil, false
 	}
+	//return nil, true
 
-	return nil, true
 	if op == nil || !b.canFast {
 		return nil, true
 	}
-
+	//   --------
+	//     --------
+	//         ---------
+	//         --------------
+	//                         -------
+	//                                 ---------
+	//               -
 	zm, stop := op(item.SortKeyZoneMap().GetType())
 
 	piovt := ObjectEntry{}
 	objectio.SetObjectStatsSortKeyZoneMap(&piovt.ObjectStats, zm)
 
-	b.iter.Seek(piovt)
-	for b.iter.Prev() {
+	//ok := true
+	//for ok {
+	//	item := b.Entry()
+	//	if ok1, ok2 := item.SortKeyZoneMap().Intersect(zm); ok1 && ok2 {
+	//		break
+	//	}
+	//	ok = b.Next()
+	//}
+
+	if !b.iter.Seek(piovt) {
+		return stop, false
+	}
+
+	for b.Prev() {
 		item = b.Entry()
-		if res, ok := item.SortKeyZoneMap().AnyGE(zm); res && ok {
+		if res, ok := item.SortKeyZoneMap().Intersect(zm); res && ok {
 			continue
 		}
-
 		break
 	}
 
-	b.iter.Next()
+	b.Next()
 
 	return stop, true
 }
@@ -138,6 +153,17 @@ func (b *objectsIter) Next() bool {
 	//
 	//	return true
 	//}
+}
+
+func (b *objectsIter) Prev() bool {
+	for b.iter.Prev() {
+		item := b.iter.Item()
+		if !item.Visible(b.ts) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func (b *objectsIter) Entry() ObjectEntry {

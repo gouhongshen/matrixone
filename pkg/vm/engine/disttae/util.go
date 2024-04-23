@@ -1833,11 +1833,13 @@ func ForeachSnapshotObjects(
 		obj := iter.Entry()
 		if stop != nil {
 			if stop(obj.ObjectStats) {
+				//fmt.Println("stop effect")
 				break
 			}
 		}
 
 		if err = onObject(obj.ObjectInfo, true); err != nil {
+			fmt.Println("onObject exit")
 			return
 		}
 

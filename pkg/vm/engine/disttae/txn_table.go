@@ -728,6 +728,10 @@ func (tbl *txnTable) rangesOnePart(
 	uncommittedObjects := tbl.collectUnCommittedObjects()
 	dirtyBlks := tbl.collectDirtyBlocks(state, uncommittedObjects)
 
+	//if strings.Contains(tableDef.Name, "bmsql") || strings.Contains(tableDef.Name, "hhh") {
+	//	fmt.Println("yyyy", plan2.FormatExprs(exprs))
+	//}
+
 	done, err := tbl.tryFastFilterBlocks(
 		exprs, state, uncommittedObjects, dirtyBlks, outBlocks,
 		tbl.getTxn().engine.fs)
@@ -988,6 +992,10 @@ func (tbl *txnTable) tryFastFilterBlocks(
 	outBlocks *objectio.BlockInfoSlice,
 	fs fileservice.FileService) (done bool, err error) {
 	// TODO: refactor this code if composite key can be pushdown
+
+	//if strings.Contains(tbl.tableDef.Name, "bmsql_customer") || strings.Contains(tbl.tableDef.Name, "hhh") {
+	//	fmt.Println("zzzz", plan2.FormatExprs(exprs))
+	//}
 	if tbl.tableDef.Pkey.CompPkeyCol == nil {
 		return TryFastFilterBlocks(
 			tbl.db.op.SnapshotTS(),

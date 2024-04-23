@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/matrixorigin/matrixone/pkg/util"
 	"runtime/trace"
 	"sync"
 	"sync/atomic"
@@ -507,14 +506,14 @@ func (p *PartitionState) HandleObjectInsert(ctx context.Context, bat *api.Batch,
 
 		p.dataObjects.Set(objEntry)
 
-		if p.dataObjectsSortKeyIndex != nil {
-			if objEntry.ZMIsEmpty() {
-				logutil.Errorf("object stats has zero zonemap: %s\n", objEntry.String())
-				util.EnableCoreDump()
-				util.CoreDump()
-			}
-			p.dataObjectsSortKeyIndex.Set(objEntry)
-		}
+		//if p.dataObjectsSortKeyIndex != nil {
+		//	if objEntry.ZMIsEmpty() {
+		//		logutil.Errorf("object stats has zero zonemap: %s\n", objEntry.String())
+		//		util.EnableCoreDump()
+		//		util.CoreDump()
+		//	}
+		//	p.dataObjectsSortKeyIndex.Set(objEntry)
+		//}
 
 		//p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
 		{
@@ -910,7 +909,9 @@ func (p *PartitionState) HandleMetadataInsert(
 				}
 
 				p.dataObjects.Set(objEntry)
-				//p.dataObjectsSortKeyIndex.Set(objEntry)
+				//if p.dataObjectsSortKeyIndex != nil {
+				//	p.dataObjectsSortKeyIndex.Set(objEntry)
+				//}
 
 				//if !objEntry.CreateTime.IsEmpty() {
 				//	p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
@@ -953,9 +954,9 @@ func (p *PartitionState) objectDeleteHelper(
 		// apply first delete
 		objEntry.DeleteTime = deleteTime
 		p.dataObjects.Set(objEntry)
-		if p.dataObjectsSortKeyIndex != nil {
-			p.dataObjectsSortKeyIndex.Set(objEntry)
-		}
+		//if p.dataObjectsSortKeyIndex != nil {
+		//	p.dataObjectsSortKeyIndex.Set(objEntry)
+		//}
 
 		//p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
 
@@ -987,9 +988,9 @@ func (p *PartitionState) objectDeleteHelper(
 			p.objectIndexByTS.Delete(old)
 			objEntry.DeleteTime = deleteTime
 			p.dataObjects.Set(objEntry)
-			if p.dataObjectsSortKeyIndex != nil {
-				p.dataObjectsSortKeyIndex.Set(objEntry)
-			}
+			//if p.dataObjectsSortKeyIndex != nil {
+			//	p.dataObjectsSortKeyIndex.Set(objEntry)
+			//}
 			//p.dataObjectsByCreateTS.Set(ObjectIndexByCreateTSEntry(objEntry))
 
 			new := ObjectIndexByTSEntry{

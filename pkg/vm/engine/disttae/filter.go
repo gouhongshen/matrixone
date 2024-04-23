@@ -207,10 +207,6 @@ func CompileFilterExprs(
 	ops5 := make([]SeekFirstBlockOp, 0, len(exprs))
 	ops6 := make([]FastSeekObjectOp, 0, len(exprs))
 
-	//if strings.Contains(tableDef.Name, "hhh") {
-	//	fmt.Println(tableDef.Name, plan2.FormatExprs(exprs))
-	//}
-
 	for _, expr := range exprs {
 		expr_op1, expr_op2, expr_op3, expr_op4, expr_op5, expr_op6, can := CompileFilterExpr(expr, proc, tableDef, fs)
 		if !can {
@@ -301,22 +297,26 @@ func CompileFilterExprs(
 	}
 
 	fastSeekObjectOp = func(t types.T) (pivot objectio.ZoneMap, stop func(stats objectio.ObjectStats) bool) {
-		for _, op := range ops6 {
-			p, _ := op(t)
-			if pivot.Compare(p) < 0 {
-				pivot = p
-			}
+		if len(ops6) != 0 {
+			pivot, stop = ops6[0](t)
 		}
 
-		stop = func(stats objectio.ObjectStats) bool {
-			for _, op := range ops6 {
-				_, s := op(t)
-				if s(stats) {
-					return true
-				}
-			}
-			return false
-		}
+		//for _, op := range ops6 {
+		//
+		//	if pivot.Compare(p) < 0 {
+		//		pivot = p
+		//	}
+		//}
+		//
+		//stop = func(stats objectio.ObjectStats) bool {
+		//	for _, op := range ops6 {
+		//		_, s := op(t)
+		//		if s(stats) {
+		//			return true
+		//		}
+		//	}
+		//	return false
+		//}
 		return
 	}
 	return
@@ -974,6 +974,7 @@ func CompileFilterExpr(
 					pivot = objectio.BuildZM(t, vals[0])
 					stop = func(stats objectio.ObjectStats) bool {
 						if stats.SortKeyZoneMap().AllGTByValue(vals[0]) {
+							//fmt.Println("=", "stopped")
 							return true
 						}
 						return false
@@ -1059,10 +1060,16 @@ func TryFastFilterBlocks(
 	fs fileservice.FileService,
 	proc *process.Process,
 ) (ok bool, err error) {
+
 	fastFilterOp, loadOp, objectFilterOp, blockFilterOp, seekOp, fastSeekObjectOp, ok := CompileFilterExprs(exprs, proc, tableDef, fs)
 	if !ok {
 		return false, nil
 	}
+
+	//if strings.Contains(tableDef.Name, "sbtest") || strings.Contains(tableDef.Name, "hhh") {
+	//	fmt.Println("xxxx", fastSeekObjectOp == nil, plan2.FormatExprs(exprs))
+	//}
+
 	err = ExecuteBlockFilter(
 		snapshotTS,
 		fastFilterOp,
