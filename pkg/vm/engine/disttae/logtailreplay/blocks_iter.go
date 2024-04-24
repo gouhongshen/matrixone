@@ -16,7 +16,6 @@ package logtailreplay
 
 import (
 	"bytes"
-
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
@@ -41,7 +40,7 @@ func (p *PartitionState) ApproxObjectsNum() int {
 	return p.dataObjects.Len()
 }
 
-func (p *PartitionState) NewObjectsIter(ts types.TS) (*objectsIter, error) {
+func (p *PartitionState) NewObjectsIter(ts types.TS, useSortKeyIndex bool) (*objectsIter, error) {
 	if ts.Less(&p.minTS) {
 		return nil, moerr.NewTxnStaleNoCtx()
 	}
@@ -49,7 +48,7 @@ func (p *PartitionState) NewObjectsIter(ts types.TS) (*objectsIter, error) {
 		ts: ts,
 	}
 
-	if p.dataObjectsSortKeyIndex != nil {
+	if p.dataObjectsSortKeyIndex != nil && useSortKeyIndex {
 		ret.iter = p.dataObjectsSortKeyIndex.Copy().Iter()
 		ret.canFast = true
 	} else {
@@ -63,62 +62,32 @@ func (p *PartitionState) NewObjectsIter(ts types.TS) (*objectsIter, error) {
 var _ ObjectsIter = new(objectsIter)
 
 func (b *objectsIter) Seek(op func(t types.T) (pivot objectio.ZoneMap, stop func(stats objectio.ObjectStats) bool)) (
-	func(stats objectio.ObjectStats) bool, bool, objectio.ZoneMap) {
+	func(stats objectio.ObjectStats) bool, bool) {
 
 	var item ObjectEntry
 	if b.Next() {
 		item = b.Entry()
 	} else {
-		return nil, false, objectio.ZoneMap{}
+		return nil, false
 	}
-	//return nil, true
 
 	if op == nil || !b.canFast {
-		return nil, true, objectio.ZoneMap{}
+		return nil, true
 	}
-	//   --------
-	//     --------
-	//         ---------
-	//         --------------
-	//                         -------
-	//                                 ---------
-	//               -
+
 	zm, stop := op(item.SortKeyZoneMap().GetType())
 
 	if !zm.Valid() {
-		return nil, true, objectio.ZoneMap{}
+		return nil, true
 	}
 
 	piovt := ObjectEntry{}
 	objectio.SetObjectStatsSortKeyZoneMap(&piovt.ObjectStats, zm)
-	//
-	//ok := true
-	//for ok {
-	//	item := b.Entry()
-	//	if ok1, ok2 := item.SortKeyZoneMap().Intersect(zm); ok1 && ok2 {
-	//		break
-	//	}
-	//	//
-	//	//if ok1 := item.SortKeyZoneMap().ContainsKey(zm.GetMinBuf()); ok1 {
-	//	//	break
-	//	//}
-	//
-	//	ok = b.Next()
+
+	//if b.iter.Seek(piovt) {
+	//	return stop, true
 	//}
-
-	b.iter.Seek(piovt)
-
-	for b.Prev() {
-		item = b.Entry()
-		if res, ok := item.SortKeyZoneMap().Intersect(zm); res && ok {
-			continue
-		}
-		break
-	}
-
-	b.Next()
-
-	return stop, true, zm
+	return stop, true
 }
 
 func (b *objectsIter) Next() bool {

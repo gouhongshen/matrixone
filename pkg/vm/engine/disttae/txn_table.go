@@ -327,7 +327,7 @@ func ForeachVisibleDataObject(
 	ts types.TS,
 	fn func(obj logtailreplay.ObjectEntry) error,
 ) (err error) {
-	iter, err := state.NewObjectsIter(ts)
+	iter, err := state.NewObjectsIter(ts, false)
 	if err != nil {
 		return err
 	}

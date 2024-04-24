@@ -78,12 +78,7 @@ func (p *Partition) MutateState() (*PartitionState, func()) {
 	curState := p.state.Load()
 	state := curState.Copy()
 	return state, func() {
-		if state.dataObjectsSortKeyIndex != nil {
-			state.dataObjects.Scan(func(item ObjectEntry) bool {
-				state.dataObjectsSortKeyIndex.Set(item)
-				return true
-			})
-		}
+		//state.PreDoneMutate()
 		if !p.state.CompareAndSwap(curState, state) {
 			panic("concurrent mutation")
 		}

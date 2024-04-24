@@ -1821,35 +1821,27 @@ func ForeachSnapshotObjects(
 		return
 	}
 
-	iter, err := tableSnapshot.NewObjectsIter(types.TimestampToTS(ts))
+	iter, err := tableSnapshot.NewObjectsIter(types.TimestampToTS(ts), true)
 	if err != nil {
 		return
 	}
 	defer iter.Close()
 
-	stop, ok, _ := iter.Seek(fastSeekObjectOp)
-
-	//if strings.Contains(tableSnapshot.TableName, "bmsql") {
-	//	fmt.Println(stop, ok, fastSeekObjectOp, zm, plan2.FormatExprs(tableSnapshot.Exprs.([]*plan2.Expr)))
-	//}
-
+	stop, ok := iter.Seek(fastSeekObjectOp)
 	for ok {
 		obj := iter.Entry()
 		if stop != nil {
 			if stop(obj.ObjectStats) {
-				//fmt.Println("stop effect")
 				break
 			}
 		}
 
 		if err = onObject(obj.ObjectInfo, true); err != nil {
-			fmt.Println("onObject exit")
 			return
 		}
 
 		ok = iter.Next()
 	}
-
 	return
 }
 

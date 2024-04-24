@@ -301,22 +301,6 @@ func CompileFilterExprs(
 			pivot, stop = ops6[0](t)
 		}
 
-		//for _, op := range ops6 {
-		//
-		//	if pivot.Compare(p) < 0 {
-		//		pivot = p
-		//	}
-		//}
-		//
-		//stop = func(stats objectio.ObjectStats) bool {
-		//	for _, op := range ops6 {
-		//		_, s := op(t)
-		//		if s(stats) {
-		//			return true
-		//		}
-		//	}
-		//	return false
-		//}
 		return
 	}
 	return
@@ -459,31 +443,6 @@ func CompileFilterExpr(
 			if !rightCan {
 				return nil, nil, nil, nil, nil, nil, false
 			}
-
-			//if leftFastSeekObjectOp != nil || rightFastSeekObjectOp != nil {
-			//	fastSeekObjectOp = func(t types.T) (pivot objectio.ZoneMap, stop func(stats objectio.ObjectStats) bool) {
-			//		var s1, s2 func(stats objectio.ObjectStats) bool
-			//		if leftFastSeekObjectOp != nil {
-			//			pivot, s1 = leftFastSeekObjectOp(t)
-			//		}
-			//
-			//		var rp objectio.ZoneMap
-			//		if rightFastSeekObjectOp != nil {
-			//			rp, s2 = rightFastSeekObjectOp(t)
-			//			if rp.Compare(pivot) < 0 {
-			//				pivot = rp
-			//			}
-			//		}
-			//
-			//		stop = func(stats objectio.ObjectStats) bool {
-			//			if s1(stats) || s2(stats) {
-			//				return true
-			//			}
-			//			return false
-			//		}
-			//		return
-			//	}
-			//}
 
 			if leftFastOp != nil || rightFastOp != nil {
 				fastFilterOp = func(obj objectio.ObjectStats) (bool, error) {
@@ -973,11 +932,7 @@ func CompileFilterExpr(
 				fastSeekObjectOp = func(t types.T) (pivot objectio.ZoneMap, stop func(stats objectio.ObjectStats) bool) {
 					pivot = objectio.BuildZM(t, vals[0])
 					stop = func(stats objectio.ObjectStats) bool {
-						if stats.SortKeyZoneMap().AllGTByValue(vals[0]) {
-							//fmt.Println("=", "stopped")
-							return true
-						}
-						return false
+						return !stats.SortKeyZoneMap().AnyLEByValue(vals[0])
 					}
 					return
 				}
@@ -1065,10 +1020,6 @@ func TryFastFilterBlocks(
 	if !ok {
 		return false, nil
 	}
-
-	//if strings.Contains(tableDef.Name, "sbtest") || strings.Contains(tableDef.Name, "hhh") {
-	//	fmt.Println("xxxx", fastSeekObjectOp == nil, plan2.FormatExprs(exprs))
-	//}
 
 	err = ExecuteBlockFilter(
 		snapshotTS,
