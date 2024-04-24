@@ -311,9 +311,9 @@ func NewPartitionState(noData bool, hasSortKey bool) *PartitionState {
 	return ps
 }
 
-func (p *PartitionState) updateSortKeyIndex(objEntry ObjectEntry) {
+func (p *PartitionState) updateSortKeyIndex(objEntry ObjectEntry, checkZM bool) {
 	if p.dataObjectsSortKeyIndex != nil {
-		if objEntry.ZMIsEmpty() {
+		if checkZM && objEntry.ZMIsEmpty() {
 			logutil.Errorf("found empyt zm: %s", objEntry.String())
 			util.EnableCoreDump()
 			util.CoreDump()
@@ -517,7 +517,7 @@ func (p *PartitionState) HandleObjectInsert(ctx context.Context, bat *api.Batch,
 		}
 
 		p.dataObjects.Set(objEntry)
-		p.updateSortKeyIndex(objEntry)
+		p.updateSortKeyIndex(objEntry, true)
 
 		{
 			//Need to insert an entry in objectIndexByTS, when soft delete appendable object.
@@ -880,7 +880,7 @@ func (p *PartitionState) HandleMetadataInsert(
 					objectio.SetObjectStatsBlkCnt(&objEntry.ObjectStats, uint32(blkCnt))
 				}
 				p.dataObjects.Set(objEntry)
-				p.updateSortKeyIndex(objEntry)
+				p.updateSortKeyIndex(objEntry, false)
 
 				// For deltaloc batch after block is removed,
 				// objEntry.CreateTime is empty.
@@ -948,7 +948,7 @@ func (p *PartitionState) objectDeleteHelper(
 		// apply first delete
 		objEntry.DeleteTime = deleteTime
 		p.dataObjects.Set(objEntry)
-		p.updateSortKeyIndex(objEntry)
+		p.updateSortKeyIndex(objEntry, true)
 
 		{
 			e := ObjectIndexByTSEntry{
@@ -978,7 +978,7 @@ func (p *PartitionState) objectDeleteHelper(
 			p.objectIndexByTS.Delete(old)
 			objEntry.DeleteTime = deleteTime
 			p.dataObjects.Set(objEntry)
-			p.updateSortKeyIndex(objEntry)
+			p.updateSortKeyIndex(objEntry, true)
 
 			new := ObjectIndexByTSEntry{
 				Time:         objEntry.DeleteTime,
