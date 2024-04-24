@@ -1827,13 +1827,10 @@ func ForeachSnapshotObjects(
 	}
 	defer iter.Close()
 
-	stop, ok := iter.Seek(fastSeekObjectOp)
+	stop, ok, _ := iter.Seek(fastSeekObjectOp)
 
 	//if strings.Contains(tableSnapshot.TableName, "bmsql") {
-	//	fmt.Println(stop, ok, fastSeekObjectOp, zm == nil)
-	//	if zm != nil {
-	//		fmt.Println(zm)
-	//	}
+	//	fmt.Println(stop, ok, fastSeekObjectOp, zm, plan2.FormatExprs(tableSnapshot.Exprs.([]*plan2.Expr)))
 	//}
 
 	for ok {

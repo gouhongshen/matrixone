@@ -63,18 +63,18 @@ func (p *PartitionState) NewObjectsIter(ts types.TS) (*objectsIter, error) {
 var _ ObjectsIter = new(objectsIter)
 
 func (b *objectsIter) Seek(op func(t types.T) (pivot objectio.ZoneMap, stop func(stats objectio.ObjectStats) bool)) (
-	func(stats objectio.ObjectStats) bool, bool) {
+	func(stats objectio.ObjectStats) bool, bool, objectio.ZoneMap) {
 
 	var item ObjectEntry
 	if b.Next() {
 		item = b.Entry()
 	} else {
-		return nil, false
+		return nil, false, objectio.ZoneMap{}
 	}
 	//return nil, true
 
 	if op == nil || !b.canFast {
-		return nil, true
+		return nil, true, objectio.ZoneMap{}
 	}
 	//   --------
 	//     --------
@@ -85,15 +85,24 @@ func (b *objectsIter) Seek(op func(t types.T) (pivot objectio.ZoneMap, stop func
 	//               -
 	zm, stop := op(item.SortKeyZoneMap().GetType())
 
+	if !zm.Valid() {
+		return nil, true, objectio.ZoneMap{}
+	}
+
 	piovt := ObjectEntry{}
 	objectio.SetObjectStatsSortKeyZoneMap(&piovt.ObjectStats, zm)
-
+	//
 	//ok := true
 	//for ok {
 	//	item := b.Entry()
 	//	if ok1, ok2 := item.SortKeyZoneMap().Intersect(zm); ok1 && ok2 {
 	//		break
 	//	}
+	//	//
+	//	//if ok1 := item.SortKeyZoneMap().ContainsKey(zm.GetMinBuf()); ok1 {
+	//	//	break
+	//	//}
+	//
 	//	ok = b.Next()
 	//}
 
@@ -109,7 +118,7 @@ func (b *objectsIter) Seek(op func(t types.T) (pivot objectio.ZoneMap, stop func
 
 	b.Next()
 
-	return stop, true
+	return stop, true, zm
 }
 
 func (b *objectsIter) Next() bool {
