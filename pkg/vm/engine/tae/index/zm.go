@@ -540,7 +540,7 @@ func (zm ZM) CompareByMin(o ZM) int {
 }
 
 func (zm ZM) CompareByMax(o ZM) int {
-	maxRet := zm.CompareMin(o)
+	maxRet := zm.CompareMax(o)
 	if maxRet != 0 {
 		return maxRet
 	}

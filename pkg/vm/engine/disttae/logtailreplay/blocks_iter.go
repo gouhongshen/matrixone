@@ -29,10 +29,12 @@ type ObjectsIter interface {
 }
 
 type objectsIter struct {
-	ts                         types.TS
-	iter, iterByMin, iterByMax btree.IterG[ObjectEntry]
-	firstCalled                bool
-	canFast                    bool
+	ts                   types.TS
+	iterByMin, iterByMax btree.IterG[ObjectEntry]
+	iter                 *btree.IterG[ObjectEntry]
+	firstCalled          bool
+	canFast              bool
+	TableName            string
 }
 
 // not accurate!  only used by stats
@@ -52,11 +54,27 @@ func (p *PartitionState) NewObjectsIter(ts types.TS, useSortKeyIndex bool) (*obj
 		ret.iterByMin = p.dataObjectsSortKeyIndexByMin.Copy().Iter()
 		ret.iterByMax = p.dataObjectsSortKeyIndexByMax.Copy().Iter()
 		ret.canFast = true
-		ret.iter = ret.iterByMax
+		ret.iter = &ret.iterByMax
+
+		//if strings.Contains(p.TableName, "bmsql") {
+		//	p.dataObjectsSortKeyIndexByMin.Scan(func(item ObjectEntry) bool {
+		//		fmt.Println(p.TableName, "min", item.SortKeyZoneMap().String())
+		//		return true
+		//	})
+		//
+		//	p.dataObjectsSortKeyIndexByMax.Scan(func(item ObjectEntry) bool {
+		//		fmt.Println(p.TableName, "max", item.SortKeyZoneMap().String())
+		//		return true
+		//	})
+		//	fmt.Println()
+		//}
+
 	} else {
-		ret.iter = p.dataObjects.Copy().Iter()
+		tmpI := p.dataObjects.Copy().Iter()
+		ret.iter = &tmpI
 		ret.canFast = false
 	}
+	ret.TableName = p.TableName
 
 	return ret, nil
 }
@@ -86,29 +104,34 @@ func (b *objectsIter) Seek(op func(t types.T) (pivot objectio.ZoneMap, stop func
 	piovt := ObjectEntry{}
 	objectio.SetObjectStatsSortKeyZoneMap(&piovt.ObjectStats, zm)
 
-	exist := b.iterByMin.Seek(piovt)
-	ok = b.iterByMax.Seek(piovt)
-
-	if !ok {
+	if ok = b.iterByMax.Seek(piovt); !ok {
 		return nil, false
 	}
-	var end ObjectEntry
-	if exist {
-		end = b.iterByMin.Item()
-		if end.SortKeyZoneMap().CompareMin(zm) == 0 {
-			exist = b.iterByMin.Next()
-		}
-	}
-	if exist {
-		end = b.iterByMin.Item()
+	r := b.iterByMax.Item()
+	//fmt.Println("j", r.SortKeyZoneMap())
+
+	b.iterByMin.Seek(piovt)
+	minest := b.iterByMin.Item()
+
+	//fmt.Println("x", minest.SortKeyZoneMap().String())
+
+	if bytes.Equal(minest.ObjectName(), r.ObjectName()) {
+		return nil, true
 	}
 
-	stop = func(stats objectio.ObjectStats) bool {
-		if exist {
-			return bytes.Equal(stats.ObjectName()[:], end.ObjectName()[:])
-		}
-		return false
+	for r1, r2 := minest.SortKeyZoneMap().Intersect(zm); r1 && r2; {
+		b.iterByMin.Next()
+		minest = b.iterByMin.Item()
 	}
+
+	//fmt.Println("y", minest.SortKeyZoneMap().String())
+
+	stop = func(stats objectio.ObjectStats) bool {
+		return bytes.Equal(stats.ObjectName(), minest.ObjectName())
+	}
+
+	//x1 := b.iterByMin.Item()
+	//x2 := b.iterByMax.Item()
 
 	return stop, true
 }

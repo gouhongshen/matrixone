@@ -1830,6 +1830,9 @@ func ForeachSnapshotObjects(
 	stop, ok := iter.Seek(fastSeekObjectOp)
 	for ok {
 		obj := iter.Entry()
+		//if strings.Contains(iter.TableName, "bmsql") {
+		//	fmt.Println("z", obj.SortKeyZoneMap().String())
+		//}
 		if stop != nil {
 			if stop(obj.ObjectStats) {
 				break
