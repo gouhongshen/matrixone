@@ -530,13 +530,22 @@ func (zm ZM) CompareMin(o ZM) int {
 
 // -----
 
-func (zm ZM) Compare(o ZM) int {
+func (zm ZM) CompareByMin(o ZM) int {
 	minRet := zm.CompareMin(o)
 	if minRet != 0 {
 		return minRet
 	}
 
 	return zm.CompareMax(o)
+}
+
+func (zm ZM) CompareByMax(o ZM) int {
+	maxRet := zm.CompareMin(o)
+	if maxRet != 0 {
+		return maxRet
+	}
+
+	return zm.CompareMin(o)
 }
 
 func (zm ZM) AnyGT(o ZM) (res bool, ok bool) {

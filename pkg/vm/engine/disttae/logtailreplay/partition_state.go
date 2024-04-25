@@ -44,8 +44,9 @@ type PartitionState struct {
 	// data
 	rows *btree.BTreeG[RowEntry] // use value type to avoid locking on elements
 	//table data objects
-	dataObjects             *btree.BTreeG[ObjectEntry]
-	dataObjectsSortKeyIndex *btree.BTreeG[ObjectEntry]
+	dataObjects                  *btree.BTreeG[ObjectEntry]
+	dataObjectsSortKeyIndexByMax *btree.BTreeG[ObjectEntry]
+	dataObjectsSortKeyIndexByMin *btree.BTreeG[ObjectEntry]
 	//TODO:: It's transient, should be removed in future PR.
 	blockDeltas *btree.BTreeG[BlockDeltaEntry]
 	checkpoints []string
@@ -174,10 +175,20 @@ type ObjectEntry struct {
 	ObjectInfo
 }
 
-func (o ObjectEntry) LessBySortKey(than ObjectEntry) bool {
+func (o ObjectEntry) LessBySortKeyMin(than ObjectEntry) bool {
 	ozm := o.SortKeyZoneMap()
 	tzm := than.SortKeyZoneMap()
-	ret := ozm.Compare(tzm)
+	ret := ozm.CompareByMin(tzm)
+	if ret != 0 {
+		return ret < 0
+	}
+	return o.Less(than)
+}
+
+func (o ObjectEntry) LessBySortKeyMax(than ObjectEntry) bool {
+	ozm := o.SortKeyZoneMap()
+	tzm := than.SortKeyZoneMap()
+	ret := ozm.CompareByMax(tzm)
 	if ret != 0 {
 		return ret < 0
 	}
@@ -305,20 +316,22 @@ func NewPartitionState(noData bool, hasSortKey bool) *PartitionState {
 	}
 
 	if hasSortKey {
-		ps.dataObjectsSortKeyIndex = btree.NewBTreeGOptions(ObjectEntry.LessBySortKey, opts)
+		ps.dataObjectsSortKeyIndexByMin = btree.NewBTreeGOptions(ObjectEntry.LessBySortKeyMin, opts)
+		ps.dataObjectsSortKeyIndexByMax = btree.NewBTreeGOptions(ObjectEntry.LessBySortKeyMax, opts)
 	}
 
 	return ps
 }
 
 func (p *PartitionState) updateSortKeyIndex(objEntry ObjectEntry, checkZM bool) {
-	if p.dataObjectsSortKeyIndex != nil {
+	if p.dataObjectsSortKeyIndexByMin != nil {
 		if checkZM && objEntry.ZMIsEmpty() {
 			logutil.Errorf("found empyt zm: %s", objEntry.String())
 			util.EnableCoreDump()
 			util.CoreDump()
 		}
-		p.dataObjectsSortKeyIndex.Set(objEntry)
+		p.dataObjectsSortKeyIndexByMin.Set(objEntry)
+		p.dataObjectsSortKeyIndexByMax.Set(objEntry)
 	}
 }
 
@@ -341,8 +354,9 @@ func (p *PartitionState) Copy() *PartitionState {
 		copy(state.checkpoints, p.checkpoints)
 	}
 
-	if p.dataObjectsSortKeyIndex != nil {
-		state.dataObjectsSortKeyIndex = p.dataObjectsSortKeyIndex.Copy()
+	if p.dataObjectsSortKeyIndexByMin != nil {
+		state.dataObjectsSortKeyIndexByMin = p.dataObjectsSortKeyIndexByMin.Copy()
+		state.dataObjectsSortKeyIndexByMax = p.dataObjectsSortKeyIndexByMax.Copy()
 	}
 	return &state
 }
@@ -1129,8 +1143,9 @@ func (p *PartitionState) truncate(ids [2]uint64, ts types.TS) {
 
 		if !objEntry.DeleteTime.IsEmpty() && objEntry.DeleteTime.LessEq(&ts) {
 			p.dataObjects.Delete(objEntry)
-			if p.dataObjectsSortKeyIndex != nil {
-				p.dataObjectsSortKeyIndex.Delete(objEntry)
+			if p.dataObjectsSortKeyIndexByMin != nil {
+				p.dataObjectsSortKeyIndexByMin.Delete(objEntry)
+				p.dataObjectsSortKeyIndexByMax.Delete(objEntry)
 			}
 
 			//p.dataObjectsByCreateTS.Delete(ObjectIndexByCreateTSEntry{

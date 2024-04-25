@@ -29,10 +29,10 @@ type ObjectsIter interface {
 }
 
 type objectsIter struct {
-	ts          types.TS
-	iter        btree.IterG[ObjectEntry]
-	firstCalled bool
-	canFast     bool
+	ts                         types.TS
+	iter, iterByMin, iterByMax btree.IterG[ObjectEntry]
+	firstCalled                bool
+	canFast                    bool
 }
 
 // not accurate!  only used by stats
@@ -48,9 +48,11 @@ func (p *PartitionState) NewObjectsIter(ts types.TS, useSortKeyIndex bool) (*obj
 		ts: ts,
 	}
 
-	if p.dataObjectsSortKeyIndex != nil && useSortKeyIndex {
-		ret.iter = p.dataObjectsSortKeyIndex.Copy().Iter()
+	if p.dataObjectsSortKeyIndexByMin != nil && useSortKeyIndex {
+		ret.iterByMin = p.dataObjectsSortKeyIndexByMin.Copy().Iter()
+		ret.iterByMax = p.dataObjectsSortKeyIndexByMax.Copy().Iter()
 		ret.canFast = true
+		ret.iter = ret.iterByMax
 	} else {
 		ret.iter = p.dataObjects.Copy().Iter()
 		ret.canFast = false
@@ -62,7 +64,7 @@ func (p *PartitionState) NewObjectsIter(ts types.TS, useSortKeyIndex bool) (*obj
 var _ ObjectsIter = new(objectsIter)
 
 func (b *objectsIter) Seek(op func(t types.T) (pivot objectio.ZoneMap, stop func(stats objectio.ObjectStats) bool)) (
-	func(stats objectio.ObjectStats) bool, bool) {
+	stop func(stats objectio.ObjectStats) bool, ok bool) {
 
 	var item ObjectEntry
 	if b.Next() {
@@ -75,7 +77,7 @@ func (b *objectsIter) Seek(op func(t types.T) (pivot objectio.ZoneMap, stop func
 		return nil, true
 	}
 
-	zm, stop := op(item.SortKeyZoneMap().GetType())
+	zm, _ := op(item.SortKeyZoneMap().GetType())
 
 	if !zm.Valid() {
 		return nil, true
@@ -84,9 +86,30 @@ func (b *objectsIter) Seek(op func(t types.T) (pivot objectio.ZoneMap, stop func
 	piovt := ObjectEntry{}
 	objectio.SetObjectStatsSortKeyZoneMap(&piovt.ObjectStats, zm)
 
-	//if b.iter.Seek(piovt) {
-	//	return stop, true
-	//}
+	exist := b.iterByMin.Seek(piovt)
+	ok = b.iterByMax.Seek(piovt)
+
+	if !ok {
+		return nil, false
+	}
+	var end ObjectEntry
+	if exist {
+		end = b.iterByMin.Item()
+		if end.SortKeyZoneMap().CompareMin(zm) == 0 {
+			exist = b.iterByMin.Next()
+		}
+	}
+	if exist {
+		end = b.iterByMin.Item()
+	}
+
+	stop = func(stats objectio.ObjectStats) bool {
+		if exist {
+			return bytes.Equal(stats.ObjectName()[:], end.ObjectName()[:])
+		}
+		return false
+	}
+
 	return stop, true
 }
 
@@ -100,35 +123,6 @@ func (b *objectsIter) Next() bool {
 		return true
 	}
 	return false
-	//for {
-	//
-	//	pivot := ObjectIndexByCreateTSEntry{
-	//		ObjectInfo{
-	//			CreateTime: b.ts.Next(),
-	//		},
-	//	}
-	//	if !b.firstCalled {
-	//		if !b.iter.Seek(pivot) {
-	//			if !b.iter.Last() {
-	//				return false
-	//			}
-	//		}
-	//		b.firstCalled = true
-	//	} else {
-	//		if !b.iter.Prev() {
-	//			return false
-	//		}
-	//	}
-	//
-	//	entry := b.iter.Item()
-	//
-	//	if !entry.Visible(b.ts) {
-	//		// not visible
-	//		continue
-	//	}
-	//
-	//	return true
-	//}
 }
 
 func (b *objectsIter) Prev() bool {
@@ -149,7 +143,12 @@ func (b *objectsIter) Entry() ObjectEntry {
 }
 
 func (b *objectsIter) Close() error {
-	b.iter.Release()
+	if b.canFast {
+		b.iterByMin.Release()
+		b.iterByMax.Release()
+	} else {
+		b.iter.Release()
+	}
 	return nil
 }
 
