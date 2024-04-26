@@ -123,7 +123,8 @@ func (txn *Transaction) WriteBatch(
 		}
 		if tableId != catalog.MO_DATABASE_ID &&
 			tableId != catalog.MO_TABLES_ID && tableId != catalog.MO_COLUMNS_ID {
-			txn.workspaceSize += uint64(bat.Size())
+			txn.workspaceStats.WorkspaceRows += uint64(bat.Size())
+			txn.workspaceStats.WorkspaceRows += uint64(bat.RowCount())
 		}
 	}
 	e := Entry{
@@ -385,9 +386,10 @@ func (txn *Transaction) checkDup() error {
 // start from write offset.   Pass in offset -1 to dump all.   Note that dump all will
 // modify txn.writes, so it can only be called right before txn.commit.
 func (txn *Transaction) dumpBatchLocked(offset int) error {
-	var size uint64
+	var size, rows uint64
 	var pkCount int
-	if txn.workspaceSize < WorkspaceThreshold {
+
+	if !txn.reachedDumpBatch2S3Threshold() {
 		return nil
 	}
 
@@ -408,12 +410,14 @@ func (txn *Transaction) dumpBatchLocked(offset int) error {
 			}
 			if txn.writes[i].typ == INSERT && txn.writes[i].fileName == "" {
 				size += uint64(txn.writes[i].bat.Size())
+				rows += uint64(txn.writes[i].bat.RowCount())
 			}
 		}
-		if size < WorkspaceThreshold {
+		if size < WorkspaceSizeThreshold && rows < WorkspaceRowsThreshold {
 			return nil
 		}
 		size = 0
+		rows = 0
 	}
 	txn.hasS3Op.Store(true)
 	mp := make(map[tableKey][]*batch.Batch)
@@ -443,6 +447,7 @@ func (txn *Transaction) dumpBatchLocked(offset int) error {
 			}
 			bat := txn.writes[i].bat
 			size += uint64(bat.Size())
+			rows += uint64(bat.RowCount())
 			pkCount += bat.RowCount()
 			// skip rowid
 			newBat := batch.NewWithSize(len(bat.Vecs) - 1)
@@ -515,7 +520,7 @@ func (txn *Transaction) dumpBatchLocked(offset int) error {
 	}
 
 	if dumpAll {
-		txn.workspaceSize = 0
+		txn.resetWorkSpaceStats()
 		txn.pkCount -= pkCount
 		// modifies txn.writes.
 		writes := txn.writes[:0]
@@ -526,7 +531,8 @@ func (txn *Transaction) dumpBatchLocked(offset int) error {
 		}
 		txn.writes = writes
 	} else {
-		txn.workspaceSize -= size
+		txn.workspaceStats.WorkspaceSize -= size
+		txn.workspaceStats.WorkspaceRows -= rows
 		txn.pkCount -= pkCount
 	}
 	return nil

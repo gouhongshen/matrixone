@@ -101,9 +101,10 @@ const (
 )
 
 const (
-	WorkspaceThreshold uint64 = 1 * mpool.MB
-	GCBatchOfFileCount int    = 1000
-	GCPoolSize         int    = 5
+	WorkspaceSizeThreshold uint64 = 1 * mpool.MB
+	WorkspaceRowsThreshold uint64 = 10000
+	GCBatchOfFileCount     int    = 1000
+	GCPoolSize             int    = 5
 )
 
 var (
@@ -179,7 +180,11 @@ type Transaction struct {
 	// writes cache stores any writes done by txn
 	writes []Entry
 	// txn workspace size
-	workspaceSize uint64
+
+	workspaceStats struct {
+		WorkspaceSize uint64
+		WorkspaceRows uint64
+	}
 
 	// the last snapshot write offset
 	snapshotWriteOffset int
@@ -313,6 +318,23 @@ func (b *deletedBlocks) iter(fn func(*types.Blockid, []int64) bool) {
 
 func (txn *Transaction) PutCnBlockDeletes(blockId *types.Blockid, offsets []int64) {
 	txn.deletedBlocks.addDeletedBlocks(blockId, offsets)
+}
+
+func (txn *Transaction) reachedDumpBatch2S3Threshold() bool {
+	if txn.workspaceStats.WorkspaceSize >= WorkspaceSizeThreshold {
+		return true
+	}
+
+	if txn.workspaceStats.WorkspaceRows >= WorkspaceRowsThreshold {
+		return true
+	}
+
+	return false
+}
+
+func (txn *Transaction) resetWorkSpaceStats() {
+	txn.workspaceStats.WorkspaceRows = 0
+	txn.workspaceStats.WorkspaceSize = 0
 }
 
 func (txn *Transaction) StartStatement() {
