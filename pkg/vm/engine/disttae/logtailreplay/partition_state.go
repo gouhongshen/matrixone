@@ -150,13 +150,13 @@ func (b BlockDeltaEntry) DeltaLocation() objectio.Location {
 
 type ObjectInfo struct {
 	objectio.ObjectStats
-
-	EntryState  bool
-	Sorted      bool
-	HasDeltaLoc bool
-	CommitTS    types.TS
-	CreateTime  types.TS
-	DeleteTime  types.TS
+	T1, T2, T3, T4 bool
+	EntryState     bool
+	Sorted         bool
+	HasDeltaLoc    bool
+	CommitTS       types.TS
+	CreateTime     types.TS
+	DeleteTime     types.TS
 }
 
 func (o ObjectInfo) String() string {

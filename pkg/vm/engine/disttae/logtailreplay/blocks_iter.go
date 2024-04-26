@@ -107,21 +107,46 @@ func (b *objectsIter) Seek(op func(t types.T) (pivot objectio.ZoneMap, stop func
 	if ok = b.iterByMax.Seek(piovt); !ok {
 		return nil, false
 	}
+
 	r := b.iterByMax.Item()
-	//fmt.Println("j", r.SortKeyZoneMap())
-
-	b.iterByMin.Seek(piovt)
-	minest := b.iterByMin.Item()
-
-	//fmt.Println("x", minest.SortKeyZoneMap().String())
-
-	if bytes.Equal(minest.ObjectName(), r.ObjectName()) {
-		return nil, true
+	for ok {
+		if !r.Visible(b.ts) {
+			ok = b.iterByMax.Next()
+			r = b.iterByMax.Item()
+			continue
+		}
+		break
+	}
+	// all cannot be visible
+	if !ok {
+		return nil, false
 	}
 
-	for r1, r2 := minest.SortKeyZoneMap().Intersect(zm); r1 && r2; {
+	//fmt.Println("j", r.SortKeyZoneMap())
+
+	ok = b.iterByMin.Seek(piovt)
+	minest := b.iterByMin.Item()
+	for ok {
+		if !minest.Visible(b.ts) {
+			ok = b.iterByMin.Next()
+			minest = b.iterByMin.Item()
+			continue
+		}
+		break
+	}
+
+	//fmt.Println("x", minest.SortKeyZoneMap().String())
+	r1, r2 := minest.SortKeyZoneMap().Intersect(zm)
+	if !r1 || !r2 {
+		if bytes.Equal(minest.ObjectName(), r.ObjectName()) {
+			return nil, true
+		}
+	}
+
+	for r1 && r2 {
 		b.iterByMin.Next()
 		minest = b.iterByMin.Item()
+		r1, r2 = minest.SortKeyZoneMap().Intersect(zm)
 	}
 
 	//fmt.Println("y", minest.SortKeyZoneMap().String())

@@ -1058,11 +1058,12 @@ func ExecuteBlockFilter(
 	hasDeletes := len(dirtyBlocks) > 0
 	err = ForeachSnapshotObjects(
 		snapshotTS,
-		func(obj logtailreplay.ObjectInfo, isCommitted bool) (err2 error) {
+		func(obj *logtailreplay.ObjectInfo, isCommitted bool) (err2 error) {
 			var ok bool
 			objStats := obj.ObjectStats
 			if fastFilterOp != nil {
 				if ok, err2 = fastFilterOp(objStats); err2 != nil || !ok {
+					obj.T1 = true
 					return
 				}
 			}
@@ -1070,7 +1071,9 @@ func ExecuteBlockFilter(
 				meta objectio.ObjectMeta
 				bf   objectio.BloomFilter
 			)
+			obj.T2 = true
 			if loadOp != nil {
+				obj.T3 = true
 				if meta, bf, err2 = loadOp(
 					proc.Ctx, objStats, meta, bf,
 				); err2 != nil {

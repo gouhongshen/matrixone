@@ -1801,7 +1801,7 @@ func ForeachCommittedObjects(
 
 func ForeachSnapshotObjects(
 	ts timestamp.Timestamp,
-	onObject func(obj logtailreplay.ObjectInfo, isCommitted bool) error,
+	onObject func(obj *logtailreplay.ObjectInfo, isCommitted bool) error,
 	fastSeekObjectOp FastSeekObjectOp,
 	tableSnapshot *logtailreplay.PartitionState,
 	uncommitted ...objectio.ObjectStats,
@@ -1811,7 +1811,7 @@ func ForeachSnapshotObjects(
 		info := logtailreplay.ObjectInfo{
 			ObjectStats: obj,
 		}
-		if err = onObject(info, false); err != nil {
+		if err = onObject(&info, false); err != nil {
 			return
 		}
 	}
@@ -1826,23 +1826,35 @@ func ForeachSnapshotObjects(
 		return
 	}
 	defer iter.Close()
-
+	var X0, X1, X2, X3 int64
+	defer func() {
+		fmt.Println(X0, X1, X2, X3)
+	}()
 	stop, ok := iter.Seek(fastSeekObjectOp)
 	for ok {
+		X0++
 		obj := iter.Entry()
-		//if strings.Contains(iter.TableName, "bmsql") {
-		//	fmt.Println("z", obj.SortKeyZoneMap().String())
-		//}
+		fmt.Println(obj.ObjectName().String(), obj.SortKeyZoneMap().String(), obj.CreateTime.ToString(), obj.DeleteTime.ToString())
 		if stop != nil {
 			if stop(obj.ObjectStats) {
 				break
 			}
 		}
 
-		if err = onObject(obj.ObjectInfo, true); err != nil {
+		if err = onObject(&obj.ObjectInfo, true); err != nil {
 			return
 		}
 
+		if obj.T1 {
+			X1++
+		}
+		if obj.T2 {
+			X2++
+		}
+		if obj.T3 {
+			X3++
+		}
+		obj.T1, obj.T2, obj.T3 = false, false, false
 		ok = iter.Next()
 	}
 	return

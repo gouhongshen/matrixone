@@ -793,7 +793,7 @@ func (tbl *txnTable) rangesOnePart(
 
 	if err = ForeachSnapshotObjects(
 		tbl.db.op.SnapshotTS(),
-		func(obj logtailreplay.ObjectInfo, isCommitted bool) (err2 error) {
+		func(obj *logtailreplay.ObjectInfo, isCommitted bool) (err2 error) {
 			var meta objectio.ObjectDataMeta
 			skipObj = false
 
@@ -1075,7 +1075,7 @@ func (tbl *txnTable) tryFastRanges(
 
 	if err = ForeachSnapshotObjects(
 		tbl.db.op.SnapshotTS(),
-		func(obj logtailreplay.ObjectInfo, isCommitted bool) (err2 error) {
+		func(obj *logtailreplay.ObjectInfo, isCommitted bool) (err2 error) {
 			zmTotal++
 			blockCnt += obj.BlkCnt()
 			var zmCkecked bool
