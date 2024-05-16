@@ -1083,7 +1083,17 @@ func GetSortOrder(tableDef *plan.TableDef, colPos int32) int {
 	return GetSortOrderByName(tableDef, colName)
 }
 
-func ConstandFoldList(exprs []*plan.Expr, proc *process.Process, varAndParamIsConst bool) ([]*plan.Expr, error) {
+func ConstandFoldForParam(exprs []*plan.Expr, proc *process.Process, varAndParamIsConst bool) ([]*plan.Expr, error) {
+	ok := true
+	for i := range exprs {
+		if hasParam(exprs[i]) {
+			ok = false
+			break
+		}
+	}
+	if ok {
+		return exprs, nil
+	}
 	newExprs := DeepCopyExprList(exprs)
 	for i := range newExprs {
 		foldedExpr, err := ConstantFold(batch.EmptyForConstFoldBatch, newExprs[i], proc, varAndParamIsConst)
