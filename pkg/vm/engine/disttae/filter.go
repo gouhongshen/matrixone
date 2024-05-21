@@ -16,6 +16,7 @@ package disttae
 
 import (
 	"context"
+	plan2 "github.com/matrixorigin/matrixone/pkg/sql/plan"
 	"sort"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
@@ -291,6 +292,26 @@ func CompileFilterExprs(
 	return
 }
 
+func checkCompositePKSerial(proc *process.Process, tableDef *plan.TableDef, expr *plan.Expr) {
+	if tableDef.Pkey.CompPkeyCol == nil {
+		return
+	}
+
+	vals := make([]*plan.Literal, len(tableDef.Pkey.Names))
+	if ok, hasNull := getCompositPKVals(expr, tableDef.Pkey.Names, vals, proc); ok && hasNull {
+		return
+	}
+
+	if valid := getValidCompositePKCnt(vals); valid != len(vals) {
+		return
+	}
+
+	// the pushed down expr is not expected
+	logutil.Errorf("the pushed down composite pk exprs is not expected, db=%s, tbl=%s, expr=%s", plan2.FormatExpr(expr))
+	util.EnableCoreDump()
+	util.CoreDump()
+}
+
 func CompileFilterExpr(
 	expr *plan.Expr,
 	proc *process.Process,
@@ -414,6 +435,7 @@ func CompileFilterExpr(
 				}
 			}
 		case "and":
+			checkCompositePKSerial(proc, tableDef, expr)
 			leftFastOp, leftLoadOp, leftObjectOp, leftBlockOp, leftSeekOp, leftCan := CompileFilterExpr(
 				exprImpl.F.Args[0], proc, tableDef, fs,
 			)

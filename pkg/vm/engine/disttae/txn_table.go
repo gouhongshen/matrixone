@@ -728,15 +728,6 @@ func (tbl *txnTable) rangesOnePart(
 		return nil
 	}
 
-	if done, err = tbl.tryFastRanges(
-		exprs, state, uncommittedObjects, dirtyBlks, outBlocks,
-		tbl.getTxn().engine.fs,
-	); err != nil {
-		return err
-	} else if done {
-		return nil
-	}
-
 	// for dynamic parameter, substitute param ref and const fold cast expression here to improve performance
 	newExprs, err := plan2.ConstandFoldList(exprs, tbl.proc.Load(), true)
 	if err == nil {
@@ -978,20 +969,20 @@ func (tbl *txnTable) tryFastFilterBlocks(
 	outBlocks *objectio.BlockInfoSlice,
 	fs fileservice.FileService) (done bool, err error) {
 	// TODO: refactor this code if composite key can be pushdown
-	if tbl.tableDef.Pkey.CompPkeyCol == nil {
-		return TryFastFilterBlocks(
-			tbl.db.op.SnapshotTS(),
-			tbl.tableDef,
-			exprs,
-			snapshot,
-			uncommittedObjects,
-			dirtyBlocks,
-			outBlocks,
-			fs,
-			tbl.proc.Load(),
-		)
-	}
-	return
+	//if tbl.tableDef.Pkey.CompPkeyCol == nil {
+	return TryFastFilterBlocks(
+		tbl.db.op.SnapshotTS(),
+		tbl.tableDef,
+		exprs,
+		snapshot,
+		uncommittedObjects,
+		dirtyBlocks,
+		outBlocks,
+		fs,
+		tbl.proc.Load(),
+	)
+	//}
+	//return
 }
 
 // tryFastRanges only handle equal expression filter on zonemap and bloomfilter in tp scenario;
