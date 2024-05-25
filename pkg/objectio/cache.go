@@ -81,14 +81,18 @@ func metaCacheSize() int64 {
 
 	total := v.Total
 	if total < 2*mpool.GB {
+		fmt.Println("metaCacheSize", float64(total/4)/1024.0/1024.0)
 		return int64(total / 4)
 	}
 	if total < 16*mpool.GB {
+		fmt.Println("metaCacheSize", "512MB")
 		return 512 * mpool.MB
 	}
 	if total < 32*mpool.GB {
+		fmt.Println("metaCacheSize", "1GB")
 		return 1 * mpool.GB
 	}
+	fmt.Println("metaCacheSize", "2GB")
 	return 2 * mpool.GB
 }
 
