@@ -152,6 +152,13 @@ func BlockRead(
 		searchFunc = filter.SortedSearchFunc
 	}
 
+	if time.Since(last).Seconds() > 5 {
+		last = time.Now()
+		logutil.Infof("yyy tableName=%s, len(sels)=%d, hasFakePK=%v, sortFunc=%v, unsortFunc=%v, sorted=%v, pkPos=%d, expr=%s",
+			filter.Mixin.TableDef.Name, len(sels), filter.HasFakePK, filter.SortedSearchFunc, filter.UnSortedSearchFunc,
+			info.Sorted, filter.Mixin.PKPos, filter.Mixin.Expr)
+	}
+
 	if searchFunc != nil {
 		if sels, err = ReadByFilter(
 			ctx, info, inputDeletes, filterSeqnums, filterColTypes,
@@ -165,13 +172,6 @@ func BlockRead(
 			v2.TaskSelReadFilterHit.Inc()
 		} else {
 			RecordReadFilterSelectivity(0, 1)
-		}
-
-		if time.Since(last).Seconds() > 5 {
-			last = time.Now()
-			logutil.Infof("yyy tableName=%s, len(sels)=%d, hasFakePK=%v, sortFunc=%v, unsortFunc=%v, sorted=%v, pkPos=%d, expr=%s",
-				filter.Mixin.TableDef.Name, len(sels), filter.HasFakePK, filter.SortedSearchFunc, filter.UnSortedSearchFunc,
-				info.Sorted, filter.Mixin.PKPos, filter.Mixin.Expr)
 		}
 
 		if len(sels) == 0 {
