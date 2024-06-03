@@ -446,8 +446,8 @@ func (c *Compile) allocOperatorID() int32 {
 	return c.lastAllocID
 }
 
-var last time.Time
-var rr = regexp.MustCompile("prepare.*sbtest")
+//var last time.Time
+//var rr = regexp.MustCompile("prepare.*sbtest")
 
 // Run is an important function of the compute-layer, it executes a single sql according to its scope
 // Need call Release() after call this function.
@@ -457,12 +457,12 @@ func (c *Compile) Run(_ uint64) (result *util2.RunResult, err error) {
 		sql = c.sql
 	}
 
-	if rr.MatchString(c.sql) {
-		if time.Since(last).Seconds() >= 5 {
-			fmt.Printf("xxxx sql: %s\n", c.sql)
-			last = time.Now()
-		}
-	}
+	//if rr.MatchString(c.sql) {
+	//	if time.Since(last).Seconds() >= 5 {
+	//		fmt.Printf("xxxx sql: %s\n", c.sql)
+	//		last = time.Now()
+	//	}
+	//}
 
 	txnOp := c.proc.TxnOperator
 	seq := uint64(0)
