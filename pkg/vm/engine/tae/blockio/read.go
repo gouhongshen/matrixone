@@ -169,6 +169,7 @@ func BlockRead(
 		}
 
 		if time.Since(last).Seconds() > 5 {
+			last = time.Now()
 			fmt.Printf("yyy tableName=%s, len(sels)=%d, hasFakePK=%v, sortFunc=%v, unsortFunc=%v, sorted=%v, pkPos=%d, expr=%s",
 				filter.Mixin.TableDef.Name, len(sels), filter.HasFakePK, filter.SortedSearchFunc, filter.UnSortedSearchFunc,
 				info.Sorted, filter.Mixin.PKPos, filter.Mixin.Expr)
