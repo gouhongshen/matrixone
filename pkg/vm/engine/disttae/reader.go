@@ -377,6 +377,11 @@ func (r *blockReader) Read(
 
 	// get the block read filter
 	filter := r.getReadFilter(r.proc, len(r.blks))
+	if r.withFilterMixin.filterState.expr != nil {
+		filter.Mixin.Expr = plan2.FormatExpr(r.filterState.expr)
+	}
+	filter.Mixin.PKPos = r.columns.pkPos
+	filter.Mixin.TableDef = r.tableDef
 
 	// if any null expr is found in the primary key (composite primary keys), quick return
 	if r.filterState.hasNull {
