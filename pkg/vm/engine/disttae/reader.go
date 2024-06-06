@@ -109,13 +109,26 @@ func (mixin *withFilterMixin) getReadFilter(proc *process.Process, blkCnt int) (
 		filter = mixin.filterState.filter
 		return
 	}
+
+	defer func() {
+		filter.TableName = mixin.tableDef.Name
+		filter.PKPos = mixin.columns.pkPos
+		if mixin.filterState.expr == nil {
+			filter.Expr = "nil"
+		} else {
+			filter.Expr = plan2.FormatExpr(mixin.filterState.expr)
+		}
+	}()
+
 	pk := mixin.tableDef.Pkey
 	if mixin.filterState.expr == nil || pk == nil {
 		mixin.filterState.evaluated = true
 		mixin.filterState.filter = blockio.ReadFilter{}
 		return
 	}
-	return mixin.getPKFilter(proc, blkCnt)
+
+	filter = mixin.getPKFilter(proc, blkCnt)
+	return filter
 }
 
 func (mixin *withFilterMixin) getPKFilter(

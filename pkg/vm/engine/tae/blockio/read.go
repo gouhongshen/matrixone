@@ -17,6 +17,7 @@ package blockio
 import (
 	"context"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
@@ -36,6 +37,9 @@ import (
 type ReadFilterSearchFuncType func([]*vector.Vector) []int32
 
 type ReadFilter struct {
+	TableName          string
+	Expr               string
+	PKPos              int
 	HasFakePK          bool
 	Valid              bool
 	SortedSearchFunc   ReadFilterSearchFuncType
@@ -112,6 +116,8 @@ func ReadByFilter(
 	return
 }
 
+var last time.Time
+
 // BlockRead read block data from storage and apply deletes according given timestamp. Caller make sure metaloc is not empty
 func BlockRead(
 	ctx context.Context,
@@ -136,6 +142,15 @@ func BlockRead(
 		sels []int32
 		err  error
 	)
+
+	if strings.Contains(filter.TableName, "sbtest") {
+		if time.Since(last).Seconds() > 5 {
+			last = time.Now()
+			logutil.Infof("yyy tableName: %s, sorted func: %v, unsorted func: %v, blk sorted: %v, hasFake: %v, pkPos: %v, expr: %s\n",
+				filter.TableName, filter.SortedSearchFunc, filter.UnSortedSearchFunc, info.Sorted, filter.HasFakePK,
+				filter.PKPos, filter.Expr)
+		}
+	}
 
 	var searchFunc ReadFilterSearchFuncType
 	if (filter.HasFakePK || !info.Sorted) && filter.UnSortedSearchFunc != nil {
