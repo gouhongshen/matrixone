@@ -626,7 +626,7 @@ func (tbl *txnTable) Ranges(ctx context.Context, exprs []*plan.Expr, txnOffset i
 		nil)
 
 	defer func() {
-		if strings.Contains(tbl.tableName, "sbtest") {
+		if strings.Contains(tbl.db.databaseName, "sysbench_db") {
 			debugPrint(tbl.tableName, "ranges", 0, ranges.Len(), exprs...)
 		}
 
@@ -1745,7 +1745,7 @@ func (tbl *txnTable) NewReader(
 	}
 
 	pkFilters := ConstructPKFilters(tbl.tableDef, tbl.db.databaseName, ts, state, expr, tbl.proc.Load(), txn.engine.packerPool)
-	if strings.Contains(tbl.tableName, "sbtest") {
+	if strings.Contains(tbl.db.databaseName, "sysbench_db") {
 		debugPrint(tbl.tableName, "newReader", 1, []string{pkFilters.inMemPKFilter.String(false), pkFilters.blockReadPKFilter.String()}, expr)
 	}
 
