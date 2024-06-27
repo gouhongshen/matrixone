@@ -2153,12 +2153,16 @@ type PKFilters struct {
 	blockReadPKFilter blockio.BlockReadFilter
 }
 
-func (f *InMemPKFilter) String() string {
+func (f *InMemPKFilter) String(withData bool) string {
 	var buf bytes.Buffer
 	buf.WriteString(
-		fmt.Sprintf("InMemPKFilter{op: %d, isVec: %v, isValid: %v, val: %v, data(len=%d)",
-			f.op, f.isVec, f.isValid, f.packed, len(f.packed),
+		fmt.Sprintf("InMemPKFilter{op: %d, isVec: %v, isValid: %v, data(len=%d), iter type: %T, delFactoryType: %T",
+			f.op, f.isVec, f.isValid, len(f.packed), f.iter, f.delIterFactory,
 		))
+
+	if withData {
+		buf.WriteString(fmt.Sprintf(", data: %v", f.packed))
+	}
 	return buf.String()
 }
 

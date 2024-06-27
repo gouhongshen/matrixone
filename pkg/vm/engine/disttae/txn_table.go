@@ -626,6 +626,10 @@ func (tbl *txnTable) Ranges(ctx context.Context, exprs []*plan.Expr, txnOffset i
 		nil)
 
 	defer func() {
+		if strings.Contains(tbl.tableName, "sbtest") {
+			debugPrint(tbl.tableName, "ranges", 0, ranges.Len(), exprs...)
+		}
+
 		cost := time.Since(start)
 
 		trace.GetService().AddTxnAction(
@@ -693,6 +697,30 @@ func (tbl *txnTable) Ranges(ctx context.Context, exprs []*plan.Expr, txnOffset i
 //     2>.CN blocks resides in S3, read by blockReader.
 
 var slowPathCounter atomic.Int64
+
+var tt [2]time.Time = [2]time.Time{time.Now(), time.Now()}
+
+func debugPrint(tblName, hint string, idx int, extra any, expr ...*plan.Expr) {
+	now := time.Now()
+	if now.Sub(tt[idx]) < time.Second*15 {
+		return
+	}
+
+	tt[idx] = now
+
+	exprString := ""
+	if len(expr) == 0 || expr[0] == nil {
+		exprString = "nil"
+	} else {
+		exprString = plan2.FormatExprs(expr)
+	}
+
+	logutil.Info("random points debug",
+		zap.String("source", hint),
+		zap.String("table", tblName),
+		zap.Any("extra", extra),
+		zap.String("expr", exprString))
+}
 
 // rangesOnePart collect blocks which are visible to this txn,
 // include committed blocks and uncommitted blocks by CN writing S3.
@@ -1717,6 +1745,9 @@ func (tbl *txnTable) NewReader(
 	}
 
 	pkFilters := ConstructPKFilters(tbl.tableDef, tbl.db.databaseName, ts, state, expr, tbl.proc.Load(), txn.engine.packerPool)
+	if strings.Contains(tbl.tableName, "sbtest") {
+		debugPrint(tbl.tableName, "newReader", 1, []string{pkFilters.inMemPKFilter.String(false), pkFilters.blockReadPKFilter.String()}, expr)
+	}
 
 	blkArray := objectio.BlockInfoSlice(ranges)
 	if !pkFilters.inMemPKFilter.isValid || plan2.IsFalseExpr(expr) {

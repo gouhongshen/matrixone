@@ -16,6 +16,7 @@ package blockio
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"time"
 
@@ -40,6 +41,11 @@ type BlockReadFilter struct {
 	Valid              bool
 	SortedSearchFunc   ReadFilterSearchFuncType
 	UnSortedSearchFunc ReadFilterSearchFuncType
+}
+
+func (b *BlockReadFilter) String() string {
+	return fmt.Sprintf("BlockReaderFilter{hasFakePK: %v, valid: %v, sortedSearchFunc: %v, unsortedSearchFunc: %v}",
+		b.HasFakePK, b.Valid, b.SortedSearchFunc, b.UnSortedSearchFunc)
 }
 
 func ReadByFilter(
