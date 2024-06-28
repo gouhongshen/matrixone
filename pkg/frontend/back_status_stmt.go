@@ -17,7 +17,7 @@ package frontend
 import (
 	"time"
 
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/newdisttae"
 )
 
 func executeStatusStmtInBack(backSes *backSession,

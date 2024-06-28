@@ -586,7 +586,7 @@ func buildDeletePlans(ctx CompilerContext, builder *QueryBuilder, bindCtx *BindC
 										//  <"b_sunil_1",1, 1> -->  (select serial_full("2", b,c),__mo_pk_key, __mo_row_id)
 										//  <"b_sunil_1",1, 1>
 										//  when we use UNION, we remove the duplicate values
-										// 3. RowID is added here: https://github.com/arjunsk/matrixone/blob/d7db178e1c7298e2a3e4f99e7292425a7ef0ef06/pkg/vm/engine/disttae/txn.go#L95
+										// 3. RowID is added here: https://github.com/arjunsk/matrixone/blob/d7db178e1c7298e2a3e4f99e7292425a7ef0ef06/pkg/vm/engine/newdisttae/txn.go#L95
 										// TODO: verify this with Feng, Ouyuanning and Qingx (not reusing the row_id)
 										projectProjection[j] = lastProject[j]
 									} else {

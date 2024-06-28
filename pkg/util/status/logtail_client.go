@@ -16,11 +16,10 @@ package status
 
 import (
 	"fmt"
+	newdisttae "github.com/matrixorigin/matrixone/pkg/vm/engine/newdisttae"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/pb/timestamp"
-
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae"
 )
 
 type SubTableID struct {
@@ -38,7 +37,7 @@ type LogtailStatus struct {
 	SubscribedTables map[string]SubTableStatus `json:"subscribed_tables"`
 }
 
-func (s *LogtailStatus) fill(c *disttae.PushClient) {
+func (s *LogtailStatus) fill(c *newdisttae.PushClient) {
 	if c == nil {
 		return
 	}

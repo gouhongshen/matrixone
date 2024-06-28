@@ -16,13 +16,13 @@ package status
 
 import (
 	"encoding/json"
+	newdisttae "github.com/matrixorigin/matrixone/pkg/vm/engine/newdisttae"
 	"net/http"
 	"sync"
 
 	"github.com/matrixorigin/matrixone/pkg/lockservice"
 	"github.com/matrixorigin/matrixone/pkg/logservice"
 	"github.com/matrixorigin/matrixone/pkg/txn/client"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logtail/service"
 )
 
@@ -31,7 +31,7 @@ const JsonIdent = "    "
 type CNInstance struct {
 	TxnClient     client.TxnClient
 	LockService   lockservice.LockService
-	logtailClient *disttae.PushClient
+	logtailClient *newdisttae.PushClient
 }
 
 type Server struct {
@@ -83,7 +83,7 @@ func (s *Server) SetLockService(uuid string, l lockservice.LockService) {
 	s.mu.CNInstances[uuid].LockService = l
 }
 
-func (s *Server) SetLogTailClient(uuid string, c *disttae.PushClient) {
+func (s *Server) SetLogTailClient(uuid string, c *newdisttae.PushClient) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, ok := s.mu.CNInstances[uuid]

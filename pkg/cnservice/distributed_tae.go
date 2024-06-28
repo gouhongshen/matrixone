@@ -16,7 +16,6 @@ package cnservice
 
 import (
 	"context"
-
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/common/runtime"
 	"github.com/matrixorigin/matrixone/pkg/config"
@@ -24,7 +23,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec"
 	"github.com/matrixorigin/matrixone/pkg/util/status"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae"
+	newdisttae "github.com/matrixorigin/matrixone/pkg/vm/engine/newdisttae"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/blockio"
 )
 
@@ -61,7 +60,7 @@ func (s *service) initDistributedTAE(
 	if err != nil {
 		return err
 	}
-	s.storeEngine = disttae.New(
+	s.storeEngine = newdisttae.New(
 		ctx,
 		distributeTaeMp,
 		fs,
@@ -73,7 +72,8 @@ func (s *service) initDistributedTAE(
 	pu.StorageEngine = s.storeEngine
 
 	// set up log tail client to subscribe table and receive table log.
-	cnEngine := pu.StorageEngine.(*disttae.Engine)
+	cnEngine := pu.StorageEngine.(*newdisttae.Engine)
+
 	err = cnEngine.InitLogTailPushModel(ctx, s.timestampWaiter)
 	if err != nil {
 		return err

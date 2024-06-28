@@ -67,8 +67,8 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/util/trace/impl/motrace"
 	"github.com/matrixorigin/matrixone/pkg/util/trace/impl/motrace/statistic"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/route"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/newdisttae"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/newdisttae/route"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 )
 
