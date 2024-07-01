@@ -350,7 +350,6 @@ func (p *PartitionState) HandleLogtailEntry(
 	primarySeqnum int,
 	packer *types.Packer,
 ) {
-	fmt.Println("NO")
 
 	txnTrace.GetService().ApplyLogtail(entry, 1)
 	switch entry.EntryType {

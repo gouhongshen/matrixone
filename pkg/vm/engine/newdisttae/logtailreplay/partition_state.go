@@ -354,8 +354,6 @@ func (p *PartitionState) HandleLogtailEntry(
 ) {
 	txnTrace.GetService().ApplyLogtail(entry, 1)
 
-	fmt.Println("YES")
-
 	switch entry.EntryType {
 	case api.Entry_Insert:
 		if IsDataObjectList(entry.TableName) {
