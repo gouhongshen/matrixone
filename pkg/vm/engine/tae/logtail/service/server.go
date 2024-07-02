@@ -192,7 +192,7 @@ func NewLogtailServer(
 		return nil, err
 	}
 
-	rpc.RegisterRequestHandler(s.onMessage)
+	rpc.RegisterRequestHandler(s.OnMessage)
 	s.rpc = rpc
 
 	// control background goroutines
@@ -210,14 +210,23 @@ func NewLogtailServer(
 	return s, nil
 }
 
-// onMessage is the handler for morpc client session.
-func (s *LogtailServer) onMessage(
+// ResetRPC for test
+func (s *LogtailServer) ResetRPC() (err error) {
+	if s.rpc != nil {
+		err = s.rpc.Close()
+		s.rpc = nil
+	}
+	return err
+}
+
+// OnMessage is the handler for morpc client session.
+func (s *LogtailServer) OnMessage(
 	ctx context.Context,
 	value morpc.RPCMessage,
 	seq uint64,
 	cs morpc.ClientSession,
 ) error {
-	ctx, span := trace.Debug(ctx, "LogtailServer.onMessage")
+	ctx, span := trace.Debug(ctx, "LogtailServer.OnMessage")
 	defer span.End()
 
 	logger := s.logger
@@ -615,30 +624,34 @@ func (s *LogtailServer) Close() error {
 }
 
 // Start starts logtail publishment service.
-func (s *LogtailServer) Start() error {
+func (s *LogtailServer) Start() (err error) {
 	s.logger.Info("start logtail service")
 
-	if err := s.stopper.RunNamedTask("session error handler", s.sessionErrorHandler); err != nil {
+	if err = s.stopper.RunNamedTask("session error handler", s.sessionErrorHandler); err != nil {
 		s.logger.Error("fail to start session error handler", zap.Error(err))
 		return err
 	}
 
-	if err := s.stopper.RunNamedTask("logtail pull worker", s.logtailPullWorker); err != nil {
+	if err = s.stopper.RunNamedTask("logtail pull worker", s.logtailPullWorker); err != nil {
 		s.logger.Error("fail to start logtail pull worker", zap.Error(err))
 		return err
 	}
 
-	if err := s.stopper.RunNamedTask("logtail sender", s.logtailSender); err != nil {
+	if err = s.stopper.RunNamedTask("logtail sender", s.logtailSender); err != nil {
 		s.logger.Error("fail to start logtail sender", zap.Error(err))
 		return err
 	}
 
-	if err := s.stopper.RunNamedTask("session cleaner", s.gcDeletedSessions); err != nil {
+	if err = s.stopper.RunNamedTask("session cleaner", s.gcDeletedSessions); err != nil {
 		s.logger.Error("fail to start session cleaner", zap.Error(err))
 		return err
 	}
 
-	return s.rpc.Start()
+	if s.rpc != nil {
+		err = s.rpc.Start()
+	}
+
+	return err
 }
 
 // NotifyLogtail provides incremental logtail for server.

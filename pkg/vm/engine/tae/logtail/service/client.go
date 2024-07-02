@@ -141,15 +141,19 @@ func (c *LogtailClient) Unsubscribe(
 // 3. response for unsubscription: *LogtailResponse.GetUnsubscribeResponse() != nil
 // 3. response for incremental logtail: *LogtailResponse.GetUpdateResponse() != nil
 func (c *LogtailClient) Receive(ctx context.Context) (*LogtailResponse, error) {
+	return LogtailResponseReceive(ctx, c.recvChan, c.broken)
+}
+
+func LogtailResponseReceive(ctx context.Context, recvChan chan morpc.Message, broken chan struct{}) (*LogtailResponse, error) {
 	recvFunc := func() (*LogtailResponseSegment, error) {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 
-		case <-c.broken:
+		case <-broken:
 			return nil, moerr.NewStreamClosedNoCtx()
 
-		case message, ok := <-c.recvChan:
+		case message, ok := <-recvChan:
 			if !ok || message == nil {
 				logutil.Error("logtail client: morpc stream broken",
 					zap.Bool("is message nil", message == nil),
@@ -157,10 +161,10 @@ func (c *LogtailClient) Receive(ctx context.Context) (*LogtailResponse, error) {
 				)
 
 				// mark stream as broken
-				c.once.Do(func() { close(c.broken) })
+				(&sync.Once{}).Do(func() { close(broken) })
 				return nil, moerr.NewStreamClosedNoCtx()
 			}
-			v2.LogTailReceiveQueueSizeGauge.Set(float64(len(c.recvChan)))
+			v2.LogTailReceiveQueueSizeGauge.Set(float64(len(recvChan)))
 			return message.(*LogtailResponseSegment), nil
 		}
 	}

@@ -124,7 +124,7 @@ type PushClient struct {
 
 	// connectC is the channel which is used to control the connection
 	// flow.
-	connector *connector
+	Connector *connector
 
 	// initialized is true means that it is not the first time to init push client.
 	initialized bool
@@ -177,7 +177,7 @@ func newConnector(c *PushClient, e *Engine) *connector {
 	return co
 }
 
-func (c *connector) run(ctx context.Context) {
+func (c *connector) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -218,7 +218,7 @@ func (c *PushClient) init(
 	c.subscribed.m = make(map[SubTableID]SubTableStatus)
 
 	if !c.initialized {
-		c.connector = newConnector(c, e)
+		c.Connector = newConnector(c, e)
 		c.receiver = make([]routineController, consumerNumber)
 		c.consumeErrC = make(chan error, consumerNumber)
 		c.pauseC = make(chan bool, 1)
@@ -462,7 +462,7 @@ func (c *PushClient) receiveLogtails(ctx context.Context, e *Engine) {
 		default:
 			if err := c.receiveOneLogtail(ctx, e); err != nil {
 				logutil.Errorf("%s receive one logtail failed, err: %v", logTag, err)
-				c.pause(!c.connector.first.Load())
+				c.pause(!c.Connector.first.Load())
 			}
 		}
 	}
@@ -483,13 +483,13 @@ func (c *PushClient) stopConsumers() {
 }
 
 func (c *PushClient) sendConnectSig() {
-	if c.connector.first.Load() {
-		c.connector.signal <- struct{}{}
+	if c.Connector.first.Load() {
+		c.Connector.signal <- struct{}{}
 		return
 	}
 
 	select {
-	case c.connector.signal <- struct{}{}:
+	case c.Connector.signal <- struct{}{}:
 		logutil.Infof("%s reconnect signal is received", logTag)
 	default:
 		logutil.Infof("%s connecting is in progress", logTag)
@@ -509,7 +509,7 @@ func (c *PushClient) run(ctx context.Context, e *Engine) {
 		case err := <-c.consumeErrC:
 			// receive an error from sub-routine to consume log.
 			logutil.Errorf("%s consume log tail failed, err: %s", logTag, err)
-			c.pause(!c.connector.first.Load())
+			c.pause(!c.Connector.first.Load())
 
 		case <-ctx.Done():
 			logutil.Infof("%s logtail consumer stopped", logTag)
@@ -540,7 +540,7 @@ func (c *PushClient) waitTimestamp() {
 }
 
 func (c *PushClient) connect(ctx context.Context, e *Engine) {
-	if c.connector.first.Load() {
+	if c.Connector.first.Load() {
 		c.startConsumers(ctx, e)
 
 		for {
@@ -560,7 +560,7 @@ func (c *PushClient) connect(ctx context.Context, e *Engine) {
 			}
 			c.waitTimestamp()
 			e.setPushClientStatus(true)
-			c.connector.first.Store(false)
+			c.Connector.first.Store(false)
 			return
 		}
 	}
@@ -1175,20 +1175,20 @@ func (e *Engine) InitLogTailPushModel(ctx context.Context, timestampWaiter clien
 		}
 
 		// get log tail service address.
-		if err := e.pClient.init(logTailServerAddr, timestampWaiter, e.ls.GetServiceID(), e); err != nil {
+		if err := e.PClient.init(logTailServerAddr, timestampWaiter, e.ls.GetServiceID(), e); err != nil {
 			logutil.Errorf("%s client init failed, err is %s", logTag, err)
 			continue
 		}
 		break
 	}
 
-	go e.pClient.connector.run(ctx)
+	go e.PClient.Connector.Run(ctx)
 
 	// Start a goroutine that never stops to receive logtail from TN logtail server.
-	go e.pClient.run(ctx, e)
+	go e.PClient.run(ctx, e)
 
-	e.pClient.unusedTableGCTicker(ctx)
-	e.pClient.partitionStateGCTicker(ctx, e)
+	e.PClient.unusedTableGCTicker(ctx)
+	e.PClient.partitionStateGCTicker(ctx, e)
 	return nil
 }
 
@@ -1226,13 +1226,13 @@ func dispatchSubscribeResponse(
 			c := e.getLatestCatalogCache()
 			c.UpdateDuration(types.TS{}, types.MaxTs())
 		}
-		e.pClient.subscribed.setTableSubscribe(tbl.DbId, tbl.TbId)
+		e.PClient.subscribed.setTableSubscribe(tbl.DbId, tbl.TbId)
 	} else {
 		routineIndex := tbl.TbId % consumerNumber
 		recRoutines[routineIndex].sendSubscribeResponse(ctx, response, receiveAt)
 	}
 	// no matter how we consume the response, should update all timestamp.
-	e.pClient.receivedLogTailTime.updateTimestamp(consumerNumber, *lt.Ts, receiveAt)
+	e.PClient.receivedLogTailTime.updateTimestamp(consumerNumber, *lt.Ts, receiveAt)
 	for _, rc := range recRoutines {
 		rc.updateTimeFromT(*lt.Ts, receiveAt)
 	}
@@ -1282,7 +1282,7 @@ func dispatchUpdateResponse(
 		recRoutines[recIndex].sendTableLogTail(list[index], receiveAt)
 	}
 	// should update all the timestamp.
-	e.pClient.receivedLogTailTime.updateTimestamp(consumerNumber, *response.To, receiveAt)
+	e.PClient.receivedLogTailTime.updateTimestamp(consumerNumber, *response.To, receiveAt)
 	for _, rc := range recRoutines {
 		rc.updateTimeFromT(*response.To, receiveAt)
 	}
@@ -1437,7 +1437,7 @@ func (cmd cmdToConsumeSub) action(ctx context.Context, e *Engine, ctrl *routineC
 	}
 	lt := response.GetLogtail()
 	tbl := lt.GetTable()
-	e.pClient.subscribed.setTableSubscribe(tbl.DbId, tbl.TbId)
+	e.PClient.subscribed.setTableSubscribe(tbl.DbId, tbl.TbId)
 	return nil
 }
 
@@ -1450,14 +1450,14 @@ func (cmd cmdToConsumeLog) action(ctx context.Context, e *Engine, ctrl *routineC
 }
 
 func (cmd cmdToUpdateTime) action(ctx context.Context, e *Engine, ctrl *routineController) error {
-	e.pClient.receivedLogTailTime.updateTimestamp(ctrl.routineId, cmd.time, cmd.receiveAt)
+	e.PClient.receivedLogTailTime.updateTimestamp(ctrl.routineId, cmd.time, cmd.receiveAt)
 	return nil
 }
 
 func (cmd cmdToConsumeUnSub) action(ctx context.Context, e *Engine, _ *routineController) error {
 	table := cmd.log.Table
 	e.cleanMemoryTableWithTable(table.DbId, table.TbId)
-	e.pClient.subscribed.setTableUnsubscribe(table.DbId, table.TbId)
+	e.PClient.subscribed.setTableUnsubscribe(table.DbId, table.TbId)
 	return nil
 }
 

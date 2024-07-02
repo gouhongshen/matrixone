@@ -27,17 +27,17 @@ func TestHandleGCCache(t *testing.T) {
 	expired := now.Add(-MAX_TXN_COMMIT_LATENCY).Add(-time.Second)
 
 	handle := Handle{}
-	handle.txnCtxs = common.NewMap[string, *txnContext](10)
-	handle.txnCtxs.Store("now", &txnContext{
+	handle.txnCtxs = common.NewMap[string, *TxnContext](10)
+	handle.txnCtxs.Store("now", &TxnContext{
 		deadline: now,
 	})
-	handle.txnCtxs.Store("expired", &txnContext{
+	handle.txnCtxs.Store("expired", &TxnContext{
 		deadline: expired,
 	})
 	handle.GCCache(now)
 
 	cnt := 0
-	handle.txnCtxs.Range(func(key string, value *txnContext) bool {
+	handle.txnCtxs.Range(func(key string, value *TxnContext) bool {
 		cnt++
 		return true
 	})

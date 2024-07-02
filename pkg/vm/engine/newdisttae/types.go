@@ -155,7 +155,7 @@ type Engine struct {
 	gcPool *ants.Pool
 
 	// XXX related to cn push model
-	pClient PushClient
+	PClient PushClient
 
 	// globalStats is the global stats information, which is updated
 	// from logtail updates.

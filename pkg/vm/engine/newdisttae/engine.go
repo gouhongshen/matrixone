@@ -636,7 +636,7 @@ func (e *Engine) New(ctx context.Context, op client.TxnOperator) error {
 	colexec.Get().PutCnSegment(id, colexec.TxnWorkSpaceIdType)
 	op.AddWorkspace(txn)
 
-	e.pClient.validLogTailMustApplied(txn.op.SnapshotTS())
+	e.PClient.validLogTailMustApplied(txn.op.SnapshotTS())
 	return nil
 }
 
@@ -756,12 +756,12 @@ func (e *Engine) setPushClientStatus(ready bool) {
 		e.cli.Pause()
 	}
 
-	e.pClient.receivedLogTailTime.ready.Store(ready)
-	if e.pClient.subscriber != nil {
+	e.PClient.receivedLogTailTime.ready.Store(ready)
+	if e.PClient.subscriber != nil {
 		if ready {
-			e.pClient.subscriber.setReady()
+			e.PClient.subscriber.setReady()
 		} else {
-			e.pClient.subscriber.setNotReady()
+			e.PClient.subscriber.setNotReady()
 		}
 	}
 }
@@ -783,7 +783,7 @@ func (e *Engine) cleanMemoryTableWithTable(dbId, tblId uint64) {
 }
 
 func (e *Engine) PushClient() *PushClient {
-	return &e.pClient
+	return &e.PClient
 }
 
 // TryToSubscribeTable implements the LogtailEngine interface.

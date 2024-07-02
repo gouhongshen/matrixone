@@ -61,7 +61,7 @@ const (
 
 type Handle struct {
 	db        *db.DB
-	txnCtxs   *common.Map[string, *txnContext]
+	txnCtxs   *common.Map[string, *TxnContext]
 	GCManager *gc.Manager
 
 	interceptMatchRegexp atomic.Pointer[regexp.Regexp]
@@ -69,7 +69,7 @@ type Handle struct {
 
 var _ rpchandle.Handler = (*Handle)(nil)
 
-type txnContext struct {
+type TxnContext struct {
 	//createAt is used to GC the abandoned txn.
 	createAt time.Time
 	deadline time.Time
@@ -116,7 +116,7 @@ func NewTAEHandle(ctx context.Context, path string, opt *options.Options) *Handl
 	h := &Handle{
 		db: tae,
 	}
-	h.txnCtxs = common.NewMap[string, *txnContext](runtime.GOMAXPROCS(0))
+	h.txnCtxs = common.NewMap[string, *TxnContext](runtime.GOMAXPROCS(0))
 
 	h.GCManager = gc.NewManager(
 		gc.WithCronJob(
@@ -163,7 +163,7 @@ func (h *Handle) UpdateInterceptMatchRegexp(name string) {
 // TODO: vast items within h.mu.txnCtxs would incur performance penality.
 func (h *Handle) GCCache(now time.Time) error {
 	logutil.Infof("GC rpc handle txn cache")
-	h.txnCtxs.DeleteIf(func(k string, v *txnContext) bool {
+	h.txnCtxs.DeleteIf(func(k string, v *TxnContext) bool {
 		return v.deadline.Before(now)
 	})
 	return nil
@@ -176,7 +176,7 @@ func (h *Handle) CacheTxnRequest(
 	txnCtx, ok := h.txnCtxs.Load(util.UnsafeBytesToString(meta.GetID()))
 	if !ok {
 		now := time.Now()
-		txnCtx = &txnContext{
+		txnCtx = &TxnContext{
 			createAt: now,
 			deadline: now.Add(MAX_TXN_COMMIT_LATENCY),
 			meta:     meta,
@@ -197,7 +197,7 @@ func (h *Handle) CacheTxnRequest(
 func (h *Handle) handleRequests(
 	ctx context.Context,
 	txn txnif.AsyncTxn,
-	txnCtx *txnContext,
+	txnCtx *TxnContext,
 ) (err error) {
 	for _, e := range txnCtx.reqs {
 		switch req := e.(type) {
