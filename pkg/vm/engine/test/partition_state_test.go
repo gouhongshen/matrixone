@@ -16,7 +16,12 @@ package test
 
 import (
 	"context"
+	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
+	"github.com/matrixorigin/matrixone/pkg/defines"
+	"github.com/matrixorigin/matrixone/pkg/pb/timestamp"
+	catalog2 "github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
 	testutil "github.com/matrixorigin/matrixone/pkg/vm/engine/test/testutil"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -24,34 +29,101 @@ import (
 )
 
 func Test_X(t *testing.T) {
-
-	mp, err := mpool.NewMPool("test", 0, mpool.NoFixed)
-	require.Nil(t, err)
-
-	ctx := context.Background()
-	taeHandler, err := testutil.NewTestTAEEngine(ctx, "partition_state", t, nil)
-	require.Nil(t, err)
-
-	disttaeEngine := testutil.NewTestDisttaeEngine(ctx, taeHandler, mp)
-	defer disttaeEngine.Close(ctx)
-
 	var (
+		accountId    = catalog.System_Account
 		tableId      = 9999
 		databaseId   = 9999
 		tableName    = "test1"
 		databaseName = "db1"
 	)
 
-	_, err = disttaeEngine.CreateDatabase(ctx, "", "", 0, 0, 0, uint64(databaseId), databaseName, mp)
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, defines.TenantIDKey{}, accountId)
+
+	mp, err := mpool.NewMPool("test", 0, mpool.NoFixed)
 	require.Nil(t, err)
 
-	_, err = disttaeEngine.CreateTable(ctx, "", 0, 0, 0, tableName, uint64(tableId), uint64(databaseId), databaseName, mp)
+	rpcAgent := testutil.NewMockLogtailAgent()
+	defer rpcAgent.Close()
 
+	taeHandler, err := testutil.NewTestTAEEngine(ctx, "partition_state", t, rpcAgent, nil)
 	require.Nil(t, err)
+
+	disttaeEngine, err := testutil.NewTestDisttaeEngine(ctx, mp, taeHandler.GetDB().Runtime.Fs.Service, rpcAgent)
+	require.Nil(t, err)
+	defer disttaeEngine.Close(ctx)
+
+	resp := rpcAgent.CreateDatabase(ctx, "", "", accountId, 0, 0, uint64(databaseId), databaseName, mp)
+	require.Nil(t, resp.TxnError)
+
+	resp = rpcAgent.CreateTable(ctx, "", accountId, 0, 0, tableName, uint64(tableId), uint64(databaseId), databaseName, mp)
+
+	require.Nil(t, resp.TxnError)
 	time.Sleep(time.Second)
 
-	err = disttaeEngine.Subscribe(ctx, uint64(databaseId), uint64(tableId))
+	txnOp, err := disttaeEngine.NewTxnOperator(ctx, timestamp.Timestamp{PhysicalTime: time.Now().UnixNano()})
 	require.Nil(t, err)
+
+	dbName, tblName, _, err := disttaeEngine.Engine.GetRelationById(ctx, txnOp, uint64(tableId))
+	require.Nil(t, err)
+	require.Equal(t, dbName, databaseName)
+	require.Equal(t, tblName, tableName)
+
+	time.Sleep(time.Second)
+}
+
+func Test_Y(t *testing.T) {
+	var (
+		accountId    = catalog.System_Account
+		tableId      = 9999
+		databaseId   = 9999
+		tableName    = "test1"
+		databaseName = "db1"
+	)
+
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, defines.TenantIDKey{}, accountId)
+
+	mp, err := mpool.NewMPool("test", 0, mpool.NoFixed)
+	require.Nil(t, err)
+
+	rpcAgent := testutil.NewMockLogtailAgent()
+	defer rpcAgent.Close()
+
+	taeHandler, err := testutil.NewTestTAEEngine(ctx, "partition_state", t, rpcAgent, nil)
+	require.Nil(t, err)
+
+	disttaeEngine, err := testutil.NewTestDisttaeEngine(ctx, mp, taeHandler.GetDB().Runtime.Fs.Service, rpcAgent)
+	require.Nil(t, err)
+	defer disttaeEngine.Close(ctx)
+
+	resp := rpcAgent.CreateDatabase(ctx, "", "", accountId, 0, 0, uint64(databaseId), databaseName, mp)
+	require.Nil(t, resp.TxnError)
+
+	schema := catalog2.MockSchemaAll(3, 0)
+	bat := catalog2.MockBatch(schema, 10)
+
+	resp = rpcAgent.CreateTable(ctx, "", schema, uint64(tableId), uint64(databaseId), databaseName, mp)
+	require.Nil(t, resp.TxnError)
+
+	time.Sleep(time.Second)
+
+	txnOp, err := disttaeEngine.NewTxnOperator(ctx, timestamp.Timestamp{PhysicalTime: time.Now().UnixNano()})
+	require.Nil(t, err)
+
+	dbName, tblName, rel, err := disttaeEngine.Engine.GetRelationById(ctx, txnOp, uint64(tableId))
+	require.Nil(t, err)
+	require.Equal(t, dbName, databaseName)
+	require.Equal(t, tblName, tableName)
+
+	rpcAgent.Insert(ctx, accountId, rel, databaseName, bat, mp)
+	require.Nil(t, resp.TxnError)
+
+	time.Sleep(time.Second * 10)
+
+	rows, err := disttaeEngine.CountStar(ctx, uint64(databaseId), uint64(tableId))
+	require.Nil(t, err)
+	fmt.Println(rows)
 
 	time.Sleep(time.Second)
 }

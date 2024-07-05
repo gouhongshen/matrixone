@@ -398,7 +398,7 @@ func (e *Engine) getOrCreateSnapPart(
 
 	//check whether the latest partition is available for reuse.
 	if err := tbl.updateLogtail(ctx); err == nil {
-		if p := e.getOrCreateLatestPart(tbl.db.databaseId, tbl.tableId); p.CanServe(ts) {
+		if p := e.GetOrCreateLatestPart(tbl.db.databaseId, tbl.tableId); p.CanServe(ts) {
 			return p, nil
 		}
 	}
@@ -480,7 +480,7 @@ func (e *Engine) getOrCreateSnapPart(
 		if err != nil {
 			return nil, err
 		}
-		return e.getOrCreateLatestPart(tbl.db.databaseId, tbl.tableId), nil
+		return e.GetOrCreateLatestPart(tbl.db.databaseId, tbl.tableId), nil
 	}
 	if ts.Less(&start) {
 		return nil, moerr.NewInternalErrorNoCtx(
@@ -493,7 +493,7 @@ func (e *Engine) getOrCreateSnapPart(
 	panic("impossible path")
 }
 
-func (e *Engine) getOrCreateLatestPart(
+func (e *Engine) GetOrCreateLatestPart(
 	databaseId,
 	tableId uint64) *logtailreplay.Partition {
 	e.Lock()
@@ -509,7 +509,7 @@ func (e *Engine) getOrCreateLatestPart(
 func (e *Engine) lazyLoadLatestCkp(
 	ctx context.Context,
 	tbl *txnTable) (*logtailreplay.Partition, error) {
-	part := e.getOrCreateLatestPart(tbl.db.databaseId, tbl.tableId)
+	part := e.GetOrCreateLatestPart(tbl.db.databaseId, tbl.tableId)
 	cache := e.getLatestCatalogCache()
 
 	if err := part.ConsumeCheckpoints(

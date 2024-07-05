@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 )
 
 const (
@@ -173,6 +175,7 @@ func localPortCheck(port int) bool {
 func RemoteAddressAvail(address string, timeout time.Duration) bool {
 	conn, err := net.DialTimeout("tcp", address, timeout)
 	if err != nil {
+		logutil.Errorf("dail tcp to %s failed: %s", address, err)
 		return false
 	} else {
 		if conn != nil {

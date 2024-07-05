@@ -16,71 +16,130 @@ package testutil
 
 import (
 	"context"
-	"github.com/matrixorigin/matrixone/pkg/common/moerr"
+	"github.com/matrixorigin/matrixone/pkg/clusterservice"
 	"github.com/matrixorigin/matrixone/pkg/common/morpc"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
-	"github.com/matrixorigin/matrixone/pkg/pb/api"
-	"github.com/matrixorigin/matrixone/pkg/pb/logtail"
+	"github.com/matrixorigin/matrixone/pkg/common/runtime"
+	"github.com/matrixorigin/matrixone/pkg/container/types"
+	"github.com/matrixorigin/matrixone/pkg/fileservice"
+	"github.com/matrixorigin/matrixone/pkg/lockservice"
+	"github.com/matrixorigin/matrixone/pkg/logservice"
+	"github.com/matrixorigin/matrixone/pkg/pb/lock"
+	logservice2 "github.com/matrixorigin/matrixone/pkg/pb/logservice"
+	"github.com/matrixorigin/matrixone/pkg/pb/metadata"
 	"github.com/matrixorigin/matrixone/pkg/pb/timestamp"
-	"github.com/matrixorigin/matrixone/pkg/pb/txn"
+	"github.com/matrixorigin/matrixone/pkg/sql/colexec"
 	"github.com/matrixorigin/matrixone/pkg/txn/client"
-	"github.com/matrixorigin/matrixone/pkg/txn/util"
+	"github.com/matrixorigin/matrixone/pkg/txn/service"
 	newdisttae "github.com/matrixorigin/matrixone/pkg/vm/engine/newdisttae"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logtail/service"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/newdisttae/logtailreplay"
 	"sync"
 	"time"
 )
 
 type TestDisttaeEngine struct {
-	txnStorage *TestTxnStorage
-	engine     *newdisttae.Engine
-	//logtailReceiveQueue sm.Queue
+	Engine          *newdisttae.Engine
 	logtailReceiver chan morpc.Message
 	broken          chan struct{}
 	wg              sync.WaitGroup
 	ctx             context.Context
 	cancel          context.CancelFunc
+	txnClient       client.TxnClient
+	txnOperator     client.TxnOperator
+	timestampWaiter client.TimestampWaiter
 }
 
-func NewTestDisttaeEngine(ctx context.Context, txnStorage *TestTxnStorage, mp *mpool.MPool) *TestDisttaeEngine {
+func NewTestDisttaeEngine(ctx context.Context, mp *mpool.MPool,
+	fs fileservice.FileService, rpcAgent *MockRPCAgent) (*TestDisttaeEngine, error) {
 	de := new(TestDisttaeEngine)
 
 	de.logtailReceiver = make(chan morpc.Message)
 	de.broken = make(chan struct{})
 
-	de.txnStorage = txnStorage
 	de.ctx, de.cancel = context.WithCancel(ctx)
 
-	de.engine = newdisttae.New(
-		ctx, mp, txnStorage.taeHandler.GetDB().Runtime.Fs.Service, client.NewTxnClient(nil),
-		nil, nil, 0)
+	initRuntime()
 
-	go de.engine.PClient.Connector.Run(ctx)
-	go de.logtailReceiveWorker()
+	wait := make(chan struct{})
+	de.timestampWaiter = client.NewTimestampWaiter()
 
-	return de
-}
+	de.txnClient = client.NewTxnClient(
+		&service.TestSender{},
+		client.WithTimestampWaiter(de.timestampWaiter))
 
-func (de *TestDisttaeEngine) logtailReceiveWorker() {
-	de.wg.Add(1)
+	de.txnClient.Resume()
+
+	hakeeper := &testHAKeeperClient{}
+	colexec.NewServer(hakeeper)
+
+	de.Engine = newdisttae.New(ctx, mp, fs, de.txnClient, hakeeper, nil, 0)
+	de.Engine.PClient.LogtailRPCClientFactory = rpcAgent.MockLogtailRPCClientFactory
+
 	go func() {
-		defer de.wg.Done()
 		for {
 			select {
-			case <-de.ctx.Done():
+			case <-wait:
 				break
 			default:
-				resp, err := service.LogtailResponseReceive(de.ctx, de.logtailReceiver, de.broken)
-				if r := resp.GetUpdateResponse(); r != nil {
-
-				} else if r := resp.GetSubscribeResponse(); r != nil {
-
-				} else if r := resp.GetUnsubscribeResponse(); r != nil {
-
-				}
+				de.timestampWaiter.NotifyLatestCommitTS(de.Now())
+				time.Sleep(time.Millisecond * 100)
 			}
 		}
 	}()
+
+	op, err := de.txnClient.New(ctx, types.TS{}.ToTimestamp())
+	if err != nil {
+		return nil, err
+	}
+
+	close(wait)
+
+	de.txnOperator = op
+	if err = de.Engine.New(ctx, op); err != nil {
+		return nil, err
+	}
+
+	err = de.Engine.InitLogTailPushModel(ctx, de.timestampWaiter)
+	if err != nil {
+		return nil, err
+	}
+
+	//err = de.prevSubscribeSysTables(ctx, rpcAgent)
+
+	return de, err
+}
+
+func (de *TestDisttaeEngine) NewTxnOperator(ctx context.Context,
+	commitTS timestamp.Timestamp, opts ...client.TxnOption) (client.TxnOperator, error) {
+	op, err := de.txnClient.New(ctx, commitTS, opts...)
+
+	op.AddWorkspace(de.txnOperator.GetWorkspace())
+	de.txnOperator.GetWorkspace().BindTxnOp(op)
+
+	return op, err
+}
+
+func (de *TestDisttaeEngine) CountStar(ctx context.Context, databaseId, tableId uint64) (totalRows uint32, err error) {
+	state := de.Engine.GetOrCreateLatestPart(databaseId, tableId).Snapshot()
+	newdisttae.ForeachSnapshotObjects(de.Now(), func(obj logtailreplay.ObjectInfo, isCommitted bool) error {
+		totalRows += obj.Rows()
+		return nil
+	}, state)
+
+	//iter, err := state.New(types.TimestampToTS(de.Now()))
+	//if err != nil {
+	//	return 0, err
+	//}
+	//
+	//for iter.Next() {
+	//	totalRows += iter.Entry().Rows()
+	//}
+
+	return totalRows, nil
+}
+
+func (de *TestDisttaeEngine) GetTxnOperator() client.TxnOperator {
+	return de.txnOperator
 }
 
 func (de *TestDisttaeEngine) Now() timestamp.Timestamp {
@@ -88,78 +147,98 @@ func (de *TestDisttaeEngine) Now() timestamp.Timestamp {
 }
 
 func (de *TestDisttaeEngine) Close(ctx context.Context) {
-	de.txnStorage.Close(ctx)
+	de.timestampWaiter.Close()
 	close(de.logtailReceiver)
 	de.cancel()
 	de.wg.Wait()
 }
 
-/////////////////////////////////////////// test Interface
-
-func (de *TestDisttaeEngine) CreateDatabase(
-	ctx context.Context, datType, sql string, accountId, userId, roleId uint32, databaseId uint64,
-	databaseName string, m *mpool.MPool) (response *txn.TxnResponse, err error) {
-
-	commitReq, err := newdisttae.MockGenCreateDatabaseCommitRequest(
-		datType, sql, accountId, userId, roleId, databaseId, databaseName, m, de.Now())
-	if err != nil {
-		return nil, err
-	}
-
-	return writeAndCommitRequest(ctx, de.txnStorage, commitReq)
+func initRuntime() {
+	runtime.SetupProcessLevelRuntime(runtime.DefaultRuntime())
+	runtime.ProcessLevelRuntime().SetGlobalVariables(runtime.ClusterService, new(mockMOCluster))
+	runtime.ProcessLevelRuntime().SetGlobalVariables(runtime.LockService, new(mockLockService))
 }
 
-func (de *TestDisttaeEngine) CreateTable(
-	ctx context.Context, sql string, accountId, userId, roleId uint32,
-	tableName string, tableId uint64, databaseId uint64,
-	databaseName string, m *mpool.MPool) (response *txn.TxnResponse, err error) {
+var _ clusterservice.MOCluster = new(mockMOCluster)
 
-	commitReq, err := newdisttae.MockGenCreateTableCommitRequest(
-		sql, accountId, userId, roleId, tableName, tableId, databaseId, databaseName, m, de.Now())
-
-	if err != nil {
-		return nil, err
-	}
-
-	return writeAndCommitRequest(ctx, de.txnStorage, commitReq)
+type mockMOCluster struct {
 }
 
-func writeAndCommitRequest(
-	ctx context.Context, txnHandler *TestTxnStorage, commitReq []*txn.TxnRequest) (
-	response *txn.TxnResponse, err error) {
+func (mc *mockMOCluster) GetCNService(
+	selector clusterservice.Selector, apply func(metadata.CNService) bool) {
+}
+func (mc *mockMOCluster) GetTNService(
+	selector clusterservice.Selector, apply func(metadata.TNService) bool) {
+}
+func (mc *mockMOCluster) GetAllTNServices() []metadata.TNService {
+	return []metadata.TNService{metadata.TNService{LogTailServiceAddress: newdisttae.FakeLogtailServerAddress}}
+}
+func (mc *mockMOCluster) GetCNServiceWithoutWorkingState(
+	selector clusterservice.Selector, apply func(metadata.CNService) bool) {
+}
+func (mc *mockMOCluster) ForceRefresh(sync bool)                                        {}
+func (mc *mockMOCluster) Close()                                                        {}
+func (mc *mockMOCluster) DebugUpdateCNLabel(uuid string, kvs map[string][]string) error { return nil }
+func (mc *mockMOCluster) DebugUpdateCNWorkState(uuid string, state int) error           { return nil }
+func (mc *mockMOCluster) RemoveCN(id string)                                            {}
+func (mc *mockMOCluster) AddCN(metadata.CNService)                                      {}
+func (mc *mockMOCluster) UpdateCN(metadata.CNService)                                   {}
 
-	reqs := txn.TxnRequest{
-		Method: txn.TxnMethod_Commit,
-		Flag:   txn.SkipResponseFlag,
-		CommitRequest: &txn.TxnCommitRequest{
-			Payload:       commitReq,
-			Disable1PCOpt: false,
-		}}
+var _ lockservice.LockService = new(mockLockService)
 
-	response = new(txn.TxnResponse)
-	response.CNOpResponse = &txn.CNOpResponse{}
-	req := reqs.CommitRequest.Payload[0]
-	_, err = txnHandler.Write(ctx, req.Txn, req.CNRequest.OpCode, req.CNRequest.Payload)
-	if err != nil {
-		util.LogTxnWriteFailed(txn.TxnMeta{}, err)
-		response.TxnError = txn.WrapError(err, moerr.ErrTAEWrite)
-		return nil, err
-	}
-
-	_, err = txnHandler.Commit(ctx, commitReq[0].Txn)
-	return response, err
+type mockLockService struct {
 }
 
-func (de *TestDisttaeEngine) Subscribe(ctx context.Context, dbId, tblId uint64) error {
-	table := api.TableID{DbId: dbId, TbId: tblId}
-	request := &service.LogtailRequest{}
-	request.Request = &logtail.LogtailRequest_SubscribeTable{
-		SubscribeTable: &logtail.SubscribeRequest{
-			Table: &table,
-		},
-	}
+func (ml *mockLockService) GetServiceID() string          { return "" }
+func (ml *mockLockService) GetConfig() lockservice.Config { return lockservice.Config{} }
+func (ml *mockLockService) Lock(ctx context.Context, tableID uint64, rows [][]byte,
+	txnID []byte, options lock.LockOptions) (lock.Result, error) {
+	return lock.Result{}, nil
+}
+func (ml *mockLockService) Unlock(ctx context.Context, txnID []byte,
+	commitTS timestamp.Timestamp, mutations ...lock.ExtraMutation) error {
+	return nil
+}
+func (ml *mockLockService) IsOrphanTxn(context.Context, []byte) (bool, error) { return false, nil }
+func (ml *mockLockService) Close() error                                      { return nil }
+func (ml *mockLockService) GetWaitingList(ctx context.Context, txnID []byte) (bool, []lock.WaitTxn, error) {
+	return false, nil, nil
+}
+func (ml *mockLockService) ForceRefreshLockTableBinds(targets []uint64, matcher func(bind lock.LockTable) bool) {
+}
+func (ml *mockLockService) GetLockTableBind(group uint32, tableID uint64) (lock.LockTable, error) {
+	return lock.LockTable{}, nil
+}
+func (ml *mockLockService) IterLocks(func(tableID uint64, keys [][]byte, lock lockservice.Lock) bool) {
+}
+func (ml *mockLockService) CloseRemoteLockTable(group uint32, tableID uint64, version uint64) (bool, error) {
+	return false, nil
+}
 
-	rpcMsg := morpc.RPCMessage{Message: request}
+var _ logservice.CNHAKeeperClient = new(testHAKeeperClient)
 
-	return de.txnStorage.logtailServer.OnMessage(ctx, rpcMsg, 0, newTestClientSession(de.logtailReceiver))
+type testHAKeeperClient struct {
+}
+
+func (ha *testHAKeeperClient) Close() error                                   { return nil }
+func (ha *testHAKeeperClient) AllocateID(ctx context.Context) (uint64, error) { return 0, nil }
+func (ha *testHAKeeperClient) AllocateIDByKey(ctx context.Context, key string) (uint64, error) {
+	return 0, nil
+}
+func (ha *testHAKeeperClient) AllocateIDByKeyWithBatch(ctx context.Context, key string, batch uint64) (uint64, error) {
+	return 0, nil
+}
+func (ha *testHAKeeperClient) GetClusterDetails(ctx context.Context) (logservice2.ClusterDetails, error) {
+	return logservice2.ClusterDetails{}, nil
+}
+func (ha *testHAKeeperClient) GetClusterState(ctx context.Context) (logservice2.CheckerState, error) {
+	return logservice2.CheckerState{}, nil
+}
+
+func (ha *testHAKeeperClient) GetBackupData(ctx context.Context) ([]byte, error) {
+	return nil, nil
+}
+
+func (ha *testHAKeeperClient) SendCNHeartbeat(ctx context.Context, hb logservice2.CNStoreHeartbeat) (logservice2.CommandBatch, error) {
+	return logservice2.CommandBatch{}, nil
 }

@@ -53,18 +53,14 @@ type TestLogtailServer struct {
 }
 
 func NewMockLogtailServer(
-	ctx context.Context, tae *db.DB, cfg *options.LogtailServerCfg,
-	rt runtime.Runtime) (*TestLogtailServer, error) {
+	ctx context.Context, tae *db.DB, cfg *options.LogtailServerCfg, rt runtime.Runtime,
+	rpcServerFactory func(string, string, *service.LogtailServer, ...morpc.ServerOption) (morpc.RPCServer, error)) (*TestLogtailServer, error) {
 
 	ls := &TestLogtailServer{}
 
 	logtailer := taelogtail.NewLogtailer(ctx, tae.BGCheckpointRunner, tae.LogtailMgr, tae.Catalog)
-	server, err := service.NewLogtailServer("", cfg, logtailer, rt)
+	server, err := service.NewLogtailServer("", cfg, logtailer, rt, rpcServerFactory)
 	if err != nil {
-		return nil, err
-	}
-
-	if err = server.ResetRPC(); err != nil {
 		return nil, err
 	}
 

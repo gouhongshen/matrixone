@@ -18,23 +18,20 @@ import (
 	"context"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/pb/txn"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
 )
 
 type TxnOperation interface {
 	CreateDatabase(ctx context.Context, datType, sql string, accountId, userId,
-		roleId uint32, databaseId uint64, databaseName string, m *mpool.MPool) (response *txn.TxnResponse, err error)
+		roleId uint32, databaseId uint64, databaseName string, m *mpool.MPool) (response *txn.TxnResponse)
 
-	CreateTable(ctx context.Context, sql string, accountId, userId, roleId uint32, tableName string,
-		tableId uint64, databaseId uint64, databaseName string, m *mpool.MPool) (response *txn.TxnResponse, err error)
+	CreateTable(ctx context.Context, sql string, schema *catalog.Schema,
+		tableId uint64, databaseId uint64, databaseName string, m *mpool.MPool) (response *txn.TxnResponse)
 
 	//AlterTable()
 	//DropTable()
 	//DropDatabase()
-	//
 
-	Subscribe(dbId, tblId uint64) error
-	//UnSubscribe()
-	//
 	//Select()
 	//Insert()
 	//Delete()

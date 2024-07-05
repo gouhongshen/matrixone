@@ -15,7 +15,7 @@
 package disttae
 
 import (
-	"github.com/matrixorigin/matrixone/pkg/pb/timestamp"
+	catalog2 "github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
 	"math"
 	"math/rand"
 	"time"
@@ -29,6 +29,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"github.com/matrixorigin/matrixone/pkg/pb/api"
 	"github.com/matrixorigin/matrixone/pkg/pb/metadata"
+	"github.com/matrixorigin/matrixone/pkg/pb/timestamp"
 	"github.com/matrixorigin/matrixone/pkg/pb/txn"
 )
 
@@ -80,10 +81,12 @@ func cnCommitRequest(es []Entry, tn DNStore, snapshot timestamp.Timestamp) ([]*t
 	}}, nil
 }
 
-var mockRowIdAllocator = []uint32{1, 1, 1, 1, 1, 1}
+var mockRowIdAllocatorByTID = make(map[uint64][]uint32)
 
-func MockGenRowId() types.Rowid {
-	idx := len(mockRowIdAllocator) - 1
+func MockIncrBlockId(tableId uint64) {
+	mockRowIdAllocator := mockRowIdAllocatorByTID[tableId]
+
+	idx := len(mockRowIdAllocator) - 2
 	for mockRowIdAllocator[idx] == math.MaxUint32 {
 		idx--
 	}
@@ -92,13 +95,18 @@ func MockGenRowId() types.Rowid {
 		idx++
 		mockRowIdAllocator[idx] = 0
 	}
+}
 
+func MockGenRowId(tableId uint64) types.Rowid {
+	mockRowIdAllocator := mockRowIdAllocatorByTID[tableId]
+	mockRowIdAllocator[5]++
 	return types.DecodeFixed[types.Rowid](types.EncodeSlice(mockRowIdAllocator[:]))
 }
 
-func appendRowIdVec(src *batch.Batch, m *mpool.MPool) (*batch.Batch, error) {
+func appendRowIdVec(tableId uint64, src *batch.Batch, m *mpool.MPool) (*batch.Batch, error) {
 	vec := vector.NewVec(types.T_Rowid.ToType())
-	rowId := MockGenRowId()
+	MockIncrBlockId(tableId)
+	rowId := MockGenRowId(tableId)
 	if err := vector.AppendFixed(vec, rowId, false, m); err != nil {
 		vec.Free(m)
 		return nil, err
@@ -117,7 +125,7 @@ func mockGenCreateDatabaseTuple(sql string, accountId, userId, roleId uint32,
 		return nil, err
 	}
 
-	return appendRowIdVec(bat, m)
+	return appendRowIdVec(catalog.MO_DATABASE_ID, bat, m)
 }
 
 func mockGenCreateTableTuple(
@@ -129,7 +137,65 @@ func mockGenCreateTableTuple(
 		return nil, err
 	}
 
-	return appendRowIdVec(bat, m)
+	return appendRowIdVec(catalog.MO_TABLES_ID, bat, m)
+}
+
+func MockInsertRowsCommitRequest(
+	accountId uint32, databaseId uint64, databaseName string, tableId uint64,
+	tableName string, bat *batch.Batch, m *mpool.MPool, snapshot timestamp.Timestamp) ([]*txn.TxnRequest, error) {
+
+	if bat.Attrs[0] != catalog.Row_ID {
+		rowIdVec := vector.NewVec(types.T_Rowid.ToType())
+		MockIncrBlockId(tableId)
+		for idx := 0; idx < bat.RowCount(); idx++ {
+			rowId := MockGenRowId(tableId)
+			if err := vector.AppendFixed[types.Rowid](rowIdVec, rowId, false, m); err != nil {
+				return nil, err
+			}
+		}
+
+		bat.Vecs = append([]*vector.Vector{rowIdVec}, bat.Vecs...)
+		bat.Attrs = append([]string{catalog.Row_ID}, bat.Attrs...)
+	}
+
+	tnStore := func() DNStore {
+		return metadata.TNService{
+			ServiceID:         uuid.NewString(),
+			TxnServiceAddress: "1",
+			Shards: []metadata.TNShard{
+				{
+					TNShardRecord: metadata.TNShardRecord{ShardID: 2},
+					ReplicaID:     rand.Uint64() % 0x11235,
+				},
+			},
+		}
+	}
+
+	e := Entry{
+		typ:          INSERT,
+		accountId:    accountId,
+		bat:          bat,
+		tableId:      tableId,
+		databaseId:   databaseId,
+		tableName:    tableName,
+		databaseName: databaseName,
+		tnStore:      tnStore(),
+		truncate:     false,
+	}
+
+	return cnCommitRequest([]Entry{e}, e.tnStore, snapshot)
+}
+
+func MockInsertDataObjectsCommitRequest() {
+
+}
+
+func MockInsertTombstoneObjectsCommitRequest() {
+
+}
+
+func MockDeleteRowsCommitRequest() {
+
 }
 
 func MockGenCreateDatabaseCommitRequest(
@@ -170,10 +236,12 @@ func MockGenCreateDatabaseCommitRequest(
 }
 
 func MockGenCreateTableCommitRequest(
-	sql string, accountId, userId, roleId uint32, name string,
-	tableId uint64, databaseId uint64, databaseName string, m *mpool.MPool, snapshot timestamp.Timestamp) ([]*txn.TxnRequest, error) {
+	sql string, schema *catalog2.Schema, tableId uint64, databaseId uint64, databaseName string,
+	m *mpool.MPool, snapshot timestamp.Timestamp) ([]*txn.TxnRequest, error) {
+	txnTbl := new(txnTable)
 	bat, err := mockGenCreateTableTuple(
-		new(txnTable), sql, accountId, userId, roleId, name, tableId, databaseId, databaseName, m)
+		new(txnTable), sql, schema.AcInfo.TenantID, schema.AcInfo.UserID, schema.AcInfo.UserID,
+		schema.Name, tableId, databaseId, databaseName, m)
 	if err != nil {
 		return nil, err
 	}
