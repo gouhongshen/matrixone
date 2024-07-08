@@ -30,9 +30,9 @@ import (
 
 func Test_X(t *testing.T) {
 	var (
-		accountId    = catalog.System_Account
-		tableId      = 9999
-		databaseId   = 9999
+		accountId = catalog.System_Account
+		tableId   = 9999
+		//databaseId   = 9999
 		tableName    = "test1"
 		databaseName = "db1"
 	)
@@ -53,16 +53,16 @@ func Test_X(t *testing.T) {
 	require.Nil(t, err)
 	defer disttaeEngine.Close(ctx)
 
-	resp := rpcAgent.CreateDatabase(ctx, "", "", accountId, 0, 0, uint64(databaseId), databaseName, mp)
+	txnOp, err := disttaeEngine.NewTxnOperator(ctx, timestamp.Timestamp{PhysicalTime: time.Now().UnixNano()})
+	require.Nil(t, err)
+
+	resp, _ := rpcAgent.CreateDatabase(ctx, databaseName, disttaeEngine.Engine, txnOp)
 	require.Nil(t, resp.TxnError)
 
-	resp = rpcAgent.CreateTable(ctx, "", accountId, 0, 0, tableName, uint64(tableId), uint64(databaseId), databaseName, mp)
+	//resp = rpcAgent.CreateTable(ctx, "", accountId, 0, 0, tableName, uint64(tableId), uint64(databaseId), databaseName, mp)
 
 	require.Nil(t, resp.TxnError)
 	time.Sleep(time.Second)
-
-	txnOp, err := disttaeEngine.NewTxnOperator(ctx, timestamp.Timestamp{PhysicalTime: time.Now().UnixNano()})
-	require.Nil(t, err)
 
 	dbName, tblName, _, err := disttaeEngine.Engine.GetRelationById(ctx, txnOp, uint64(tableId))
 	require.Nil(t, err)
@@ -75,14 +75,15 @@ func Test_X(t *testing.T) {
 func Test_Y(t *testing.T) {
 	var (
 		accountId    = catalog.System_Account
-		tableId      = 9999
-		databaseId   = 9999
+		tableId      uint64
+		databaseId   uint64
 		tableName    = "test1"
 		databaseName = "db1"
 	)
 
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, defines.TenantIDKey{}, accountId)
+	ctx = context.WithValue(ctx, defines.SqlKey{}, "create table test")
 
 	mp, err := mpool.NewMPool("test", 0, mpool.NoFixed)
 	require.Nil(t, err)
@@ -97,18 +98,40 @@ func Test_Y(t *testing.T) {
 	require.Nil(t, err)
 	defer disttaeEngine.Close(ctx)
 
-	resp := rpcAgent.CreateDatabase(ctx, "", "", accountId, 0, 0, uint64(databaseId), databaseName, mp)
+	txnOp, err := disttaeEngine.NewTxnOperator(ctx, disttaeEngine.Now())
+
+	resp, dbId := rpcAgent.CreateDatabase(ctx, databaseName, disttaeEngine.Engine, txnOp)
 	require.Nil(t, resp.TxnError)
+
+	databaseId = dbId
 
 	schema := catalog2.MockSchemaAll(3, 0)
 	bat := catalog2.MockBatch(schema, 10)
+	schema.Name = tableName
 
-	resp = rpcAgent.CreateTable(ctx, "", schema, uint64(tableId), uint64(databaseId), databaseName, mp)
+	txnOp.UpdateSnapshot(ctx, disttaeEngine.Now())
+
+	db, err := disttaeEngine.Engine.Database(ctx, databaseName, txnOp)
+	require.Nil(t, err)
+	require.NotNil(t, db)
+
+	fmt.Println("RRRRR")
+	resp, tableId = rpcAgent.CreateTable(ctx, db, schema, txnOp.SnapshotTS())
 	require.Nil(t, resp.TxnError)
+
+	fmt.Println("YYYY")
 
 	time.Sleep(time.Second)
 
-	txnOp, err := disttaeEngine.NewTxnOperator(ctx, timestamp.Timestamp{PhysicalTime: time.Now().UnixNano()})
+	entry, err := taeHandler.GetDB().Catalog.GetDatabaseByID(databaseId)
+	require.Nil(t, err)
+
+	tt, err := entry.GetTableEntryByID(tableId)
+	require.Nil(t, err)
+
+	fmt.Println(tt.GetFullName(), tt.GetLastestSchemaLocked(false).Attrs())
+
+	err = txnOp.UpdateSnapshot(ctx, disttaeEngine.Now())
 	require.Nil(t, err)
 
 	dbName, tblName, rel, err := disttaeEngine.Engine.GetRelationById(ctx, txnOp, uint64(tableId))
@@ -116,10 +139,16 @@ func Test_Y(t *testing.T) {
 	require.Equal(t, dbName, databaseName)
 	require.Equal(t, tblName, tableName)
 
-	rpcAgent.Insert(ctx, accountId, rel, databaseName, bat, mp)
+	fmt.Println(rel.GetTableName(), rel.GetTableID(ctx))
+	rpcAgent.Insert(ctx, accountId, rel, databaseName, bat, mp, txnOp.SnapshotTS())
 	require.Nil(t, resp.TxnError)
 
-	time.Sleep(time.Second * 10)
+	fmt.Println("XXXX")
+
+	time.Sleep(time.Second * 2)
+
+	err = disttaeEngine.Engine.PClient.TryToSubscribeTable(ctx, dbId, tableId)
+	require.Nil(t, err)
 
 	rows, err := disttaeEngine.CountStar(ctx, uint64(databaseId), uint64(tableId))
 	require.Nil(t, err)

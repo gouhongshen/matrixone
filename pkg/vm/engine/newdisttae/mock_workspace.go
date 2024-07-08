@@ -15,6 +15,9 @@
 package disttae
 
 import (
+	"context"
+	"github.com/matrixorigin/matrixone/pkg/txn/client"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine"
 	catalog2 "github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
 	"math"
 	"math/rand"
@@ -33,7 +36,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/pb/txn"
 )
 
-func cnCommitRequest(es []Entry, tn DNStore, snapshot timestamp.Timestamp) ([]*txn.TxnRequest, error) {
+func cnCommitRequest(es []Entry, tn DNStore, snapshot timestamp.Timestamp) (*txn.TxnRequest, error) {
 	var apiEntry []*api.Entry
 
 	for idx := range es {
@@ -58,7 +61,7 @@ func cnCommitRequest(es []Entry, tn DNStore, snapshot timestamp.Timestamp) ([]*t
 	txnMeta.ID = id[:]
 	txnMeta.SnapshotTS = snapshot
 
-	return []*txn.TxnRequest{&txn.TxnRequest{
+	return &txn.TxnRequest{
 		CNRequest: &txn.CNOpRequest{
 			OpCode:  uint32(api.OpCode_OpPreCommit),
 			Payload: payload,
@@ -78,10 +81,10 @@ func cnCommitRequest(es []Entry, tn DNStore, snapshot timestamp.Timestamp) ([]*t
 			},
 			RetryInterval: int64(time.Second),
 		},
-	}}, nil
+	}, nil
 }
 
-var mockRowIdAllocatorByTID = make(map[uint64][]uint32)
+var mockRowIdAllocatorByTID = make(map[uint64][6]uint32)
 
 func MockIncrBlockId(tableId uint64) {
 	mockRowIdAllocator := mockRowIdAllocatorByTID[tableId]
@@ -183,7 +186,8 @@ func MockInsertRowsCommitRequest(
 		truncate:     false,
 	}
 
-	return cnCommitRequest([]Entry{e}, e.tnStore, snapshot)
+	req, err := cnCommitRequest([]Entry{e}, e.tnStore, snapshot)
+	return []*txn.TxnRequest{req}, err
 }
 
 func MockInsertDataObjectsCommitRequest() {
@@ -198,13 +202,12 @@ func MockDeleteRowsCommitRequest() {
 
 }
 
-func MockGenCreateDatabaseCommitRequest(
-	datType, sql string, accountId, userId, roleId uint32,
-	databaseId uint64, databaseName string, m *mpool.MPool, snapshot timestamp.Timestamp) ([]*txn.TxnRequest, error) {
+func MockGenCreateDatabaseCommitRequest(ctx context.Context, e engine.Engine, op client.TxnOperator,
+	databaseName string) ([]*txn.TxnRequest, uint64, error) {
 
-	bat, err := mockGenCreateDatabaseTuple(sql, accountId, userId, roleId, databaseName, databaseId, datType, m)
+	err := e.Create(ctx, databaseName, op)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	tnStore := func() DNStore {
@@ -220,30 +223,81 @@ func MockGenCreateDatabaseCommitRequest(
 		}
 	}
 
-	e := Entry{
-		typ:          INSERT,
-		accountId:    accountId,
-		bat:          bat,
-		tableId:      catalog.MO_DATABASE_ID,
-		databaseId:   catalog.MO_CATALOG_ID,
-		tableName:    catalog.MO_DATABASE,
-		databaseName: catalog.MO_CATALOG,
-		tnStore:      tnStore(),
-		truncate:     false,
+	workspace := op.GetWorkspace().(*Transaction).writes
+
+	var reqs []*txn.TxnRequest
+	for idx := range workspace {
+		r, err := cnCommitRequest([]Entry{workspace[idx]}, tnStore(), op.SnapshotTS())
+		if err != nil {
+			return nil, 0, err
+		}
+		reqs = append(reqs, r)
 	}
 
-	return cnCommitRequest([]Entry{e}, e.tnStore, snapshot)
+	accountId, _, _, err := getAccessInfo(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	key := genDatabaseKey(accountId, databaseName)
+	val, ok := op.GetWorkspace().(*Transaction).databaseMap.Load(key)
+	if val == nil || !ok {
+		panic("txndatabase is nil")
+	}
+
+	op.GetWorkspace().(*Transaction).workspaceSize = 0
+	op.GetWorkspace().(*Transaction).writes = make([]Entry, 0)
+
+	return reqs, val.(*txnDatabase).databaseId, nil
 }
 
-func MockGenCreateTableCommitRequest(
-	sql string, schema *catalog2.Schema, tableId uint64, databaseId uint64, databaseName string,
-	m *mpool.MPool, snapshot timestamp.Timestamp) ([]*txn.TxnRequest, error) {
-	txnTbl := new(txnTable)
-	bat, err := mockGenCreateTableTuple(
-		new(txnTable), sql, schema.AcInfo.TenantID, schema.AcInfo.UserID, schema.AcInfo.UserID,
-		schema.Name, tableId, databaseId, databaseName, m)
+func MockGenCreateTableCommitRequest(ctx context.Context, schema *catalog2.Schema,
+	db engine.Database, snapshot timestamp.Timestamp) ([]*txn.TxnRequest, uint64, error) {
+
+	var defs []engine.TableDef
+	for idx := range schema.ColDefs {
+		if schema.ColDefs[idx].Name == catalog.Row_ID {
+			continue
+		}
+
+		defs = append(defs, &engine.AttributeDef{
+			Attr: engine.Attribute{
+				Type:          schema.ColDefs[idx].Type,
+				IsRowId:       schema.ColDefs[idx].Name == catalog.Row_ID,
+				Name:          schema.ColDefs[idx].Name,
+				ID:            uint64(schema.ColDefs[idx].Idx),
+				Primary:       schema.ColDefs[idx].IsPrimary(),
+				IsHidden:      schema.ColDefs[idx].IsHidden(),
+				Seqnum:        schema.ColDefs[idx].SeqNum,
+				ClusterBy:     schema.ColDefs[idx].ClusterBy,
+				AutoIncrement: schema.ColDefs[idx].AutoIncrement,
+			},
+		})
+
+	}
+
+	if schema.Constraint != nil {
+		var con engine.ConstraintDef
+		err := con.UnmarshalBinary(schema.Constraint)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		defs = append(defs, &con)
+	}
+
+	err := db.Create(ctx, schema.Name, defs)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+
+	accountId, _, _, err := getAccessInfo(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	key := genTableKey(accountId, schema.Name, db.(*txnDatabase).databaseId)
+	txnTbl, ok := db.(*txnDatabase).getTxn().createMap.Load(key)
+	if txnTbl == nil || !ok {
+		panic("txnTbl is nil")
 	}
 
 	tnStore := func() DNStore {
@@ -259,17 +313,22 @@ func MockGenCreateTableCommitRequest(
 		}
 	}
 
-	e := Entry{
-		typ:          INSERT,
-		accountId:    accountId,
-		bat:          bat,
-		tableId:      catalog.MO_TABLES_ID,
-		databaseId:   catalog.MO_CATALOG_ID,
-		tableName:    catalog.MO_TABLES,
-		databaseName: catalog.MO_CATALOG,
-		tnStore:      tnStore(),
-		truncate:     false,
+	workspace := db.(*txnDatabase).getTxn().writes
+
+	var reqs []*txn.TxnRequest
+	for idx := range workspace {
+		if workspace[idx].tableId == catalog.MO_COLUMNS_ID {
+			continue
+		}
+		r, err := cnCommitRequest([]Entry{workspace[idx]}, tnStore(), snapshot)
+		if err != nil {
+			return nil, 0, err
+		}
+		reqs = append(reqs, r)
 	}
 
-	return cnCommitRequest([]Entry{e}, e.tnStore, snapshot)
+	db.(*txnDatabase).getTxn().workspaceSize = 0
+	db.(*txnDatabase).getTxn().writes = make([]Entry, 0)
+
+	return reqs, txnTbl.(*txnTable).tableId, nil
 }

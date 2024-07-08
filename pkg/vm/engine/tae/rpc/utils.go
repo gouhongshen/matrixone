@@ -16,6 +16,7 @@ package rpc
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	pkgcatalog "github.com/matrixorigin/matrixone/pkg/catalog"
@@ -36,6 +37,11 @@ import (
 
 func DefsToSchema(name string, defs []engine.TableDef) (schema *catalog.Schema, err error) {
 	schema = catalog.NewEmptySchema(name)
+	defer func() {
+		if strings.Contains(name, "bmsql_item") || strings.Contains(name, "test") {
+			fmt.Println(name, schema.Attrs())
+		}
+	}()
 	schema.CatalogVersion = pkgcatalog.CatalogVersion_Curr
 	var pkeyColName string
 	for _, def := range defs {

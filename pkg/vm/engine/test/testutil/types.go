@@ -16,17 +16,19 @@ package testutil
 
 import (
 	"context"
-	"github.com/matrixorigin/matrixone/pkg/common/mpool"
+	"github.com/matrixorigin/matrixone/pkg/pb/timestamp"
 	"github.com/matrixorigin/matrixone/pkg/pb/txn"
+	"github.com/matrixorigin/matrixone/pkg/txn/client"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
 )
 
 type TxnOperation interface {
-	CreateDatabase(ctx context.Context, datType, sql string, accountId, userId,
-		roleId uint32, databaseId uint64, databaseName string, m *mpool.MPool) (response *txn.TxnResponse)
+	CreateDatabase(ctx context.Context, databaseName string, e engine.Engine,
+		op client.TxnOperator) (response *txn.TxnResponse, dbId uint64)
 
-	CreateTable(ctx context.Context, sql string, schema *catalog.Schema,
-		tableId uint64, databaseId uint64, databaseName string, m *mpool.MPool) (response *txn.TxnResponse)
+	CreateTable(ctx context.Context, db engine.Database,
+		schema *catalog.Schema, ts timestamp.Timestamp) (response *txn.TxnResponse, tblId uint64)
 
 	//AlterTable()
 	//DropTable()

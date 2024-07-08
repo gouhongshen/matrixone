@@ -16,6 +16,7 @@ package disttae
 
 import (
 	"context"
+	"fmt"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -391,6 +392,32 @@ func (db *txnDatabase) Create(ctx context.Context, name string, defs []engine.Ta
 	if err != nil {
 		return err
 	}
+
+	if strings.Contains(name, "bmsql_item") || strings.Contains(name, "test") {
+		for idx := range defs {
+			switch defVal := defs[idx].(type) {
+			case *engine.PropertiesDef:
+				for _, property := range defVal.Properties {
+					switch strings.ToLower(property.Key) {
+					case catalog.SystemRelAttr_Comment: // Watch priority over commentDef
+						fmt.Println(name, "SystemRelAttr_Comment", defVal)
+					case catalog.SystemRelAttr_Kind:
+						fmt.Println(name, "SystemRelAttr_Kind", defVal)
+					case catalog.SystemRelAttr_CreateSQL:
+						fmt.Println(name, "SystemRelAttr_CreateSQL", defVal)
+					default:
+					}
+				}
+			case *engine.ViewDef:
+				fmt.Println(name, "ViewDef", defVal.String())
+			case *engine.PartitionDef:
+				fmt.Println(name, "PartitionDef", defVal)
+			case *engine.ConstraintDef:
+				fmt.Println(name, "ConstraintDef", defVal.ToPBVersion())
+			}
+		}
+	}
+
 	tableId, err := db.getTxn().allocateID(ctx)
 	if err != nil {
 		return err

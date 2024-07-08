@@ -3,20 +3,19 @@ package testutil
 import (
 	"context"
 	"fmt"
-	"github.com/google/uuid"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/common/morpc"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
-	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/pb/timestamp"
 	"github.com/matrixorigin/matrixone/pkg/pb/txn"
+	"github.com/matrixorigin/matrixone/pkg/txn/client"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine"
 	newdisttae "github.com/matrixorigin/matrixone/pkg/vm/engine/newdisttae"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/containers"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logtail/service"
 	"sync"
-	"time"
+	"sync/atomic"
 )
 
 var _ TxnOperation = new(MockRPCAgent)
@@ -34,43 +33,41 @@ type MockRPCAgent struct {
 	sessions map[uint64]morpc.ClientSession
 }
 
-func (a *MockRPCAgent) Now() timestamp.Timestamp {
-	return timestamp.Timestamp{PhysicalTime: time.Now().UnixNano()}
-}
+//func (a *MockRPCAgent) Now() timestamp.Timestamp {
+//	return timestamp.Timestamp{PhysicalTime: time.Now().UnixNano()}
+//}
 
-func (a *MockRPCAgent) CreateDatabase(ctx context.Context, datType, sql string, accountId, userId,
-	roleId uint32, databaseId uint64, databaseName string, m *mpool.MPool) (response *txn.TxnResponse) {
+func (a *MockRPCAgent) CreateDatabase(ctx context.Context, databaseName string,
+	e engine.Engine, op client.TxnOperator) (response *txn.TxnResponse, dbId uint64) {
 
-	commitReq, err := newdisttae.MockGenCreateDatabaseCommitRequest(
-		datType, sql, accountId, userId, roleId, databaseId, databaseName, m, a.Now())
+	commitReq, dbId, err := newdisttae.MockGenCreateDatabaseCommitRequest(ctx, e, op, databaseName)
 	if err != nil {
-		return &txn.TxnResponse{TxnError: txn.WrapError(err, moerr.ErrTxnError)}
+		return &txn.TxnResponse{TxnError: txn.WrapError(err, moerr.ErrTxnError)}, 0
 	}
 
-	return a.writeAndCommitRequest(ctx, commitReq)
+	return a.writeAndCommitRequest(ctx, commitReq), dbId
 }
 
-func (a *MockRPCAgent) CreateTable(ctx context.Context, sql string, schema *catalog.Schema,
-	tableId uint64, databaseId uint64, databaseName string, m *mpool.MPool) (response *txn.TxnResponse) {
+func (a *MockRPCAgent) CreateTable(ctx context.Context, db engine.Database,
+	schema *catalog.Schema, ts timestamp.Timestamp) (response *txn.TxnResponse, tableId uint64) {
 
-	commitReq, err := newdisttae.MockGenCreateTableCommitRequest(
-		sql, schema, tableId, databaseId, databaseName, m, a.Now())
+	commitReq, tblId, err := newdisttae.MockGenCreateTableCommitRequest(ctx, schema, db, ts)
 
 	if err != nil {
-		return &txn.TxnResponse{TxnError: txn.WrapError(err, 0)}
+		return &txn.TxnResponse{TxnError: txn.WrapError(err, 0)}, 0
 	}
 
-	return a.writeAndCommitRequest(ctx, commitReq)
+	return a.writeAndCommitRequest(ctx, commitReq), tblId
 }
 
 func (a *MockRPCAgent) Insert(
 	ctx context.Context, accountId uint32, txnTable engine.Relation, databaseName string,
-	inBat *containers.Batch, m *mpool.MPool) (response *txn.TxnResponse) {
+	inBat *containers.Batch, m *mpool.MPool, ts timestamp.Timestamp) (response *txn.TxnResponse) {
 
 	bat := containers.ToCNBatch(inBat)
 
 	commitReq, err := newdisttae.MockInsertRowsCommitRequest(
-		accountId, txnTable.GetDBID(ctx), databaseName, txnTable.GetTableID(ctx), txnTable.GetTableName(), bat, m, a.Now())
+		accountId, txnTable.GetDBID(ctx), databaseName, txnTable.GetTableID(ctx), txnTable.GetTableName(), bat, m, ts)
 
 	if err != nil {
 		return &txn.TxnResponse{TxnError: txn.WrapError(err, 0)}
@@ -146,6 +143,7 @@ func (s *MockLogtailPRCServer) RegisterRequestHandler(
 type MockLogtailRPCClient struct {
 	responseReceiver chan morpc.Message
 	requestSender    chan morpc.Message
+	idAllocator      atomic.Uint64
 }
 
 func (c *MockLogtailRPCClient) Send(ctx context.Context, backend string, request morpc.Message) (*morpc.Future, error) {
@@ -157,8 +155,7 @@ func (c *MockLogtailRPCClient) NewStream(backend string, lock bool) (morpc.Strea
 	stream.receiver = c.responseReceiver
 	stream.sender = c.requestSender
 
-	uid := uuid.New()
-	stream.id = types.DecodeUint64(uid[:8]) * types.DecodeUint64(uid[8:])
+	stream.id = c.idAllocator.Add(1)
 
 	return stream, nil
 }
@@ -212,9 +209,15 @@ func (a *MockRPCAgent) writeAndCommitRequest(
 		}}
 
 	a.txnRequestChan <- reqs
-	resp := <-a.txnResponseChan
 
-	return &resp
+	for _ = range commitReq {
+		resp := <-a.txnResponseChan
+		if resp.TxnError != nil {
+			return &resp
+		}
+	}
+
+	return &txn.TxnResponse{}
 }
 
 func (a *MockRPCAgent) listenLogtailRequest() {

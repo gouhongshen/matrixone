@@ -24,6 +24,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
 	"github.com/matrixorigin/matrixone/pkg/lockservice"
 	"github.com/matrixorigin/matrixone/pkg/logservice"
+	"github.com/matrixorigin/matrixone/pkg/objectio"
 	"github.com/matrixorigin/matrixone/pkg/pb/lock"
 	logservice2 "github.com/matrixorigin/matrixone/pkg/pb/logservice"
 	"github.com/matrixorigin/matrixone/pkg/pb/metadata"
@@ -34,6 +35,7 @@ import (
 	newdisttae "github.com/matrixorigin/matrixone/pkg/vm/engine/newdisttae"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/newdisttae/logtailreplay"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -69,7 +71,7 @@ func NewTestDisttaeEngine(ctx context.Context, mp *mpool.MPool,
 
 	de.txnClient.Resume()
 
-	hakeeper := &testHAKeeperClient{}
+	hakeeper := newTestHAKeeperClient()
 	colexec.NewServer(hakeeper)
 
 	de.Engine = newdisttae.New(ctx, mp, fs, de.txnClient, hakeeper, nil, 0)
@@ -120,20 +122,23 @@ func (de *TestDisttaeEngine) NewTxnOperator(ctx context.Context,
 }
 
 func (de *TestDisttaeEngine) CountStar(ctx context.Context, databaseId, tableId uint64) (totalRows uint32, err error) {
+	ts := types.TimestampToTS(de.Now())
 	state := de.Engine.GetOrCreateLatestPart(databaseId, tableId).Snapshot()
 	newdisttae.ForeachSnapshotObjects(de.Now(), func(obj logtailreplay.ObjectInfo, isCommitted bool) error {
 		totalRows += obj.Rows()
+		newdisttae.ForeachBlkInObjStatsList(false, nil, func(blk objectio.BlockInfo, blkMeta objectio.BlockObject) bool {
+			iter := state.NewRowsIter(ts, &blk.BlockID, false)
+			for iter.Next() {
+				totalRows++
+			}
+
+			iter.Close()
+
+			return true
+		}, obj.ObjectStats)
+
 		return nil
 	}, state)
-
-	//iter, err := state.New(types.TimestampToTS(de.Now()))
-	//if err != nil {
-	//	return 0, err
-	//}
-	//
-	//for iter.Next() {
-	//	totalRows += iter.Entry().Rows()
-	//}
 
 	return totalRows, nil
 }
@@ -218,10 +223,19 @@ func (ml *mockLockService) CloseRemoteLockTable(group uint32, tableID uint64, ve
 var _ logservice.CNHAKeeperClient = new(testHAKeeperClient)
 
 type testHAKeeperClient struct {
+	id atomic.Uint64
 }
 
-func (ha *testHAKeeperClient) Close() error                                   { return nil }
-func (ha *testHAKeeperClient) AllocateID(ctx context.Context) (uint64, error) { return 0, nil }
+func newTestHAKeeperClient() *testHAKeeperClient {
+	ha := &testHAKeeperClient{}
+	ha.id.Store(0x3fff)
+	return ha
+}
+
+func (ha *testHAKeeperClient) Close() error { return nil }
+func (ha *testHAKeeperClient) AllocateID(ctx context.Context) (uint64, error) {
+	return ha.id.Add(1), nil
+}
 func (ha *testHAKeeperClient) AllocateIDByKey(ctx context.Context, key string) (uint64, error) {
 	return 0, nil
 }
