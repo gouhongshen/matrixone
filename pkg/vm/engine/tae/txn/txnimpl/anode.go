@@ -16,9 +16,6 @@ package txnimpl
 
 import (
 	"context"
-	"fmt"
-	catalog2 "github.com/matrixorigin/matrixone/pkg/catalog"
-
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/container/nulls"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
@@ -154,13 +151,6 @@ func (n *anode) FillPhyAddrColumn(startRow, length uint32) (err error) {
 		return
 	}
 	schema := n.table.GetLocalSchema(n.isTombstone)
-	if schema.PhyAddrKey == nil {
-		fmt.Println("schema nil", schema.Name, schema.NameMap)
-	}
-	if schema.Name == catalog2.MO_COLUMNS {
-		fmt.Println("gggg", catalog2.MO_COLUMNS)
-	}
-
 	err = n.data.Vecs[schema.PhyAddrKey.Idx].ExtendVec(col.GetDownstreamVector())
 	col.Close()
 	return

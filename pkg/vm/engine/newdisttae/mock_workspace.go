@@ -225,13 +225,9 @@ func MockGenCreateDatabaseCommitRequest(ctx context.Context, e engine.Engine, op
 
 	workspace := op.GetWorkspace().(*Transaction).writes
 
-	var reqs []*txn.TxnRequest
-	for idx := range workspace {
-		r, err := cnCommitRequest([]Entry{workspace[idx]}, tnStore(), op.SnapshotTS())
-		if err != nil {
-			return nil, 0, err
-		}
-		reqs = append(reqs, r)
+	req, err := cnCommitRequest(workspace, tnStore(), op.SnapshotTS())
+	if err != nil {
+		return nil, 0, err
 	}
 
 	accountId, _, _, err := getAccessInfo(ctx)
@@ -247,7 +243,7 @@ func MockGenCreateDatabaseCommitRequest(ctx context.Context, e engine.Engine, op
 	op.GetWorkspace().(*Transaction).workspaceSize = 0
 	op.GetWorkspace().(*Transaction).writes = make([]Entry, 0)
 
-	return reqs, val.(*txnDatabase).databaseId, nil
+	return []*txn.TxnRequest{req}, val.(*txnDatabase).databaseId, nil
 }
 
 func MockGenCreateTableCommitRequest(ctx context.Context, schema *catalog2.Schema,
@@ -315,20 +311,13 @@ func MockGenCreateTableCommitRequest(ctx context.Context, schema *catalog2.Schem
 
 	workspace := db.(*txnDatabase).getTxn().writes
 
-	var reqs []*txn.TxnRequest
-	for idx := range workspace {
-		if workspace[idx].tableId == catalog.MO_COLUMNS_ID {
-			continue
-		}
-		r, err := cnCommitRequest([]Entry{workspace[idx]}, tnStore(), snapshot)
-		if err != nil {
-			return nil, 0, err
-		}
-		reqs = append(reqs, r)
+	req, err := cnCommitRequest(workspace, tnStore(), snapshot)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	db.(*txnDatabase).getTxn().workspaceSize = 0
 	db.(*txnDatabase).getTxn().writes = make([]Entry, 0)
 
-	return reqs, txnTbl.(*txnTable).tableId, nil
+	return []*txn.TxnRequest{req}, txnTbl.(*txnTable).tableId, nil
 }

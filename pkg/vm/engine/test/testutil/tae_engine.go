@@ -139,7 +139,6 @@ func (ts *TestTxnStorage) txnRequestListener(
 			}
 
 			for idx := range reqs.CommitRequest.Payload {
-				fmt.Println("received txn request: ", idx, len(reqs.CommitRequest.Payload), reqs.CommitRequest.Payload[idx].CNRequest)
 				response := new(txn.TxnResponse)
 				req := reqs.CommitRequest.Payload[idx]
 

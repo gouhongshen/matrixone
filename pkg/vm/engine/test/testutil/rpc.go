@@ -193,7 +193,7 @@ func (s *MockRPCClientStream) Receive() (chan morpc.Message, error) {
 }
 
 func (s *MockRPCClientStream) Close(closeConn bool) error {
-	close(s.receiver)
+	//close(s.receiver)
 	return nil
 }
 

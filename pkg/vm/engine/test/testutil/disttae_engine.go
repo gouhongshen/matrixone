@@ -24,7 +24,6 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
 	"github.com/matrixorigin/matrixone/pkg/lockservice"
 	"github.com/matrixorigin/matrixone/pkg/logservice"
-	"github.com/matrixorigin/matrixone/pkg/objectio"
 	"github.com/matrixorigin/matrixone/pkg/pb/lock"
 	logservice2 "github.com/matrixorigin/matrixone/pkg/pb/logservice"
 	"github.com/matrixorigin/matrixone/pkg/pb/metadata"
@@ -126,19 +125,15 @@ func (de *TestDisttaeEngine) CountStar(ctx context.Context, databaseId, tableId 
 	state := de.Engine.GetOrCreateLatestPart(databaseId, tableId).Snapshot()
 	newdisttae.ForeachSnapshotObjects(de.Now(), func(obj logtailreplay.ObjectInfo, isCommitted bool) error {
 		totalRows += obj.Rows()
-		newdisttae.ForeachBlkInObjStatsList(false, nil, func(blk objectio.BlockInfo, blkMeta objectio.BlockObject) bool {
-			iter := state.NewRowsIter(ts, &blk.BlockID, false)
-			for iter.Next() {
-				totalRows++
-			}
-
-			iter.Close()
-
-			return true
-		}, obj.ObjectStats)
-
 		return nil
 	}, state)
+
+	iter := state.NewRowsIter(ts, nil, false)
+	for iter.Next() {
+		totalRows++
+	}
+
+	iter.Close()
 
 	return totalRows, nil
 }
