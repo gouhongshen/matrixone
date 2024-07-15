@@ -31,7 +31,7 @@ import (
 type Partition struct {
 	//lock is used to protect pointer of PartitionState from concurrent mutation
 	lock  chan struct{}
-	state atomic.Pointer[PartitionState]
+	state atomic.Pointer[PartitionStateInProgress]
 
 	// assuming checkpoints will be consumed once
 	checkpointConsumed atomic.Bool
@@ -66,7 +66,7 @@ func NewPartition() *Partition {
 		lock: lock,
 	}
 	ret.mu.start = types.MaxTs()
-	ret.state.Store(NewPartitionState(false))
+	ret.state.Store(NewPartitionStateInProgress(false))
 	return ret
 }
 
@@ -76,7 +76,7 @@ func (r RowID) Less(than RowID) bool {
 	return bytes.Compare(r[:], than[:]) < 0
 }
 
-func (p *Partition) Snapshot() *PartitionState {
+func (p *Partition) Snapshot() *PartitionStateInProgress {
 	return p.state.Load()
 }
 
@@ -84,7 +84,7 @@ func (*Partition) CheckPoint(ctx context.Context, ts timestamp.Timestamp) error 
 	panic("unimplemented")
 }
 
-func (p *Partition) MutateState() (*PartitionState, func()) {
+func (p *Partition) MutateState() (*PartitionStateInProgress, func()) {
 	curState := p.state.Load()
 	state := curState.Copy()
 	return state, func() {
@@ -146,7 +146,7 @@ func (p *Partition) ConsumeSnapCkps(
 	ckps []*checkpoint.CheckpointEntry,
 	fn func(
 		ckp *checkpoint.CheckpointEntry,
-		state *PartitionState,
+		state *PartitionStateInProgress,
 	) error,
 ) (
 	err error,
@@ -193,7 +193,7 @@ func (p *Partition) ConsumeCheckpoints(
 	ctx context.Context,
 	fn func(
 		checkpoint string,
-		state *PartitionState,
+		state *PartitionStateInProgress,
 	) error,
 ) (
 	err error,

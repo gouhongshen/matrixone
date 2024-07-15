@@ -113,14 +113,14 @@ func Test_Append(t *testing.T) {
 		txn, _ := taeEngine.GetDB().StartTxn(nil)
 		database, _ = txn.GetDatabase(databaseName)
 		rel, _ = database.GetRelationByName(schema.Name)
-		_, err = rel.CreateObject()
+		_, err = rel.CreateObject(false)
 		assert.Nil(t, err)
 	}
 	{
 		txn, _ := taeEngine.GetDB().StartTxn(nil)
 		database, _ = txn.GetDatabase(databaseName)
 		rel, _ = database.GetRelationByName(schema.Name)
-		objIt := rel.MakeObjectIt()
+		objIt := rel.MakeObjectIt(false)
 		objCnt := uint32(0)
 		blkCnt := uint32(0)
 		for objIt.Next() {
@@ -286,5 +286,8 @@ func Test_Bug_CheckpointInsertObjectOverwrittenMergeDeletedObject(t *testing.T) 
 		require.Equal(t, 1, stats.DataObjectsVisible.ObjCnt)
 		require.Equal(t, rowsCnt, stats.DataObjectsVisible.RowCnt)
 	}
+}
+
+func Test_ReadTombstone(t *testing.T) {
 
 }

@@ -55,7 +55,7 @@ type updateStatsRequest struct {
 	// partitionsTableDef is the partitions table definition.
 	partitionsTableDef []*plan2.TableDef
 
-	partitionState  *logtailreplay.PartitionState
+	partitionState  *logtailreplay.PartitionStateInProgress
 	fs              fileservice.FileService
 	ts              types.TS
 	approxObjectNum int64
@@ -64,7 +64,7 @@ type updateStatsRequest struct {
 func newUpdateStatsRequest(
 	tableDef *plan2.TableDef,
 	partitionsTableDef []*plan2.TableDef,
-	partitionState *logtailreplay.PartitionState,
+	partitionState *logtailreplay.PartitionStateInProgress,
 	fs fileservice.FileService,
 	ts types.TS,
 	approxObjectNum int64,
