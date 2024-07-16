@@ -16,6 +16,7 @@ package logtailreplay
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/sql/plan/function"
@@ -44,7 +45,7 @@ type rowsIter struct {
 func (p *PartitionState) NewRowsIter(ts types.TS, blockID *types.Blockid, iterDeleted bool) *rowsIter {
 	insIter := p.inmemInserts.Copy().Iter()
 	delIter := p.inmemDeletes.Copy().Iter()
-
+	fmt.Println(p.inmemInserts.Len(), p.inmemDeletes.Len())
 	ret := &rowsIter{
 		ts:          ts,
 		insIter:     insIter,
@@ -62,7 +63,12 @@ func (p *PartitionState) NewRowsIter(ts types.TS, blockID *types.Blockid, iterDe
 var _ RowsIter = new(rowsIter)
 
 func (p *rowsIter) Next() bool {
+	defer func() {
+		fmt.Println("S3")
+	}()
+
 	for p.insIter.Next() {
+		fmt.Println("S1")
 		inserted := p.insIter.Item()
 		if p.checkBlockID && p.blockID.Compare(inserted.BlockID) != 0 {
 			continue
@@ -75,7 +81,7 @@ func (p *rowsIter) Next() bool {
 		alreadyDeleted := false
 
 		pivot := PrimaryIndexEntry{Bytes: inserted.Bytes}
-		for ; p.delIter.Seek(pivot); p.delIter.Next() {
+		for p.delIter.Seek(pivot); p.delIter.Next(); {
 			deleted := p.delIter.Item()
 
 			if !bytes.Equal(deleted.Bytes, inserted.Bytes) {
@@ -481,7 +487,7 @@ func (p *primaryKeyIter) Next() bool {
 		alreadyDeleted := false
 		pivot := PrimaryIndexEntry{Bytes: insItem.Bytes}
 
-		for ; p.delIter.Seek(pivot); p.delIter.Next() {
+		for p.delIter.Seek(pivot); p.delIter.Next(); {
 			delItem := p.delIter.Item()
 			if !bytes.Equal(delItem.Bytes, insItem.Bytes) {
 				break
@@ -606,7 +612,8 @@ func (p *primaryKeyDelIter) Next() bool {
 		alreadyDeleted := false
 		pivot := PrimaryIndexEntry{Bytes: insItem.Bytes, BlockID: insItem.BlockID}
 
-		for ; p.delIter.Seek(pivot); p.delIter.Next() {
+		for p.delIter.Seek(pivot); p.delIter.Next(); {
+
 			delItem := p.delIter.Item()
 			if !bytes.Equal(delItem.Bytes, insItem.Bytes) {
 				break

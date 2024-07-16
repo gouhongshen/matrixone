@@ -967,16 +967,16 @@ func (tbl *txnTable) collectDirtyBlocks(
 ) map[types.Blockid]struct{} {
 	dirtyBlks := make(map[types.Blockid]struct{})
 	//collect partitionState.dirtyBlocks which may be invisible to this txn into dirtyBlks.
-	{
-		iter := state.NewDirtyBlocksIter()
-		for iter.Next() {
-			entry := iter.Entry()
-			//lazy load deletes for block.
-			dirtyBlks[entry] = struct{}{}
-		}
-		iter.Close()
-
-	}
+	//{
+	//	iter := state.NewDirtyBlocksIter()
+	//	for iter.Next() {
+	//		entry := iter.Entry()
+	//		//lazy load deletes for block.
+	//		dirtyBlks[entry] = struct{}{}
+	//	}
+	//	iter.Close()
+	//
+	//}
 
 	//only collect dirty blocks in PartitionState.blocks into dirtyBlks.
 	for _, bid := range tbl.GetDirtyPersistedBlks(state) {

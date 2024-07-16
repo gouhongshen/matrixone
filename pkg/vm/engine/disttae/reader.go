@@ -537,9 +537,9 @@ func (r *blockMergeReader) loadDeletes(ctx context.Context, cols []string) error
 	if iter != nil {
 		for iter.Next() {
 			entry := iter.Entry()
-			if !entry.Deleted {
-				continue
-			}
+			//if !entry.Deleted {
+			//	continue
+			//}
 			_, offset := entry.RowID.Decode()
 			r.buffer = append(r.buffer, int64(offset))
 		}

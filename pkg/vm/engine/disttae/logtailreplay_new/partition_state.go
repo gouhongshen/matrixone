@@ -152,11 +152,13 @@ func (b BlockDeltaEntry) DeltaLocation() objectio.Location {
 type ObjectInfo struct {
 	objectio.ObjectStats
 
-	EntryState bool
-	Sorted     bool
-	CommitTS   types.TS
-	CreateTime types.TS
-	DeleteTime types.TS
+	// TODO(ghs) Remove
+	HasDeltaLoc bool
+	EntryState  bool
+	Sorted      bool
+	CommitTS    types.TS
+	CreateTime  types.TS
+	DeleteTime  types.TS
 }
 
 func (o ObjectInfo) String() string {
@@ -321,6 +323,49 @@ func (p *PartitionState) Checkpoints() []string {
 }
 
 func (p *PartitionState) RowExists(rowID types.Rowid, ts types.TS) bool {
+	insIter := p.inmemInserts.Copy().Iter()
+	delIter := p.inmemDeletes.Copy().Iter()
+
+	defer func() {
+		insIter.Release()
+		delIter.Release()
+	}()
+
+	for insIter.Next() {
+		insItem := insIter.Item()
+		if !insItem.RowID.Equal(rowID) {
+			continue
+		}
+
+		if insItem.Time.GreaterEq(&ts) {
+			continue
+		}
+
+		alreadyDeleted := false
+
+		pivot := PrimaryIndexEntry{Bytes: insItem.Bytes}
+		for delIter.Seek(pivot); delIter.Next(); {
+			delItem := insIter.Item()
+			if !bytes.Equal(delItem.Bytes, pivot.Bytes) {
+				break
+			}
+
+			if delItem.Time.Less(&insItem.Time) {
+				continue
+			}
+
+			if delItem.Time.GreaterEq(&ts) {
+				continue
+			}
+
+			alreadyDeleted = true
+		}
+
+		return !alreadyDeleted
+	}
+
+	return false
+
 	//iter := p.rows.Iter()
 	//defer iter.Release()
 	//
@@ -348,7 +393,7 @@ func (p *PartitionState) RowExists(rowID types.Rowid, ts types.TS) bool {
 	//	return true
 	//}
 
-	return false
+	//return false
 }
 
 func (p *PartitionState) HandleLogtailEntry(
@@ -685,8 +730,10 @@ func (p *PartitionState) gcInmemDeletes() {
 
 	iter = p.inmemDeletes.Copy().Iter()
 	for iter.Next() {
+
 		entry = iter.Item()
 		objectio.SetObjectStatsObjectName(&stats, objectio.BuildObjectName(entry.BlockID.Segment(), 0))
+
 		object, ok = p.tombstoneObjets.Get(ObjectEntry{ObjectInfo{ObjectStats: stats}})
 		if ok && !object.DeleteTime.IsEmpty() {
 			p.inmemDeletes.Delete(entry)
