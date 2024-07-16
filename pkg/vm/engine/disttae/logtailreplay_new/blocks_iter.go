@@ -17,30 +17,31 @@ package logtailreplay
 import (
 	"bytes"
 	"fmt"
-	"github.com/tidwall/btree"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
+	"github.com/tidwall/btree"
 )
 
-//type ObjectsIter interface {
-//	Next() bool
-//	Close() error
-//	Entry() ObjectEntry
-//}
-//
-//type objectsIter struct {
-//	ts   types.TS
-//	iter btree.IterG[ObjectEntry]
-//}
+type ObjectsIter interface {
+	Next() bool
+	Close() error
+	Entry() ObjectEntry
+}
+
+type objectsIter struct {
+	onlyVisible bool
+	ts          types.TS
+	iter        btree.IterG[ObjectEntry]
+}
 
 // not accurate!  only used by stats
-func (p *PartitionStateInProgress) ApproxObjectsNum() int {
+func (p *PartitionState) ApproxObjectsNum() int {
 	return p.dataObjects.Len()
 }
 
-func (p *PartitionStateInProgress) NewObjectsIter(ts types.TS, onlyVisible bool) (ObjectsIter, error) {
+func (p *PartitionState) NewObjectsIter(ts types.TS, onlyVisible bool) (ObjectsIter, error) {
 	if ts.Less(&p.minTS) {
 		msg := fmt.Sprintf("(%s<%s)", ts.ToString(), p.minTS.ToString())
 		return nil, moerr.NewTxnStaleNoCtx(msg)
@@ -54,43 +55,43 @@ func (p *PartitionStateInProgress) NewObjectsIter(ts types.TS, onlyVisible bool)
 	return ret, nil
 }
 
-//var _ ObjectsIter = new(objectsIter)
-//
-//func (b *objectsIter) Next() bool {
-//	for b.iter.Next() {
-//		entry := b.iter.Item()
-//		if !entry.Visible(b.ts) {
-//			// not visible
-//			continue
-//		}
-//		return true
-//	}
-//	return false
-//}
-//
-//func (b *objectsIter) Entry() ObjectEntry {
-//	return ObjectEntry{
-//		ObjectInfo: b.iter.Item().ObjectInfo,
-//	}
-//}
-//
-//func (b *objectsIter) Close() error {
-//	b.iter.Release()
-//	return nil
-//}
-//
-//type BlocksIter interface {
-//	Next() bool
-//	Close() error
-//	Entry() types.Blockid
-//}
-//
-//type dirtyBlocksIter struct {
-//	iter        btree.IterG[types.Blockid]
-//	firstCalled bool
-//}
+var _ ObjectsIter = new(objectsIter)
 
-func (p *PartitionStateInProgress) NewDirtyBlocksIter() BlocksIter {
+func (b *objectsIter) Next() bool {
+	for b.iter.Next() {
+		entry := b.iter.Item()
+		if b.onlyVisible && !entry.Visible(b.ts) {
+			// not visible
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func (b *objectsIter) Entry() ObjectEntry {
+	return ObjectEntry{
+		ObjectInfo: b.iter.Item().ObjectInfo,
+	}
+}
+
+func (b *objectsIter) Close() error {
+	b.iter.Release()
+	return nil
+}
+
+type BlocksIter interface {
+	Next() bool
+	Close() error
+	Entry() types.Blockid
+}
+
+type dirtyBlocksIter struct {
+	iter        btree.IterG[types.Blockid]
+	firstCalled bool
+}
+
+func (p *PartitionState) NewDirtyBlocksIter() BlocksIter {
 	//iter := p.dirtyBlocks.Copy().Iter()
 	ret := &dirtyBlocksIter{
 		iter: btree.IterG[types.Blockid]{},
@@ -98,9 +99,31 @@ func (p *PartitionStateInProgress) NewDirtyBlocksIter() BlocksIter {
 	return ret
 }
 
+var _ BlocksIter = new(dirtyBlocksIter)
+
+func (b *dirtyBlocksIter) Next() bool {
+	if !b.firstCalled {
+		if !b.iter.First() {
+			return false
+		}
+		b.firstCalled = true
+		return true
+	}
+	return b.iter.Next()
+}
+
+func (b *dirtyBlocksIter) Entry() types.Blockid {
+	return b.iter.Item()
+}
+
+func (b *dirtyBlocksIter) Close() error {
+	b.iter.Release()
+	return nil
+}
+
 // GetChangedObjsBetween get changed objects between [begin, end],
 // notice that if an object is created after begin and deleted before end, it will be ignored.
-func (p *PartitionStateInProgress) GetChangedObjsBetween(
+func (p *PartitionState) GetChangedObjsBetween(
 	begin types.TS,
 	end types.TS,
 ) (
@@ -137,7 +160,7 @@ func (p *PartitionStateInProgress) GetChangedObjsBetween(
 	return
 }
 
-func (p *PartitionStateInProgress) GetBockDeltaLoc(bid types.Blockid) (objectio.ObjectLocation, types.TS, bool) {
+func (p *PartitionState) GetBockDeltaLoc(bid types.Blockid) (objectio.ObjectLocation, types.TS, bool) {
 	//iter := p.blockDeltas.Copy().Iter()
 	//defer iter.Release()
 	//
@@ -150,12 +173,10 @@ func (p *PartitionStateInProgress) GetBockDeltaLoc(bid types.Blockid) (objectio.
 	//		return e.DeltaLoc, e.CommitTs, true
 	//	}
 	//}
-	//return objectio.ObjectLocation{}, types.TS{}, false
-
 	return objectio.ObjectLocation{}, types.TS{}, false
 }
 
-func (p *PartitionStateInProgress) BlockPersisted(blockID types.Blockid) bool {
+func (p *PartitionState) BlockPersisted(blockID types.Blockid) bool {
 	iter := p.dataObjects.Copy().Iter()
 	defer iter.Release()
 
@@ -170,7 +191,7 @@ func (p *PartitionStateInProgress) BlockPersisted(blockID types.Blockid) bool {
 	return false
 }
 
-func (p *PartitionStateInProgress) GetObject(name objectio.ObjectNameShort) (ObjectInfo, bool) {
+func (p *PartitionState) GetObject(name objectio.ObjectNameShort) (ObjectInfo, bool) {
 	iter := p.dataObjects.Copy().Iter()
 	defer iter.Release()
 

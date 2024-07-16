@@ -29,7 +29,7 @@ import (
 	plan2 "github.com/matrixorigin/matrixone/pkg/sql/plan"
 	"github.com/matrixorigin/matrixone/pkg/util"
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay_new"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/index"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/options"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
@@ -987,7 +987,7 @@ func TryFastFilterBlocks(
 	snapshotTS timestamp.Timestamp,
 	tableDef *plan.TableDef,
 	exprs []*plan.Expr,
-	snapshot *logtailreplay.PartitionStateInProgress,
+	snapshot *logtailreplay.PartitionState,
 	uncommittedObjects []objectio.ObjectStats,
 	dirtyBlocks *map[types.Blockid]struct{},
 	outBlocks *objectio.BlockInfoSlice,
@@ -1030,7 +1030,7 @@ func ExecuteBlockFilter(
 	objectFilterOp ObjectFilterOp,
 	blockFilterOp BlockFilterOp,
 	seekOp SeekFirstBlockOp,
-	snapshot *logtailreplay.PartitionStateInProgress,
+	snapshot *logtailreplay.PartitionState,
 	uncommittedObjects []objectio.ObjectStats,
 	dirtyBlocks *map[types.Blockid]struct{},
 	outBlocks *objectio.BlockInfoSlice,

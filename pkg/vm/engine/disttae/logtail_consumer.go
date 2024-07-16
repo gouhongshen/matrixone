@@ -37,7 +37,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/txn/client"
 	"github.com/matrixorigin/matrixone/pkg/util/address"
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay_new"
 	taeLogtail "github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logtail"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logtail/service"
 )
@@ -276,7 +276,7 @@ func (c *PushClient) validLogTailMustApplied(snapshotTS timestamp.Timestamp) {
 
 func (c *PushClient) toSubscribeTable(
 	ctx context.Context,
-	tbl *txnTable) (ps *logtailreplay.PartitionStateInProgress, err error) {
+	tbl *txnTable) (ps *logtailreplay.PartitionState, err error) {
 
 	tableId := tbl.tableId
 	/*
@@ -867,7 +867,7 @@ type SubTableStatus struct {
 	LatestTime time.Time
 }
 
-func (c *PushClient) isSubscribed(dbId, oldId, newId uint64) (*logtailreplay.PartitionStateInProgress, bool) {
+func (c *PushClient) isSubscribed(dbId, oldId, newId uint64) (*logtailreplay.PartitionState, bool) {
 	s := &c.subscribed
 	var subId uint64
 	subId = newId
@@ -930,7 +930,7 @@ func (s *subscribedTable) isSubscribed(dbId, tblId uint64) bool {
 func (c *PushClient) loadAndConsumeLatestCkp(
 	ctx context.Context,
 	tableId uint64,
-	tbl *txnTable) (SubscribeState, *logtailreplay.PartitionStateInProgress, error) {
+	tbl *txnTable) (SubscribeState, *logtailreplay.PartitionState, error) {
 
 	//part, err := c.eng.lazyLoadLatestCkp(ctx, tbl)
 	//if err != nil {
@@ -1774,7 +1774,7 @@ func consumeLogTail(
 	ctx context.Context,
 	primarySeqnum int,
 	engine *Engine,
-	state *logtailreplay.PartitionStateInProgress,
+	state *logtailreplay.PartitionState,
 	lt *logtail.TableLogtail,
 ) error {
 	return hackConsumeLogtail(ctx, primarySeqnum, engine, state, lt)
@@ -1802,7 +1802,7 @@ func consumeCkpsAndLogTail(
 	ctx context.Context,
 	primarySeqnum int,
 	engine *Engine,
-	state *logtailreplay.PartitionStateInProgress,
+	state *logtailreplay.PartitionState,
 	lt *logtail.TableLogtail,
 	databaseId uint64,
 	tableId uint64,
@@ -1835,7 +1835,7 @@ func hackConsumeLogtail(
 	ctx context.Context,
 	primarySeqnum int,
 	engine *Engine,
-	state *logtailreplay.PartitionStateInProgress,
+	state *logtailreplay.PartitionState,
 	lt *logtail.TableLogtail) error {
 
 	var packer *types.Packer

@@ -37,7 +37,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/sql/plan/rule"
 	"github.com/matrixorigin/matrixone/pkg/txn/client"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/cache"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay_new"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/blockio"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/options"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
@@ -662,7 +662,7 @@ func mergeFilters(left, right basePKFilter, connector int, proc *process.Process
 func tryConstructPrimaryKeyIndexIter(
 	ts timestamp.Timestamp,
 	pkFilter memPKFilter,
-	state *logtailreplay.PartitionStateInProgress,
+	state *logtailreplay.PartitionState,
 ) (iter logtailreplay.RowsIter, delIterFactory func(blkId types.Blockid) logtailreplay.RowsIter) {
 	if !pkFilter.isValid {
 		return
@@ -1516,7 +1516,7 @@ func (i *StatsBlkIter) Entry() objectio.BlockInfo {
 func ForeachCommittedObjects(
 	createObjs map[objectio.ObjectNameShort]struct{},
 	delObjs map[objectio.ObjectNameShort]struct{},
-	p *logtailreplay.PartitionStateInProgress,
+	p *logtailreplay.PartitionState,
 	onObj func(info logtailreplay.ObjectInfo) error) (err error) {
 	for obj := range createObjs {
 		if objInfo, ok := p.GetObject(obj); ok {
@@ -1539,7 +1539,7 @@ func ForeachCommittedObjects(
 func ForeachSnapshotObjects(
 	ts timestamp.Timestamp,
 	onObject func(obj logtailreplay.ObjectInfo, isCommitted bool) error,
-	tableSnapshot *logtailreplay.PartitionStateInProgress,
+	tableSnapshot *logtailreplay.PartitionState,
 	uncommitted ...objectio.ObjectStats,
 ) (err error) {
 	// process all uncommitted objects first

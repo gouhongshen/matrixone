@@ -25,7 +25,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/pb/api"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay_new"
 )
 
 func consumeEntry(
@@ -33,7 +33,7 @@ func consumeEntry(
 	primarySeqnum int,
 	engine *Engine,
 	cache *cache.CatalogCache,
-	state *logtailreplay.PartitionStateInProgress,
+	state *logtailreplay.PartitionState,
 	e *api.Entry,
 ) error {
 	start := time.Now()
@@ -51,7 +51,7 @@ func consumeEntry(
 		v2.LogtailUpdatePartitonConsumeLogtailOneEntryLogtailReplayDurationHistogram.Observe(time.Since(t0).Seconds())
 	}
 
-	if logtailreplay.IsMetaTable(e.TableName) {
+	if logtailreplay.IsMetaEntry(e.TableName) {
 		return nil
 	}
 

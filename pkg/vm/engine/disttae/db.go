@@ -28,7 +28,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/pb/timestamp"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/cache"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay_new"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/db/checkpoint"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logtail"
 )
@@ -394,7 +394,7 @@ func (e *Engine) getOrCreateSnapCatalogCache(
 func (e *Engine) getOrCreateSnapPart(
 	ctx context.Context,
 	tbl *txnTable,
-	ts types.TS) (*logtailreplay.PartitionStateInProgress, error) {
+	ts types.TS) (*logtailreplay.PartitionState, error) {
 
 	//check whether the latest partition is available for reuse.
 	// if the snapshot-read's ts is too old , subscribing table maybe timeout.
@@ -434,7 +434,7 @@ func (e *Engine) getOrCreateSnapPart(
 	}
 	snap.ConsumeSnapCkps(ctx, ckps, func(
 		checkpoint *checkpoint.CheckpointEntry,
-		state *logtailreplay.PartitionStateInProgress) error {
+		state *logtailreplay.PartitionState) error {
 		locs := make([]string, 0)
 		locs = append(locs, checkpoint.GetLocation().String())
 		locs = append(locs, strconv.Itoa(int(checkpoint.GetVersion())))
@@ -526,7 +526,7 @@ func (e *Engine) LazyLoadLatestCkp(
 
 	if err := part.ConsumeCheckpoints(
 		ctx,
-		func(checkpoint string, state *logtailreplay.PartitionStateInProgress) error {
+		func(checkpoint string, state *logtailreplay.PartitionState) error {
 			entries, closeCBs, err := logtail.LoadCheckpointEntries(
 				ctx,
 				checkpoint,

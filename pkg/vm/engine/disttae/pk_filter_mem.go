@@ -24,7 +24,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/pb/plan"
 	"github.com/matrixorigin/matrixone/pkg/pb/timestamp"
 	"github.com/matrixorigin/matrixone/pkg/sql/plan/function"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay_new"
 )
 
 type memPKFilter struct {
@@ -39,7 +39,7 @@ type memPKFilter struct {
 func newMemPKFilter(
 	tableDef *plan.TableDef,
 	ts timestamp.Timestamp,
-	state *logtailreplay.PartitionStateInProgress,
+	state *logtailreplay.PartitionState,
 	packerPool *fileservice.Pool[*types.Packer],
 	basePKFilter basePKFilter,
 ) (filter memPKFilter) {
