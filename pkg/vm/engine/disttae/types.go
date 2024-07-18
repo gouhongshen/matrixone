@@ -817,7 +817,7 @@ type blockMergeReader struct {
 	deletaLocs map[string][]objectio.Location
 }
 
-type readerInProgress struct {
+type ReaderInProgress struct {
 	withFilterMixin
 
 	source    DataSource

@@ -1235,6 +1235,8 @@ func (txn *Transaction) CloneSnapshotWS() client.Workspace {
 		engine:   txn.engine,
 		tnStores: txn.tnStores,
 
+		idGen: txn.idGen,
+
 		tableCache: struct {
 			cachedIndex int
 			tableMap    *sync.Map

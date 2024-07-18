@@ -2010,6 +2010,23 @@ func (tbl *txnTable) GetDBID(ctx context.Context) uint64 {
 	return tbl.db.databaseId
 }
 
+// for ut
+func BuildLocalDataSource(
+	ctx context.Context, rel engine.Relation,
+	ranges []*objectio.BlockInfoInProgress) (source DataSource, err error) {
+
+	var (
+		ok  bool
+		tbl *txnTable
+	)
+
+	if tbl, ok = rel.(*txnTable); !ok {
+		tbl = rel.(*txnTableDelegate).origin
+	}
+
+	return tbl.BuildLocalDataSource(ctx, ranges)
+}
+
 func (tbl *txnTable) BuildLocalDataSource(
 	ctx context.Context,
 	ranges []*objectio.BlockInfoInProgress) (source DataSource, err error) {

@@ -689,7 +689,7 @@ func (r *mergeReader) Read(
 
 // -----------------------------------------------------------------
 
-func newReaderInProgress(
+func NewReaderInProgress(
 	ctx context.Context,
 	proc *process.Process, //it comes from transaction if reader run in local,otherwise it comes from remote compile.
 	fs fileservice.FileService, //it comes from engine.fs.
@@ -701,7 +701,7 @@ func newReaderInProgress(
 	orderedScan bool, // it's valid when reader runs on local.
 	txnOffset int, // it can be removed. it's different between normal reader and snapshot reader.
 	source DataSource,
-) *readerInProgress {
+) *ReaderInProgress {
 
 	baseFilter := newBasePKFilter(
 		expr,
@@ -721,7 +721,7 @@ func newReaderInProgress(
 		baseFilter,
 	)
 
-	r := &readerInProgress{
+	r := &ReaderInProgress{
 		withFilterMixin: withFilterMixin{
 			ctx:      ctx,
 			fs:       fs,
@@ -739,19 +739,19 @@ func newReaderInProgress(
 	return r
 }
 
-func (r *readerInProgress) Close() error {
+func (r *ReaderInProgress) Close() error {
 	return nil
 }
 
-func (r *readerInProgress) SetOrderBy(orderby []*plan.OrderBySpec) {
+func (r *ReaderInProgress) SetOrderBy(orderby []*plan.OrderBySpec) {
 	r.OrderBy = orderby
 }
 
-func (r *readerInProgress) GetOrderBy() []*plan.OrderBySpec {
+func (r *ReaderInProgress) GetOrderBy() []*plan.OrderBySpec {
 	return r.OrderBy
 }
 
-func (r *readerInProgress) SetFilterZM(zm objectio.ZoneMap) {
+func (r *ReaderInProgress) SetFilterZM(zm objectio.ZoneMap) {
 	if !r.filterZM.IsInited() {
 		r.filterZM = zm.Clone()
 		return
@@ -766,7 +766,7 @@ func (r *readerInProgress) SetFilterZM(zm objectio.ZoneMap) {
 	}
 }
 
-func (r *readerInProgress) Read(
+func (r *ReaderInProgress) Read(
 	ctx context.Context,
 	cols []string,
 	expr *plan.Expr,
