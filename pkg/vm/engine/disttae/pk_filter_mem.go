@@ -28,6 +28,7 @@ import (
 )
 
 type memPKFilter struct {
+	tableName      string
 	op             int
 	packed         [][]byte
 	isVec          bool
@@ -210,7 +211,7 @@ func newMemPKFilter(
 	default:
 		return
 	}
-
+	filter.tableName = tableDef.Name
 	filter.iter, filter.delIterFactory = tryConstructPrimaryKeyIndexIter(ts, filter, state)
 	return
 }

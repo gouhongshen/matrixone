@@ -16,7 +16,6 @@ package logtailreplay
 
 import (
 	"bytes"
-	"fmt"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/sql/plan/function"
@@ -45,7 +44,7 @@ type rowsIter struct {
 func (p *PartitionState) NewRowsIter(ts types.TS, blockID *types.Blockid, iterDeleted bool) *rowsIter {
 	insIter := p.inmemInserts.Copy().Iter()
 	delIter := p.inmemDeletes.Copy().Iter()
-	fmt.Println(p.inmemInserts.Len(), p.inmemDeletes.Len())
+
 	ret := &rowsIter{
 		ts:          ts,
 		insIter:     insIter,
@@ -63,12 +62,7 @@ func (p *PartitionState) NewRowsIter(ts types.TS, blockID *types.Blockid, iterDe
 var _ RowsIter = new(rowsIter)
 
 func (p *rowsIter) Next() bool {
-	defer func() {
-		fmt.Println("S3")
-	}()
-
 	for p.insIter.Next() {
-		fmt.Println("S1")
 		inserted := p.insIter.Item()
 		if p.checkBlockID && p.blockID.Compare(inserted.BlockID) != 0 {
 			continue
@@ -164,13 +158,16 @@ func (p *rowsIter) Close() error {
 }
 
 type primaryKeyIter struct {
-	ts           types.TS
-	spec         PrimaryKeyMatchSpec
-	insIter      btree.IterG[PrimaryIndexEntry]
-	delIter      btree.IterG[PrimaryIndexEntry]
-	inmemInserts *btree.BTreeG[PrimaryIndexEntry]
+	ts     types.TS
+	spec   PrimaryKeyMatchSpec
+	pkIter btree.IterG[PrimaryIndexEntry]
+	//insIter      btree.IterG[PrimaryIndexEntry]
+	delIter btree.IterG[PrimaryIndexEntry]
+	pkIndex *btree.BTreeG[PrimaryIndexEntry]
+	//inmemInserts *btree.BTreeG[PrimaryIndexEntry]
 	inmemDeletes *btree.BTreeG[PrimaryIndexEntry]
 	curRow       PrimaryIndexEntry
+	tableName    string
 }
 
 type PrimaryKeyMatchSpec struct {
@@ -187,18 +184,18 @@ func Exact(key []byte) PrimaryKeyMatchSpec {
 			var ok bool
 			if first {
 				first = false
-				ok = p.insIter.Seek(PrimaryIndexEntry{
+				ok = p.pkIter.Seek(PrimaryIndexEntry{
 					Bytes: key,
 				})
 			} else {
-				ok = p.insIter.Next()
+				ok = p.pkIter.Next()
 			}
 
 			if !ok {
 				return false
 			}
 
-			item := p.insIter.Item()
+			item := p.pkIter.Item()
 			return bytes.Equal(item.Bytes, key)
 		},
 	}
@@ -212,18 +209,18 @@ func Prefix(prefix []byte) PrimaryKeyMatchSpec {
 			var ok bool
 			if first {
 				first = false
-				ok = p.insIter.Seek(PrimaryIndexEntry{
+				ok = p.pkIter.Seek(PrimaryIndexEntry{
 					Bytes: prefix,
 				})
 			} else {
-				ok = p.insIter.Next()
+				ok = p.pkIter.Next()
 			}
 
 			if !ok {
 				return false
 			}
 
-			item := p.insIter.Item()
+			item := p.pkIter.Item()
 			return bytes.HasPrefix(item.Bytes, prefix)
 		},
 	}
@@ -286,18 +283,18 @@ func BetweenKind(lb, ub []byte, kind int) PrimaryKeyMatchSpec {
 			var ok bool
 			if first {
 				first = false
-				if ok = p.insIter.Seek(PrimaryIndexEntry{Bytes: lb}); ok {
-					ok = seek2First(&p.insIter)
+				if ok = p.pkIter.Seek(PrimaryIndexEntry{Bytes: lb}); ok {
+					ok = seek2First(&p.pkIter)
 				}
 			} else {
-				ok = p.insIter.Next()
+				ok = p.pkIter.Next()
 			}
 
 			if !ok {
 				return false
 			}
 
-			item := p.insIter.Item()
+			item := p.pkIter.Item()
 			return validCheck(item.Bytes)
 		},
 	}
@@ -318,20 +315,20 @@ func LessKind(ub []byte, closed bool) PrimaryKeyMatchSpec {
 			var ok bool
 			if first {
 				first = false
-				ok = p.insIter.First()
+				ok = p.pkIter.First()
 				return ok
 			}
 
-			ok = p.insIter.Next()
+			ok = p.pkIter.Next()
 			if !ok {
 				return false
 			}
 
 			if closed {
-				return bytes.Compare(p.insIter.Item().Bytes, ub) <= 0
+				return bytes.Compare(p.pkIter.Item().Bytes, ub) <= 0
 			}
 
-			return bytes.Compare(p.insIter.Item().Bytes, ub) < 0
+			return bytes.Compare(p.pkIter.Item().Bytes, ub) < 0
 		},
 	}
 }
@@ -345,15 +342,15 @@ func GreatKind(lb []byte, closed bool) PrimaryKeyMatchSpec {
 			var ok bool
 			if first {
 				first = false
-				ok = p.insIter.Seek(PrimaryIndexEntry{Bytes: lb})
+				ok = p.pkIter.Seek(PrimaryIndexEntry{Bytes: lb})
 
-				for ok && !closed && bytes.Equal(p.insIter.Item().Bytes, lb) {
-					ok = p.insIter.Next()
+				for ok && !closed && bytes.Equal(p.pkIter.Item().Bytes, lb) {
+					ok = p.pkIter.Next()
 				}
 				return ok
 			}
 
-			return p.insIter.Next()
+			return p.pkIter.Next()
 		},
 	}
 }
@@ -408,7 +405,7 @@ func InKind(encodes [][]byte, kind int) PrimaryKeyMatchSpec {
 				first = false
 				// each seek may visit height items
 				// we choose to scan all if the seek is more expensive
-				if len(encodes)*p.inmemInserts.Height() > p.inmemInserts.Len() {
+				if len(encodes)*p.pkIndex.Height() > p.pkIndex.Len() {
 					iterateAll = true
 				}
 			}
@@ -430,22 +427,22 @@ func InKind(encodes [][]byte, kind int) PrimaryKeyMatchSpec {
 						// out of vec
 						return false
 					}
-					if !p.insIter.Seek(PrimaryIndexEntry{Bytes: encoded}) {
+					if !p.pkIter.Seek(PrimaryIndexEntry{Bytes: encoded}) {
 						return false
 					}
-					if match(p.insIter.Item().Bytes, encoded) {
+					if match(p.pkIter.Item().Bytes, encoded) {
 						currentPhase = scan
 						return true
 					}
 
 				case scan:
-					if !p.insIter.Next() {
+					if !p.pkIter.Next() {
 						return false
 					}
-					if match(p.insIter.Item().Bytes, encoded) {
+					if match(p.pkIter.Item().Bytes, encoded) {
 						return true
 					}
-					p.insIter.Prev()
+					p.pkIter.Prev()
 					currentPhase = judge
 				}
 			}
@@ -456,16 +453,18 @@ func InKind(encodes [][]byte, kind int) PrimaryKeyMatchSpec {
 func (p *PartitionState) NewPrimaryKeyIter(
 	ts types.TS,
 	spec PrimaryKeyMatchSpec,
+	tableName string,
 ) *primaryKeyIter {
 	insertIndex := p.inmemInserts.Copy()
 	deleteIndex := p.inmemDeletes.Copy()
 	return &primaryKeyIter{
 		ts:           ts,
 		spec:         spec,
-		insIter:      insertIndex.Iter(),
-		inmemInserts: insertIndex,
+		pkIter:       insertIndex.Iter(),
+		pkIndex:      insertIndex,
 		delIter:      deleteIndex.Iter(),
 		inmemDeletes: deleteIndex,
+		tableName:    tableName,
 	}
 }
 
@@ -477,83 +476,56 @@ func (p *primaryKeyIter) Next() bool {
 			return false
 		}
 
-		// check delete
-		insItem := p.insIter.Item()
-		if insItem.Time.Greater(&p.ts) {
-			// invisible
+		pkItem := p.pkIter.Item()
+
+		if pkItem.Time.Greater(&p.ts) {
 			continue
 		}
 
-		alreadyDeleted := false
-		pivot := PrimaryIndexEntry{Bytes: insItem.Bytes}
+		pivot := PrimaryIndexEntry{
+			Bytes: pkItem.Bytes,
+			RowID: pkItem.RowID,
+			Time:  pkItem.Time,
+		}
 
-		for p.delIter.Seek(pivot); p.delIter.Next(); {
+		alreadyDeleted := false
+
+		//if strings.Contains(p.tableName, "sys_async_task") {
+		//	fmt.Printf("insert: rowID: %s, Time: %s, Offset: %v, PK: %v, blockID: %s\n",
+		//		pivot.RowID.String(), pivot.Time.ToString(), pivot.Offset, pivot.Bytes, pivot.BlockID.String())
+		//
+		//	p.delIter.First()
+		//	xx := p.delIter.Item()
+		//	fmt.Printf("delete: rowID: %s, Time: %s, Offset: %v, PK: %v, blockID: %s\n",
+		//		xx.RowID.String(), xx.Time.ToString(), xx.Offset, xx.Bytes, xx.BlockID.String())
+		//
+		//	fmt.Println("compare: ", pivot.Less(xx))
+		//}
+
+		for ok := p.delIter.Seek(pivot); ok; ok = p.delIter.Next() {
 			delItem := p.delIter.Item()
-			if !bytes.Equal(delItem.Bytes, insItem.Bytes) {
+			if delItem.RowID.NotEqual(pkItem.RowID) {
 				break
 			}
 
-			if delItem.Time.Less(&insItem.Time) {
-				continue
+			if delItem.Time.Greater(&p.ts) {
+				break
 			}
 
-			if delItem.Time.Greater(&p.ts) {
-				continue
+			if delItem.Time.Less(&pkItem.Time) {
+				break
 			}
 
 			alreadyDeleted = true
-			break
 		}
 
 		if alreadyDeleted {
 			continue
 		}
 
-		p.curRow = insItem
+		p.curRow = pkItem
 		return true
 	}
-
-	//	entry := p.iter.Item()
-	//
-	//	// validate
-	//	valid := false
-	//	rowsIter := p.rows.Iter()
-	//	for ok := rowsIter.Seek(RowEntry{
-	//		BlockID: entry.BlockID,
-	//		RowID:   entry.RowID,
-	//		Time:    p.ts,
-	//	}); ok; ok = rowsIter.Next() {
-	//		row := rowsIter.Item()
-	//		if row.BlockID != entry.BlockID {
-	//			// no more
-	//			break
-	//		}
-	//		if row.RowID != entry.RowID {
-	//			// no more
-	//			break
-	//		}
-	//		if row.Time.Greater(&p.ts) {
-	//			// not visible
-	//			continue
-	//		}
-	//		if row.Deleted {
-	//			// visible and deleted, no longer valid
-	//			break
-	//		}
-	//		valid = row.ID == entry.RowEntryID
-	//		if valid {
-	//			p.curRow = row
-	//		}
-	//		break
-	//	}
-	//	rowsIter.Release()
-	//
-	//	if !valid {
-	//		continue
-	//	}
-	//
-	//	return true
-	//}
 }
 
 func (p *primaryKeyIter) Entry() PrimaryIndexEntry {
@@ -561,7 +533,7 @@ func (p *primaryKeyIter) Entry() PrimaryIndexEntry {
 }
 
 func (p *primaryKeyIter) Close() error {
-	p.insIter.Release()
+	p.pkIter.Release()
 	p.delIter.Release()
 	return nil
 }
@@ -575,17 +547,16 @@ func (p *PartitionState) NewPrimaryKeyDelIter(
 	ts types.TS,
 	spec PrimaryKeyMatchSpec,
 	bid types.Blockid,
+	tableName string,
 ) *primaryKeyDelIter {
-	insertIndex := p.inmemInserts.Copy()
 	deleteIndex := p.inmemDeletes.Copy()
 	return &primaryKeyDelIter{
 		primaryKeyIter: primaryKeyIter{
-			ts:           ts,
-			spec:         spec,
-			insIter:      insertIndex.Iter(),
-			inmemInserts: insertIndex,
-			delIter:      deleteIndex.Iter(),
-			inmemDeletes: deleteIndex,
+			ts:        ts,
+			spec:      spec,
+			pkIter:    deleteIndex.Iter(),
+			pkIndex:   deleteIndex,
+			tableName: tableName,
 		},
 		bid: bid,
 	}
@@ -599,92 +570,16 @@ func (p *primaryKeyDelIter) Next() bool {
 			return false
 		}
 
-		insItem := p.insIter.Item()
-		if insItem.BlockID.Compare(p.bid) != 0 {
+		pkItem := p.pkIter.Item()
+		if pkItem.Time.Greater(&p.ts) {
 			continue
 		}
 
-		if insItem.Time.Greater(&p.ts) {
-			// invisible
+		if pkItem.BlockID.Compare(p.bid) != 0 {
 			continue
 		}
 
-		alreadyDeleted := false
-		pivot := PrimaryIndexEntry{Bytes: insItem.Bytes, BlockID: insItem.BlockID}
-
-		for p.delIter.Seek(pivot); p.delIter.Next(); {
-
-			delItem := p.delIter.Item()
-			if !bytes.Equal(delItem.Bytes, insItem.Bytes) {
-				break
-			}
-
-			if delItem.BlockID.Compare(p.bid) != 0 {
-				continue
-			}
-
-			if delItem.Time.Less(&insItem.Time) {
-				continue
-			}
-
-			if delItem.Time.Greater(&p.ts) {
-				continue
-			}
-
-			alreadyDeleted = true
-			break
-		}
-
-		if !alreadyDeleted {
-			continue
-		}
-
-		p.curRow = insItem
+		p.curRow = pkItem
 		return true
-
-		//entry := p.iter.Item()
-		//
-		//if entry.BlockID.Compare(p.bid) != 0 {
-		//	continue
-		//}
-		//
-		//// validate
-		//valid := false
-		//rowsIter := p.rows.Iter()
-		//for ok := rowsIter.Seek(RowEntry{
-		//	BlockID: entry.BlockID,
-		//	RowID:   entry.RowID,
-		//	Time:    p.ts,
-		//}); ok; ok = rowsIter.Next() {
-		//	row := rowsIter.Item()
-		//	if row.BlockID != entry.BlockID {
-		//		// no more
-		//		break
-		//	}
-		//	if row.RowID != entry.RowID {
-		//		// no more
-		//		break
-		//	}
-		//	if row.Time.Greater(&p.ts) {
-		//		// not visible
-		//		continue
-		//	}
-		//	if !row.Deleted {
-		//		// skip not deleted
-		//		continue
-		//	}
-		//	valid = row.ID == entry.RowEntryID
-		//	if valid {
-		//		p.curRow = row
-		//	}
-		//	break
-		//}
-		//rowsIter.Release()
-		//
-		//if !valid {
-		//	continue
-		//}
-		//
-		//return true
 	}
 }

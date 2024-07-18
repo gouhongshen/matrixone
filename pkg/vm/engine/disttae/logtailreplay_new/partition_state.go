@@ -243,11 +243,11 @@ func (p PrimaryIndexEntry) Less(than PrimaryIndexEntry) bool {
 		return ret < 0
 	}
 
-	if ret := p.BlockID.Compare(than.BlockID); ret != 0 {
+	if ret := p.RowID.Compare(than.RowID); ret != 0 {
 		return ret < 0
 	}
 
-	return p.RowEntryID < than.RowEntryID
+	return p.Time.Less(&than.Time)
 }
 
 type ObjectIndexByTSEntry struct {
@@ -285,7 +285,8 @@ func NewPartitionState(noData bool) *PartitionState {
 	return &PartitionState{
 		noData: noData,
 		//rows:        btree.NewBTreeGOptions((RowEntry).Less, opts),
-		dataObjects: btree.NewBTreeGOptions((ObjectEntry).Less, opts),
+		dataObjects:     btree.NewBTreeGOptions(ObjectEntry.Less, opts),
+		tombstoneObjets: btree.NewBTreeGOptions(ObjectEntry.Less, opts),
 		//blockDeltas:     btree.NewBTreeGOptions((BlockDeltaEntry).Less, opts),
 		//primaryIndex: btree.NewBTreeGOptions((*PrimaryIndexEntry).Less, opts),
 		inmemDeletes: btree.NewBTreeGOptions(PrimaryIndexEntry.Less, opts),
@@ -299,7 +300,8 @@ func NewPartitionState(noData bool) *PartitionState {
 func (p *PartitionState) Copy() *PartitionState {
 	state := PartitionState{
 		//rows:        p.rows.Copy(),
-		dataObjects: p.dataObjects.Copy(),
+		dataObjects:     p.dataObjects.Copy(),
+		tombstoneObjets: p.tombstoneObjets.Copy(),
 		//blockDeltas:     p.blockDeltas.Copy(),
 		//primaryIndex: p.primaryIndex.Copy(),
 		inmemDeletes: p.inmemDeletes.Copy(),
@@ -337,25 +339,26 @@ func (p *PartitionState) RowExists(rowID types.Rowid, ts types.TS) bool {
 			continue
 		}
 
-		if insItem.Time.GreaterEq(&ts) {
+		if insItem.Time.Greater(&ts) {
 			continue
 		}
 
 		alreadyDeleted := false
 
-		pivot := PrimaryIndexEntry{Bytes: insItem.Bytes}
-		for delIter.Seek(pivot); delIter.Next(); {
-			delItem := insIter.Item()
-			if !bytes.Equal(delItem.Bytes, pivot.Bytes) {
+		pivot := PrimaryIndexEntry{Bytes: insItem.Bytes, RowID: rowID, Time: insItem.Time}
+		for ok := delIter.Seek(pivot); ok; ok = delIter.Next() {
+			delItem := delIter.Item()
+
+			if delItem.RowID.NotEqual(rowID) {
+				break
+			}
+
+			if delItem.Time.Greater(&ts) {
 				break
 			}
 
 			if delItem.Time.Less(&insItem.Time) {
-				continue
-			}
-
-			if delItem.Time.GreaterEq(&ts) {
-				continue
+				break
 			}
 
 			alreadyDeleted = true

@@ -673,11 +673,13 @@ func tryConstructPrimaryKeyIndexIter(
 		iter = state.NewPrimaryKeyIter(
 			types.TimestampToTS(ts),
 			logtailreplay.Prefix(pkFilter.packed[0]),
+			pkFilter.tableName,
 		)
 		delIterFactory = func(blkId types.Blockid) logtailreplay.RowsIter {
 			return state.NewPrimaryKeyDelIter(
 				types.TimestampToTS(ts),
-				logtailreplay.Prefix(pkFilter.packed[0]), blkId)
+				logtailreplay.Prefix(pkFilter.packed[0]), blkId,
+				pkFilter.tableName)
 		}
 
 	case function.IN, function.PREFIX_IN:
@@ -689,33 +691,39 @@ func tryConstructPrimaryKeyIndexIter(
 		iter = state.NewPrimaryKeyIter(
 			types.TimestampToTS(ts),
 			logtailreplay.InKind(pkFilter.packed, pkFilter.op),
+			pkFilter.tableName,
 		)
 		delIterFactory = func(blkId types.Blockid) logtailreplay.RowsIter {
 			return state.NewPrimaryKeyDelIter(
 				types.TimestampToTS(ts),
-				logtailreplay.InKind(pkFilter.packed, pkFilter.op), blkId)
+				logtailreplay.InKind(pkFilter.packed, pkFilter.op), blkId,
+				pkFilter.tableName)
 		}
 
 	case function.LESS_EQUAL, function.LESS_THAN:
 		iter = state.NewPrimaryKeyIter(
 			types.TimestampToTS(ts),
 			logtailreplay.LessKind(pkFilter.packed[0], pkFilter.op == function.LESS_EQUAL),
+			pkFilter.tableName,
 		)
 		delIterFactory = func(blkId types.Blockid) logtailreplay.RowsIter {
 			return state.NewPrimaryKeyDelIter(
 				types.TimestampToTS(ts),
-				logtailreplay.LessKind(pkFilter.packed[0], pkFilter.op == function.LESS_EQUAL), blkId)
+				logtailreplay.LessKind(pkFilter.packed[0], pkFilter.op == function.LESS_EQUAL), blkId,
+				pkFilter.tableName)
 		}
 
 	case function.GREAT_EQUAL, function.GREAT_THAN:
 		iter = state.NewPrimaryKeyIter(
 			types.TimestampToTS(ts),
 			logtailreplay.GreatKind(pkFilter.packed[0], pkFilter.op == function.GREAT_EQUAL),
+			pkFilter.tableName,
 		)
 		delIterFactory = func(blkId types.Blockid) logtailreplay.RowsIter {
 			return state.NewPrimaryKeyDelIter(
 				types.TimestampToTS(ts),
-				logtailreplay.GreatKind(pkFilter.packed[0], pkFilter.op == function.GREAT_EQUAL), blkId)
+				logtailreplay.GreatKind(pkFilter.packed[0], pkFilter.op == function.GREAT_EQUAL), blkId,
+				pkFilter.tableName)
 		}
 
 	case function.BETWEEN, rangeLeftOpen, rangeRightOpen, rangeBothOpen, function.PREFIX_BETWEEN:
@@ -734,12 +742,15 @@ func tryConstructPrimaryKeyIndexIter(
 		}
 		iter = state.NewPrimaryKeyIter(
 			types.TimestampToTS(ts),
-			logtailreplay.BetweenKind(pkFilter.packed[0], pkFilter.packed[1], kind))
+			logtailreplay.BetweenKind(pkFilter.packed[0], pkFilter.packed[1], kind),
+			pkFilter.tableName,
+		)
 
 		delIterFactory = func(blkId types.Blockid) logtailreplay.RowsIter {
 			return state.NewPrimaryKeyDelIter(
 				types.TimestampToTS(ts),
-				logtailreplay.BetweenKind(pkFilter.packed[0], pkFilter.packed[1], kind), blkId)
+				logtailreplay.BetweenKind(pkFilter.packed[0], pkFilter.packed[1], kind), blkId,
+				pkFilter.tableName)
 		}
 	}
 
