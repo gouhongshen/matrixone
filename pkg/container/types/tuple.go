@@ -295,11 +295,14 @@ func (p *Packer) Reset() {
 }
 
 func (p *Packer) putByte(b byte) {
+	var err error
 	if p.size < p.capacity {
 		p.buf[p.size] = b
 		p.size++
 	} else {
-		p.buf, _ = p.mp.Grow(p.buf, p.capacity+PackerMemUnit)
+		if p.buf, err = p.mp.Grow(p.buf, p.capacity+PackerMemUnit); err != nil {
+			panic(err)
+		}
 		p.capacity += PackerMemUnit
 		p.buf[p.size] = b
 		p.size++
@@ -307,6 +310,7 @@ func (p *Packer) putByte(b byte) {
 }
 
 func (p *Packer) putBytes(bs []byte) {
+	var err error
 	if p.size+len(bs) < p.capacity {
 		for _, b := range bs {
 			p.buf[p.size] = b
@@ -314,7 +318,9 @@ func (p *Packer) putBytes(bs []byte) {
 		}
 	} else {
 		incrementSize := ((len(bs) / PackerMemUnit) + 1) * PackerMemUnit
-		p.buf, _ = p.mp.Grow(p.buf, p.capacity+incrementSize)
+		if p.buf, err = p.mp.Grow(p.buf, p.capacity+incrementSize); err != nil {
+			panic(err)
+		}
 		p.capacity += incrementSize
 		for _, b := range bs {
 			p.buf[p.size] = b
