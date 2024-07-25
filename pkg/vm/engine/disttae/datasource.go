@@ -17,6 +17,7 @@ package disttae
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"slices"
 	"sort"
 
@@ -943,15 +944,21 @@ func (rs *RemoteDataSource) ApplyTombstones(rows []types.Rowid) ([]int64, error)
 	return rs.data.GetTombstones().ApplyTombstones(rows, loadCommitted, loadUncommited)
 }
 
-// local data source
+type tempPStateInsBatPair struct {
+	rowId types.Rowid
+	bat   *batch.Batch
+	off   int64
+}
 
+// local data source
 type LocalDataSource struct {
 	ranges []*objectio.BlockInfoInProgress
 	pState *logtailreplay.PartitionState
 
 	memPKFilter *MemPKFilterInProgress
 	pStateRows  struct {
-		insIter logtailreplay.RowsIter
+		insIter           logtailreplay.RowsIter
+		wait2ApplyDeletes []tempPStateInsBatPair
 	}
 
 	table     *txnTable
@@ -1006,6 +1013,9 @@ func NewLocalDataSource(
 	if skipReadMem {
 		source.iteratePhase = engine.Persisted
 	}
+
+	source.pStateRows.wait2ApplyDeletes = make([]tempPStateInsBatPair, options.DefaultBlockMaxRows)
+
 	return source, nil
 }
 
@@ -1186,18 +1196,53 @@ func (ls *LocalDataSource) filterUncommittedInMemInserts(
 	return nil
 }
 
-//func (ls *LocalDataSource) batchApplyDeletesForPStateInsertRows() {
-//	slices.SortFunc(ls.pStateRows.rowIds, func(a, b types.Rowid) int {
-//		return a.Compare(b)
-//	})
-//
-//	cmp := func(a, b types.Rowid) bool {
-//		return (*a.BorrowBlockID()).Compare(*b.BorrowBlockID()) == 0
-//	}
-//
-//	rowIds := ls.pStateRows.rowIds
-//
-//}
+func (ls *LocalDataSource) batchApplyDeletesForPStateInsertRows() error {
+	slices.SortFunc(ls.pStateRows.wait2ApplyDeletes, func(a, b tempPStateInsBatPair) int {
+		return a.rowId.Compare(b.rowId)
+	})
+
+	var (
+		b       objectio.Blockid
+		o       uint32
+		offsets []int32
+	)
+	waited := ls.pStateRows.wait2ApplyDeletes
+
+	i, j := 0, 0
+	for j < len(waited) {
+		fmt.Println("xxxxx")
+		if waited[i].rowId.BorrowBlockID().Compare(*waited[j].rowId.BorrowBlockID()) == 0 {
+			j++
+			continue
+		}
+
+		if cap(offsets) < (j - i) {
+			offsets = make([]int32, j-i)
+		}
+		offsets = offsets[:0]
+
+		for k := i; k < j; k++ {
+			b, o = waited[i].rowId.Decode()
+			offsets = append(offsets, int32(o))
+		}
+
+		sels, err := ls.ApplyTombstonesInProgress(ls.ctx, b, offsets)
+		if err != nil {
+			return err
+		}
+
+		for r, k := 0, i; k < j; k++ {
+			if o = waited[k].rowId.GetRowOffset(); int32(o) != sels[r] {
+				waited[k].bat = nil
+				continue
+			}
+			r++
+		}
+
+		i = j
+	}
+	return nil
+}
 
 func (ls *LocalDataSource) filterInMemCommittedInserts(
 	colTypes []types.Type, seqNums []uint16, mp *mpool.MPool, bat *batch.Batch) error {
@@ -1214,9 +1259,9 @@ func (ls *LocalDataSource) filterInMemCommittedInserts(
 	}
 
 	var (
-		err          error
-		sel          []int32
-		appendedRows = bat.RowCount()
+		err error
+		//sel          []int32
+		appendedRows int
 	)
 
 	appendFunctions := make([]func(*vector.Vector, *vector.Vector, int64) error, len(bat.Attrs))
@@ -1233,16 +1278,26 @@ func (ls *LocalDataSource) filterInMemCommittedInserts(
 		}
 	}
 
-	for ls.pStateRows.insIter.Next() && appendedRows < int(options.DefaultBlockMaxRows) {
+	batchSize := int(options.DefaultBlockMaxRows) - bat.RowCount()
+	ls.pStateRows.wait2ApplyDeletes = ls.pStateRows.wait2ApplyDeletes[:0]
+
+	for ls.pStateRows.insIter.Next() && appendedRows < batchSize {
 		entry := ls.pStateRows.insIter.Entry()
-		b, o := entry.RowID.Decode()
+		ls.pStateRows.wait2ApplyDeletes = append(ls.pStateRows.wait2ApplyDeletes, tempPStateInsBatPair{
+			rowId: entry.RowID,
+			bat:   entry.Batch,
+		})
+		appendedRows++
+	}
 
-		sel, err = ls.ApplyTombstonesInProgress(ls.ctx, b, []int32{int32(o)})
-		if err != nil {
-			return err
-		}
+	err = ls.batchApplyDeletesForPStateInsertRows()
+	if err != nil {
+		return err
+	}
 
-		if len(sel) == 0 {
+	for x := range ls.pStateRows.wait2ApplyDeletes {
+		entry := ls.pStateRows.wait2ApplyDeletes[x]
+		if entry.bat == nil {
 			continue
 		}
 
@@ -1250,15 +1305,15 @@ func (ls *LocalDataSource) filterInMemCommittedInserts(
 			if name == catalog.Row_ID {
 				if err = vector.AppendFixed(
 					bat.Vecs[i],
-					entry.RowID,
+					entry.rowId,
 					false,
 					mp); err != nil {
 					return err
 				}
 			} else {
 				idx := 2 /*rowid and commits*/ + seqNums[i]
-				if int(idx) >= len(entry.Batch.Vecs) /*add column*/ ||
-					entry.Batch.Attrs[idx] == "" /*drop column*/ {
+				if int(idx) >= len(entry.bat.Vecs) /*add column*/ ||
+					entry.bat.Attrs[idx] == "" /*drop column*/ {
 					err = vector.AppendAny(
 						bat.Vecs[i],
 						nil,
@@ -1267,8 +1322,8 @@ func (ls *LocalDataSource) filterInMemCommittedInserts(
 				} else {
 					err = appendFunctions[i](
 						bat.Vecs[i],
-						entry.Batch.Vecs[int(2+seqNums[i])],
-						entry.Offset,
+						entry.bat.Vecs[int(2+seqNums[i])],
+						entry.off,
 					)
 				}
 				if err != nil {
@@ -1276,10 +1331,57 @@ func (ls *LocalDataSource) filterInMemCommittedInserts(
 				}
 			}
 		}
-		appendedRows++
 	}
 
 	bat.SetRowCount(bat.Vecs[0].Length())
+
+	//for ls.pStateRows.insIter.Next() && appendedRows < int(options.DefaultBlockMaxRows) {
+	//	entry := ls.pStateRows.insIter.Entry()
+	//	b, o := entry.RowID.Decode()
+	//
+	//	sel, err = ls.ApplyTombstonesInProgress(ls.ctx, b, []int32{int32(o)})
+	//	if err != nil {
+	//		return err
+	//	}
+	//
+	//	if len(sel) == 0 {
+	//		continue
+	//	}
+	//
+	//	for i, name := range bat.Attrs {
+	//		if name == catalog.Row_ID {
+	//			if err = vector.AppendFixed(
+	//				bat.Vecs[i],
+	//				entry.RowID,
+	//				false,
+	//				mp); err != nil {
+	//				return err
+	//			}
+	//		} else {
+	//			idx := 2 /*rowid and commits*/ + seqNums[i]
+	//			if int(idx) >= len(entry.Batch.Vecs) /*add column*/ ||
+	//				entry.Batch.Attrs[idx] == "" /*drop column*/ {
+	//				err = vector.AppendAny(
+	//					bat.Vecs[i],
+	//					nil,
+	//					true,
+	//					mp)
+	//			} else {
+	//				err = appendFunctions[i](
+	//					bat.Vecs[i],
+	//					entry.Batch.Vecs[int(2+seqNums[i])],
+	//					entry.Offset,
+	//				)
+	//			}
+	//			if err != nil {
+	//				return err
+	//			}
+	//		}
+	//	}
+	//	appendedRows++
+	//}
+	//
+	//bat.SetRowCount(bat.Vecs[0].Length())
 
 	return nil
 }
