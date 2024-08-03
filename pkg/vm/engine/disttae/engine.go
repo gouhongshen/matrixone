@@ -674,6 +674,7 @@ func (e *Engine) BuildBlockReaders(
 		} else {
 			shard = relData.DataSlice(i*divide+mod, (i+1)*divide+mod)
 		}
+		ctx = context.WithValue(ctx, "TableName", def.Name)
 		ds := NewRemoteDataSource(
 			ctx,
 			proc,

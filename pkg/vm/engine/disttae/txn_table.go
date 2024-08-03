@@ -1701,7 +1701,7 @@ func buildRemoteDS(
 	//tombstones.Init()
 
 	relData.AttachTombstones(tombstones)
-
+	ctx = context.WithValue(ctx, "TableName", tbl.tableName)
 	source = NewRemoteDataSource(
 		ctx,
 		tbl.proc.Load(),

@@ -253,12 +253,12 @@ func (tomb *tombstoneDataWithDeltaLoc) ApplyPersistedTombstones(
 	rowsOffset []int32,
 	mask *nulls.Nulls,
 	apply func(
-	ctx context.Context,
-	loc objectio.Location,
-	cts types.TS,
-	rowsOffset []int32,
-	deleted *nulls.Nulls,
-) (left []int32, err error),
+		ctx context.Context,
+		loc objectio.Location,
+		cts types.TS,
+		rowsOffset []int32,
+		deleted *nulls.Nulls,
+	) (left []int32, err error),
 ) (left []int32, err error) {
 
 	if locs, ok := tomb.blk2UncommitLoc[bid]; ok {
@@ -548,11 +548,11 @@ func (relData *blockListRelData) DataCnt() int {
 }
 
 type RemoteDataSource struct {
-	ctx  context.Context
-	proc *process.Process
-
-	fs fileservice.FileService
-	ts types.TS
+	ctx       context.Context
+	proc      *process.Process
+	tableName string
+	fs        fileservice.FileService
+	ts        types.TS
 
 	cursor int
 	data   engine.RelData
@@ -565,12 +565,15 @@ func NewRemoteDataSource(
 	snapshotTS timestamp.Timestamp,
 	relData engine.RelData,
 ) (source *RemoteDataSource) {
+	name, _ := ctx.Value("TableName").(string)
+
 	return &RemoteDataSource{
-		data: relData,
-		ctx:  ctx,
-		proc: proc,
-		fs:   fs,
-		ts:   types.TimestampToTS(snapshotTS),
+		data:      relData,
+		ctx:       ctx,
+		proc:      proc,
+		fs:        fs,
+		tableName: name,
+		ts:        types.TimestampToTS(snapshotTS),
 	}
 }
 
@@ -691,15 +694,16 @@ func (rs *RemoteDataSource) GetTombstonesInProgress(
 }
 
 func (rs *RemoteDataSource) SetOrderBy(_ []*plan.OrderBySpec) {
-
+	fmt.Println("remoteDataSource.SetOrderBy", rs.tableName)
 }
 
 func (rs *RemoteDataSource) GetOrderBy() []*plan.OrderBySpec {
+	fmt.Println("remoteDataSource.GetOrderBy", rs.tableName)
 	return nil
 }
 
 func (rs *RemoteDataSource) SetFilterZM(_ objectio.ZoneMap) {
-
+	fmt.Println("remoteDataSource.SetFilterZM", rs.tableName)
 }
 
 // local data source
@@ -815,14 +819,17 @@ func (ls *LocalDataSource) String() string {
 }
 
 func (ls *LocalDataSource) SetOrderBy(orderby []*plan.OrderBySpec) {
+	fmt.Println("localDataSource.SetOrderBy", ls.table.tableName)
 	ls.OrderBy = orderby
 }
 
 func (ls *LocalDataSource) GetOrderBy() []*plan.OrderBySpec {
+	fmt.Println("localDataSource.GetOrderBy", ls.table.tableName)
 	return ls.OrderBy
 }
 
 func (ls *LocalDataSource) SetFilterZM(zm objectio.ZoneMap) {
+	fmt.Println("localDataSource.SetFilterZM", ls.table.tableName)
 	if !ls.filterZM.IsInited() {
 		ls.filterZM = zm.Clone()
 		return
