@@ -120,16 +120,10 @@ func handleTraceSpan(
 	for idx := range cns {
 		// the current cn also need to process this span cmd
 		if cns[idx] == proc.GetQueryClient().ServiceID() {
-			info[cns[idx]] = UpdateCurrentCNTraceSpan(args[1], args[2], threshold)
+			info[cns[idx]] = SelfProcess(args[1], args[2], threshold)
 		} else {
-			request := proc.GetQueryClient().NewRequest(query.CmdMethod_TraceSpan)
-			request.TraceSpanRequest = &query.TraceSpanRequest{
-				Cmd:       args[1],
-				Spans:     args[2],
-				Threshold: threshold,
-			}
 			// transfer query to another cn and receive its response
-			resp, _ := transferRequest2OtherCNs(proc, cns[idx], request)
+			resp, _ := transferRequest(proc, cns[idx], args[1], args[2], threshold)
 			if resp == nil {
 				// no such cn service
 				info[cns[idx]] = "no such cn service"
@@ -150,7 +144,7 @@ func handleTraceSpan(
 	}, nil
 }
 
-func UpdateCurrentCNTraceSpan(cmd string, spans string, threshold int64) string {
+func SelfProcess(cmd string, spans string, threshold int64) string {
 	var succeed, failed []string
 	ss := strings.Split(spans, ",")
 	for _, t := range ss {
@@ -164,14 +158,22 @@ func UpdateCurrentCNTraceSpan(cmd string, spans string, threshold int64) string 
 	return fmt.Sprintf("%v %sd, %v failed", succeed, cmd, failed)
 }
 
-func transferRequest2OtherCNs(
+func transferRequest(
 	proc *process.Process,
 	uuid string,
-	request *query.Request,
+	cmd string,
+	spans string,
+	threshold int64,
 ) (resp *query.Response, err error) {
 	clusterservice.GetMOCluster(
 		proc.GetService()).GetCNService(clusterservice.NewServiceIDSelector(uuid),
 		func(cn metadata.CNService) bool {
+			request := proc.GetQueryClient().NewRequest(query.CmdMethod_TraceSpan)
+			request.TraceSpanRequest = &query.TraceSpanRequest{
+				Cmd:       cmd,
+				Spans:     spans,
+				Threshold: threshold,
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 
