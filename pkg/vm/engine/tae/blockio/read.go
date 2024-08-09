@@ -16,7 +16,10 @@ package blockio
 
 import (
 	"context"
+	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/common"
 	"math"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -63,11 +66,25 @@ func ReadDataByFilter(
 	}
 	defer release()
 
+	//debug := false
+	//name := ctx.Value("TABLENAME").(string)
+	//if strings.Contains(name, "hhh") {
+	//	debug = true
+	//}
+	//if debug {
+	//	fmt.Println("before apply deletes-0:", common.MoBatchToString(bat, 10000))
+	//}
 	sels = searchFunc(bat.Vecs)
 	sels, err = ds.ApplyTombstones(ctx, info.BlockID, sels)
 	if err != nil {
 		return
 	}
+
+	//if debug {
+	//	bb, _ := bat.Dup(mp)
+	//	fmt.Println("after apply deletes-0:", common.MoBatchToString(bb, 10000))
+	//}
+
 	return
 }
 
@@ -157,6 +174,8 @@ func BlockDataRead(
 	if logutil.GetSkip1Logger().Core().Enabled(zap.DebugLevel) {
 		logutil.Debugf("read block %s, columns %v, types %v", info.BlockID.String(), columns, colTypes)
 	}
+
+	ctx = context.WithValue(ctx, "TABLENAME", tableName)
 
 	var (
 		sels []int64
@@ -273,6 +292,21 @@ func BlockDataReadInner(
 		release     func()
 	)
 
+	debug := false
+	name := ctx.Value("TABLENAME").(string)
+	if strings.Contains(name, "hhh") {
+		debug = true
+	}
+
+	defer func() {
+		if debug && result != nil {
+			fmt.Println("BlockDataReadInner err:", result.Vecs[0].Length())
+		} else if debug && result == nil {
+			fmt.Println("BlockDataReadInner err:", "nil")
+		}
+
+	}()
+
 	// read block data from storage specified by meta location
 	if loaded, rowidPos, deleteMask, release, err = readBlockData(
 		ctx, columns, colTypes, info, ts, fs, mp, vp, policy,
@@ -375,7 +409,19 @@ func BlockDataReadInner(
 			}
 		}
 		if len(deletedRows) > 0 {
+			//
+			if debug {
+				fmt.Println("before apply deletes-1:", common.MoBatchToString(result, 10000))
+			}
 			result.Vecs[i].Shrink(deletedRows, true)
+			if debug {
+				fmt.Println("after apply deletes-1:", common.MoBatchToString(result, 10000))
+			}
+		} else {
+			if debug {
+				fmt.Println("skip deletes", common.MoBatchToString(result, 10000))
+			}
+
 		}
 	}
 

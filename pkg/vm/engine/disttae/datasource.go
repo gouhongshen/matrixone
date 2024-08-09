@@ -18,10 +18,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	catalog2 "github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
-	"slices"
-	"sort"
-
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -36,9 +32,13 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/blockio"
+	catalog2 "github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/index"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/options"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
+	"slices"
+	"sort"
+	"strings"
 )
 
 type TombstoneApplyPolicy uint64
@@ -475,6 +475,9 @@ func (ls *LocalDataSource) Next(
 	bat *batch.Batch,
 ) (*objectio.BlockInfo, engine.DataState, error) {
 
+	//defer func() {
+	//	fmt.Println("Next", ls.iteratePhase, ls.rangesCursor, ls.rangeSlice.Len())
+	//}()
 	if ls.memPKFilter == nil {
 		ff := filter.(MemPKFilter)
 		ls.memPKFilter = &ff
@@ -999,6 +1002,10 @@ func (ls *LocalDataSource) applyWorkspaceFlushedS3Deletes(
 		s3FlushedDeletes.RWMutex.Lock()
 		defer s3FlushedDeletes.RWMutex.Unlock()
 
+		//if strings.Contains(ls.table.tableName, "hhh") {
+		//	fmt.Println("applyWorkspaceFlushedS3Deletes", len(s3FlushedDeletes.data))
+		//}
+
 		if len(s3FlushedDeletes.data[bid]) == 0 || ls.pState.BlockPersisted(bid) {
 			return
 		}
@@ -1130,7 +1137,19 @@ func (ls *LocalDataSource) applyPStateTombstoneObjects(
 		return ForeachTombstoneObject(ls.snapshotTS, onTombstone, ls.pState)
 	}
 
+	if strings.Contains(ls.table.tableName, "hhh") {
+		totalTombstoneBlkCnt := 0
+		iter, _ := ls.pState.NewObjectsIter(ls.snapshotTS, false, true)
+		for iter.Next() {
+			item := iter.Entry()
+			totalTombstoneBlkCnt += int(item.BlkCnt())
+		}
+		iter.Close()
+		fmt.Println("totalTombstoneBlkCnt", totalTombstoneBlkCnt)
+	}
+
 	if err = GetTombstonesByBlockId(
+		ls.table.tableName,
 		ls.ctx,
 		ls.fs,
 		bid,
@@ -1235,6 +1254,7 @@ func (ls *LocalDataSource) batchPrefetch(seqNums []uint16) {
 }
 
 func GetTombstonesByBlockId(
+	tblName string,
 	ctx context.Context,
 	fs fileservice.FileService,
 	bid objectio.Blockid,
@@ -1249,19 +1269,28 @@ func GetTombstonesByBlockId(
 	}
 
 	var (
-		exist    bool
-		bf       objectio.BloomFilter
-		bfIndex  index.StaticFilter
-		mask     *nulls.Nulls
-		location objectio.Location
+		tombstoneBlkCnt int
+		exist           bool
+		bf              objectio.BloomFilter
+		bfIndex         index.StaticFilter
+		mask            *nulls.Nulls
+		location        objectio.Location
 	)
 
 	bidZM := index.BuildZM(types.T_binary, bid[:])
 
 	onTombstone := func(obj logtailreplay.ObjectEntry) (bool, error) {
-		objZM := obj.SortKeyZoneMap()
-		if skip := !objZM.FastIntersect(bidZM); skip {
-			return true, nil
+		tombstoneBlkCnt += int(obj.BlkCnt())
+
+		if !obj.ZMIsEmpty() {
+			objZM := obj.SortKeyZoneMap()
+			if skip := !objZM.FastIntersect(bidZM); skip {
+				//if strings.Contains(tblName, "hhh") {
+				//	fmt.Println("skip tombstone by zm")
+				//}
+
+				return true, nil
+			}
 		}
 
 		if bf, err = objectio.FastLoadBF(
@@ -1280,9 +1309,16 @@ func GetTombstonesByBlockId(
 				bid[:], index.PrefixFnID_Block, 2); err != nil {
 				return false, err
 			} else if !exist {
+				//if strings.Contains(tblName, "hhh") {
+				//	fmt.Println("skip tombstone by bl")
+				//}
 				continue
 			}
 
+			//loc := obj.Location()
+			//meta, _ := objectio.FastLoadObjectMeta(ctx, &loc, false, fs)
+			//objMeta := meta.MustDataMeta()
+			//location = objectio.BuildLocation(obj.ObjectName(), obj.Extent(), objMeta.GetBlockMeta(uint32(idx)).GetRows(), uint16(idx))
 			location = catalog2.BuildLocation(obj.ObjectStats, uint16(idx), options.DefaultBlockMaxRows)
 
 			if mask, err = loadBlockDeletesByLocation(
@@ -1291,11 +1327,19 @@ func GetTombstonesByBlockId(
 			}
 
 			deleteMask.Merge(mask)
+			if strings.Contains(tblName, "hhh") {
+				if mask.IsEmpty() {
+					fmt.Println("mask is empty")
+				}
+			}
 		}
 		return true, nil
 	}
 
 	err = scanOp(onTombstone)
+	if strings.Contains(tblName, "hhh") {
+		fmt.Println("apply tombstone objects", tombstoneBlkCnt, err)
+	}
 
 	return err
 }

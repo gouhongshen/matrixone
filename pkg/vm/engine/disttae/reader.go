@@ -306,6 +306,8 @@ func (r *reader) SetFilterZM(zm objectio.ZoneMap) {
 	r.source.SetFilterZM(zm)
 }
 
+var cnt int
+
 func (r *reader) Read(
 	ctx context.Context,
 	cols []string,
@@ -333,6 +335,15 @@ func (r *reader) Read(
 		} else {
 			bat.Vecs[i] = vp.GetVector(r.columns.colTypes[i])
 		}
+	}
+
+	if strings.Contains(r.tableDef.Name, "hhh") {
+		cnt++
+	}
+
+	if cnt == 1000-2 {
+		x := 0
+		x++
 	}
 
 	blkInfo, state, err := r.source.Next(

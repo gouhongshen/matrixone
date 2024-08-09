@@ -660,6 +660,10 @@ func (tbl *txnTable) Ranges(
 		)
 
 		rangesLen := blocks.Len()
+		//if strings.Contains(tbl.tableName, "hhh") {
+		//	fmt.Println("ranges: ", rangesLen)
+		//}
+
 		if rangesLen < 5 {
 			step = uint64(1)
 		} else if rangesLen < 10 {
@@ -722,6 +726,10 @@ func (tbl *txnTable) Ranges(
 	if part, err = tbl.getPartitionState(ctx); err != nil {
 		return
 	}
+
+	//if strings.Contains(tbl.tableName, "hhh") {
+	//	fmt.Println("part tombstone cnt", part.ApproxTombstoneObjectsNum(), part.ApproxDataObjectsNum())
+	//}
 
 	blocks.AppendBlockInfo(objectio.EmptyBlockInfo)
 
