@@ -47,7 +47,7 @@ const statsCacheInitSize = 128
 const statsCacheMaxSize = 8192
 
 var ncpu = runtime.GOMAXPROCS(0)
-var BlockThresholdForOneCN = ncpu * blockThresholdForTpQuery
+var BlockThresholdForOneCN = 2
 var costThresholdForOneCN = ncpu * costThresholdForTpQuery
 
 type ExecType int

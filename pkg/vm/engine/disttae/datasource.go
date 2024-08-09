@@ -67,6 +67,7 @@ func NewRemoteDataSource(
 	snapshotTS timestamp.Timestamp,
 	relData engine.RelData,
 ) (source *RemoteDataSource) {
+	fmt.Println("NewRemoteDataSource", relData.DataCnt(), relData.GetType(), relData.GetTombstones().Type())
 	return &RemoteDataSource{
 		data: relData,
 		ctx:  ctx,
