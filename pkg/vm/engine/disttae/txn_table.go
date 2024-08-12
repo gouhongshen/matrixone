@@ -564,6 +564,10 @@ func (tbl *txnTable) CollectTombstones(
 ) (engine.Tombstoner, error) {
 	tombstone := NewEmptyTombstoneData()
 
+	defer func() {
+		fmt.Println("CollectTombstones", tombstone.String())
+	}()
+
 	offset := txnOffset
 	if tbl.db.op.IsSnapOp() {
 		offset = tbl.getTxn().GetSnapshotWriteOffset()
@@ -593,7 +597,8 @@ func (tbl *txnTable) CollectTombstones(
 				// PartitionReader need to skip them.
 				vs := vector.MustFixedCol[types.Rowid](entry.bat.GetVector(0))
 				for _, v := range vs {
-					tombstone.rowids = append(tombstone.rowids, v)
+					//tombstone.rowids = append(tombstone.rowids, v)
+					tombstone.AppendInMemory(v)
 				}
 			}
 		})
@@ -612,10 +617,12 @@ func (tbl *txnTable) CollectTombstones(
 		for iter.Next() {
 			entry := iter.Entry()
 			//bid, o := entry.RowID.Decode()
-			tombstone.rowids = append(tombstone.rowids, entry.RowID)
+			tombstone.AppendInMemory(entry.RowID)
 		}
 		iter.Close()
 	}
+
+	tombstone.SortInMemory()
 
 	//collect uncommitted persisted tombstones.
 	if err := tbl.getTxn().getUncommittedS3TombstoneInProgress(&tombstone.files); err != nil {
