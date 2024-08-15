@@ -16,6 +16,7 @@ package logservicedriver
 
 import (
 	"context"
+	"go.uber.org/atomic"
 	gotrace "runtime/trace"
 	"sync"
 	"time"
@@ -47,6 +48,10 @@ func (a *driverAppender) appendEntry(e *entry.Entry) {
 	a.entry.append(e)
 }
 
+var walSize atomic.Float64
+var cnt atomic.Float64
+var last atomic.Time
+
 func (a *driverAppender) append(retryTimout, appendTimeout time.Duration) {
 	_, task := gotrace.NewTask(context.Background(), "logservice.append")
 	start := time.Now()
@@ -56,6 +61,23 @@ func (a *driverAppender) append(retryTimout, appendTimeout time.Duration) {
 	}()
 
 	size := a.entry.prepareRecord()
+
+	l := last.Load()
+	if l.IsZero() || time.Since(l) <= time.Second*10 {
+		walSize.Add(float64(size))
+		cnt.Add(1)
+		if l.IsZero() {
+			last.Store(time.Now())
+		}
+	} else {
+		logutil.Info("append",
+			zap.Float64("avg size", walSize.Load()/cnt.Load()),
+			zap.Float64("frequency", cnt.Load()/10.0))
+
+		walSize.Store(0)
+		cnt.Store(0)
+		last.Store(time.Now())
+	}
 	// if size > int(common.K)*20 { //todo
 	// 	panic(moerr.NewInternalError("record size %d, larger than max size 20K", size))
 	// }

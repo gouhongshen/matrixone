@@ -12,3 +12,10 @@ port-base = 18000
 check-fraction = 65536
 enable-metrics = true
 
+[[fileservice]]
+name = "SHARED"
+backend = "DISK"
+data-dir = "mo-data/shared"
+
+[fileservice.cache]
+memory-capacity = "10GB"

@@ -15,6 +15,7 @@
 package txnimpl
 
 import (
+	"go.uber.org/atomic"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/logutil"
@@ -54,6 +55,10 @@ func (mgr *commandManager) AddCmd(cmd txnif.TxnCmd) {
 	mgr.csn++
 }
 
+var size atomic.Float64
+var cnt atomic.Float64
+var last atomic.Time
+
 func (mgr *commandManager) ApplyTxnRecord(txn txnif.AsyncTxn) (logEntry entry.Entry, err error) {
 	if mgr.driver == nil {
 		return
@@ -66,6 +71,24 @@ func (mgr *commandManager) ApplyTxnRecord(txn txnif.AsyncTxn) (logEntry entry.En
 	}
 	// logutil.Info("", common.OperationField("suxi-replay-cmd"),
 	// common.OperandField(mgr.cmd.Desc()))
+
+	l := last.Load()
+	if l.IsZero() || time.Since(l) <= time.Second*10 {
+		size.Add(float64(len(buf)))
+		cnt.Add(1)
+		if l.IsZero() {
+			last.Store(time.Now())
+		}
+	} else {
+		logutil.Info("ApplyTxnRecord",
+			zap.Float64("avg size", size.Load()/cnt.Load()),
+			zap.Float64("frequency", cnt.Load()/10.0))
+
+		size.Store(0)
+		cnt.Store(0)
+		last.Store(time.Now())
+	}
+
 	logEntry = entry.GetBase()
 	logEntry.SetType(IOET_WALEntry_TxnRecord)
 	if err = logEntry.SetPayload(buf); err != nil {
