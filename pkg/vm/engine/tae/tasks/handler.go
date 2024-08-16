@@ -46,10 +46,6 @@ func (h *BaseTaskHandler) Enqueue(task Task) {
 	}
 }
 
-func (h *BaseTaskHandler) Execute(task Task) {
-	h.ExecFunc(task)
-}
-
 func (h *BaseTaskHandler) Close() error {
 	h.Stop()
 	return nil
