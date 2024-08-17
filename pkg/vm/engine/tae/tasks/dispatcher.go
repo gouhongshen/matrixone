@@ -35,6 +35,7 @@ type TaskHandler interface {
 	io.Closer
 	Start()
 	Enqueue(Task)
+	Execute(Task)
 }
 
 type BaseDispatcher struct {

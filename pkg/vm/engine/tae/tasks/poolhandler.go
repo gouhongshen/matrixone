@@ -36,7 +36,7 @@ type poolHandler struct {
 }
 
 func NewPoolHandler(ctx context.Context, num int) *poolHandler {
-	pool, err := ants.NewPool(num, ants.WithNonblocking(true))
+	pool, err := ants.NewPool(num)
 	if err != nil {
 		panic(err)
 	}
@@ -50,12 +50,19 @@ func NewPoolHandler(ctx context.Context, num int) *poolHandler {
 	return h
 }
 
+func (h *poolHandler) Execute(task Task) {
+	h.opExec(task)
+}
+
 func (h *poolHandler) doHandle(op iops.IOp) {
+	closure := func(o iops.IOp, wg *sync.WaitGroup) func() {
+		return func() {
+			h.opExec(o)
+			wg.Done()
+		}
+	}
 	h.wg.Add(1)
-	err := h.pool.Submit(func() {
-		h.opExec(op)
-		h.wg.Done()
-	})
+	err := h.pool.Submit(closure(op, h.wg))
 	if err != nil {
 		logutil.Warnf("%v", err)
 		op.SetError(err)
