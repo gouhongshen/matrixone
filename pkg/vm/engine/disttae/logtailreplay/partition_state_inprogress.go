@@ -52,7 +52,8 @@ type PartitionStateInProgress struct {
 	end         types.TS
 
 	// index
-	primaryIndex *btree.BTreeG[*PrimaryIndexEntry]
+	primaryIndex        *btree.BTreeG[*PrimaryIndexEntry]
+	inMemTombstoneIndex *btree.BTreeG[*PrimaryIndexEntry]
 
 	objectIndexByTS *btree.BTreeG[ObjectIndexByTSEntry]
 
@@ -290,13 +291,22 @@ func (p *PartitionStateInProgress) HandleTombstoneObjectList(
 	defer vec.Free(pool)
 	deleteTSCol := vector.MustFixedCol[types.TS](vec)
 
-	//vec = mustVectorFromProto(ee.Bat.Vecs[9])
-	//defer vec.Free(pool)
-	//startTSCol := vector.MustFixedCol[types.TS](vec)
+	vec = mustVectorFromProto(ee.Bat.Vecs[9])
+	defer vec.Free(pool)
+	startTSCol := vector.MustFixedCol[types.TS](vec)
 
 	vec = mustVectorFromProto(ee.Bat.Vecs[11])
 	defer vec.Free(pool)
 	commitTSCol := vector.MustFixedCol[types.TS](vec)
+
+	var tbIter = p.inMemTombstoneIndex.Copy().Iter()
+	//var rowIter = p.rows.Copy().Iter()
+
+	//var buf bytes.Buffer
+
+	//if p.tid == 272515 {
+	//buf.WriteString(fmt.Sprint("before gc", p.rows.Len(), p.primaryIndex.Len(), p.inMemTombstoneIndex.Len()))
+	//}
 
 	for idx := 0; idx < statsVec.Length(); idx++ {
 		p.shared.Lock()
@@ -308,9 +318,6 @@ func (p *PartitionStateInProgress) HandleTombstoneObjectList(
 
 		objEntry.ObjectStats = objectio.ObjectStats(statsVec.GetBytesAt(idx))
 		if objEntry.Size() == 0 {
-			//fmt.Printf("handle tombstoneObjectList all pushed objects should have stats: %s, deleteTS: %v\n",
-			//	objEntry.String())
-			//logutil.Infof("handle tombstoneObjectList all pushed objects should have stats: %s", objEntry.String())
 			continue
 		}
 
@@ -348,8 +355,60 @@ func (p *PartitionStateInProgress) HandleTombstoneObjectList(
 		}
 
 		// for appendable object, gc rows when delete object
-		// TODO(ghs) how do the tombstone object GC rows?
+		if !objEntry.EntryState {
+			continue
+		}
+
+		truncatePoint := startTSCol[idx]
+
+		var deletedRow RowEntry
+		var rowId types.Rowid
+		copy((*rowId.BorrowObjectID())[:], (*objEntry.ObjectName().ObjectId())[:])
+
+		for ok := tbIter.Seek(&PrimaryIndexEntry{Bytes: rowId[:]}); ok; ok = tbIter.Next() {
+			if truncatePoint.Less(&tbIter.Item().Time) {
+				continue
+			}
+
+			curTbRowId := types.Rowid(tbIter.Item().Bytes)
+			if !objEntry.ObjectName().ObjectId().Eq(*curTbRowId.BorrowObjectID()) {
+				break
+			}
+
+			if deletedRow, exist = p.rows.Get(RowEntry{
+				BlockID: *tbIter.Item().RowID.BorrowBlockID(),
+				RowID:   tbIter.Item().RowID,
+				Time:    tbIter.Item().Time,
+			}); !exist {
+				continue
+			}
+
+			//t, _ := types.Unpack(deletedRow.PrimaryIndexBytes)
+			fmt.Println(fmt.Sprintf("tar-obj: %s, tbRowId: %s, tardatarowid: %s,  deletedRowId: %s, deleted: %v, pk: %v",
+				objEntry.ObjectName().ObjectId().String(),
+				curTbRowId.String(),
+				tbIter.Item().RowID.String(),
+				deletedRow.RowID.String(),
+				deletedRow.Deleted,
+				deletedRow.PrimaryIndexBytes[:]))
+
+			if !objEntry.ObjectName().ObjectId().Eq(*curTbRowId.BorrowObjectID()) || !tbIter.Item().RowID.Equal(deletedRow.RowID) {
+				logutil.Fatal("")
+			}
+
+			p.rows.Delete(deletedRow)
+			if len(deletedRow.PrimaryIndexBytes) > 0 {
+				p.primaryIndex.Delete(&PrimaryIndexEntry{
+					Bytes:      deletedRow.PrimaryIndexBytes,
+					RowEntryID: deletedRow.ID,
+				})
+			}
+		}
 	}
+
+	//buf.WriteString(fmt.Sprint("after gc", p.rows.Len(), p.primaryIndex.Len(), p.inMemTombstoneIndex.Len()))
+	//fmt.Println(p.tid, buf.String())
+	//fmt.Println()
 
 	perfcounter.Update(ctx, func(c *perfcounter.CounterSet) {
 		c.DistTAE.Logtail.ActiveRows.Add(-numDeleted)
@@ -372,6 +431,10 @@ func (p *PartitionStateInProgress) HandleRowsDelete(
 	vec = mustVectorFromProto(input.Vecs[1])
 	defer vec.Free(pool)
 	timeVector := vector.MustFixedCol[types.TS](vec)
+
+	vec = mustVectorFromProto(input.Vecs[3])
+	defer vec.Free(pool)
+	tbRowIdVector := vector.MustFixedCol[types.Rowid](vec)
 
 	batch, err := batch.ProtoBatchToBatch(input)
 	if err != nil {
@@ -427,6 +490,14 @@ func (p *PartitionStateInProgress) HandleRowsDelete(
 			p.primaryIndex.Set(entry)
 		}
 
+		var tbRowId types.Rowid = tbRowIdVector[i]
+		index := PrimaryIndexEntry{
+			Bytes: tbRowId[:],
+			RowID: rowID,
+			Time:  entry.Time,
+		}
+
+		p.inMemTombstoneIndex.Set(&index)
 	}
 
 	perfcounter.Update(ctx, func(c *perfcounter.CounterSet) {
@@ -517,8 +588,9 @@ func (p *PartitionStateInProgress) Copy() *PartitionStateInProgress {
 		dataObjects:     p.dataObjects.Copy(),
 		tombstoneObjets: p.tombstoneObjets.Copy(),
 		//blockDeltas:     p.blockDeltas.Copy(),
-		primaryIndex: p.primaryIndex.Copy(),
-		noData:       p.noData,
+		primaryIndex:        p.primaryIndex.Copy(),
+		inMemTombstoneIndex: p.inMemTombstoneIndex.Copy(),
+		noData:              p.noData,
 		//dirtyBlocks:     p.dirtyBlocks.Copy(),
 		objectIndexByTS: p.objectIndexByTS.Copy(),
 		shared:          p.shared,
@@ -580,7 +652,8 @@ func NewPartitionStateInProgress(
 		dataObjects:     btree.NewBTreeGOptions((ObjectEntry).Less, opts),
 		tombstoneObjets: btree.NewBTreeGOptions((ObjectEntry).Less, opts),
 		//blockDeltas:     btree.NewBTreeGOptions((BlockDeltaEntry).Less, opts),
-		primaryIndex: btree.NewBTreeGOptions((*PrimaryIndexEntry).Less, opts),
+		primaryIndex:        btree.NewBTreeGOptions((*PrimaryIndexEntry).Less, opts),
+		inMemTombstoneIndex: btree.NewBTreeGOptions((*PrimaryIndexEntry).Less, opts),
 		//dirtyBlocks:     btree.NewBTreeGOptions((types.Blockid).Less, opts),
 		objectIndexByTS: btree.NewBTreeGOptions((ObjectIndexByTSEntry).Less, opts),
 		shared:          new(sharedStates),
