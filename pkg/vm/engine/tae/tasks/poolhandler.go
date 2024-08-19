@@ -50,10 +50,6 @@ func NewPoolHandler(ctx context.Context, num int) *poolHandler {
 	return h
 }
 
-func (h *poolHandler) Execute(task Task) {
-	h.opExec(task)
-}
-
 func (h *poolHandler) doHandle(op iops.IOp) {
 	closure := func(o iops.IOp, wg *sync.WaitGroup) func() {
 		return func() {
