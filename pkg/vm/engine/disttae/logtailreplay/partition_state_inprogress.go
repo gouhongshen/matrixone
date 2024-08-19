@@ -300,13 +300,7 @@ func (p *PartitionStateInProgress) HandleTombstoneObjectList(
 	commitTSCol := vector.MustFixedCol[types.TS](vec)
 
 	var tbIter = p.inMemTombstoneIndex.Copy().Iter()
-	//var rowIter = p.rows.Copy().Iter()
-
-	//var buf bytes.Buffer
-
-	//if p.tid == 272515 {
-	//buf.WriteString(fmt.Sprint("before gc", p.rows.Len(), p.primaryIndex.Len(), p.inMemTombstoneIndex.Len()))
-	//}
+	defer tbIter.Release()
 
 	for idx := 0; idx < statsVec.Length(); idx++ {
 		p.shared.Lock()
@@ -355,48 +349,37 @@ func (p *PartitionStateInProgress) HandleTombstoneObjectList(
 		}
 
 		// for appendable object, gc rows when delete object
-		if !objEntry.EntryState {
+		if !objEntry.Appendable {
 			continue
 		}
 
 		truncatePoint := startTSCol[idx]
 
 		var deletedRow RowEntry
-		var rowId types.Rowid
-		copy((*rowId.BorrowObjectID())[:], (*objEntry.ObjectName().ObjectId())[:])
 
-		for ok := tbIter.Seek(&PrimaryIndexEntry{Bytes: rowId[:]}); ok; ok = tbIter.Next() {
+		for ok := tbIter.Seek(&PrimaryIndexEntry{
+			Bytes: objEntry.ObjectName().ObjectId()[:],
+		}); ok; ok = tbIter.Next() {
 			if truncatePoint.Less(&tbIter.Item().Time) {
 				continue
 			}
 
-			curTbRowId := types.Rowid(tbIter.Item().Bytes)
-			if !objEntry.ObjectName().ObjectId().Eq(*curTbRowId.BorrowObjectID()) {
+			current := types.Objectid(tbIter.Item().Bytes)
+			if !objEntry.ObjectName().ObjectId().Eq(current) {
 				break
 			}
 
 			if deletedRow, exist = p.rows.Get(RowEntry{
-				BlockID: *tbIter.Item().RowID.BorrowBlockID(),
+				ID:      tbIter.Item().RowEntryID,
+				BlockID: tbIter.Item().BlockID,
 				RowID:   tbIter.Item().RowID,
 				Time:    tbIter.Item().Time,
 			}); !exist {
 				continue
 			}
 
-			//t, _ := types.Unpack(deletedRow.PrimaryIndexBytes)
-			fmt.Println(fmt.Sprintf("tar-obj: %s, tbRowId: %s, tardatarowid: %s,  deletedRowId: %s, deleted: %v, pk: %v",
-				objEntry.ObjectName().ObjectId().String(),
-				curTbRowId.String(),
-				tbIter.Item().RowID.String(),
-				deletedRow.RowID.String(),
-				deletedRow.Deleted,
-				deletedRow.PrimaryIndexBytes[:]))
-
-			if !objEntry.ObjectName().ObjectId().Eq(*curTbRowId.BorrowObjectID()) || !tbIter.Item().RowID.Equal(deletedRow.RowID) {
-				logutil.Fatal("")
-			}
-
 			p.rows.Delete(deletedRow)
+			p.inMemTombstoneIndex.Delete(tbIter.Item())
 			if len(deletedRow.PrimaryIndexBytes) > 0 {
 				p.primaryIndex.Delete(&PrimaryIndexEntry{
 					Bytes:      deletedRow.PrimaryIndexBytes,
@@ -405,10 +388,6 @@ func (p *PartitionStateInProgress) HandleTombstoneObjectList(
 			}
 		}
 	}
-
-	//buf.WriteString(fmt.Sprint("after gc", p.rows.Len(), p.primaryIndex.Len(), p.inMemTombstoneIndex.Len()))
-	//fmt.Println(p.tid, buf.String())
-	//fmt.Println()
 
 	perfcounter.Update(ctx, func(c *perfcounter.CounterSet) {
 		c.DistTAE.Logtail.ActiveRows.Add(-numDeleted)
@@ -480,21 +459,23 @@ func (p *PartitionStateInProgress) HandleRowsDelete(
 
 		// primary key
 		if i < len(primaryKeys) && len(primaryKeys[i]) > 0 {
-			entry := &PrimaryIndexEntry{
+			pe := &PrimaryIndexEntry{
 				Bytes:      primaryKeys[i],
 				RowEntryID: entry.ID,
 				BlockID:    blockID,
 				RowID:      rowID,
 				Time:       entry.Time,
 			}
-			p.primaryIndex.Set(entry)
+			p.primaryIndex.Set(pe)
 		}
 
 		var tbRowId types.Rowid = tbRowIdVector[i]
 		index := PrimaryIndexEntry{
-			Bytes: tbRowId[:],
-			RowID: rowID,
-			Time:  entry.Time,
+			Bytes:      tbRowId.BorrowObjectID()[:],
+			BlockID:    entry.BlockID,
+			RowID:      entry.RowID,
+			Time:       entry.Time,
+			RowEntryID: entry.ID,
 		}
 
 		p.inMemTombstoneIndex.Set(&index)
