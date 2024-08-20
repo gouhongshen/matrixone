@@ -403,9 +403,8 @@ func (task *flushTableTailTask) Execute(ctx context.Context) (err error) {
 
 	phaseDesc = "1-merging persisted tombstones"
 	inst = time.Now()
-	if err = task.mergePersistedTombstones(ctx); err != nil {
-		return
-	}
+	// ignore error
+	_ = task.mergePersistedTombstones(ctx)
 	statWaitTombstoneMerge := time.Since(inst)
 
 	/////////////////////
@@ -873,7 +872,7 @@ func (task *flushTableTailTask) mergePersistedTombstones(ctx context.Context) er
 			tombstones = append(tombstones, tombstone)
 		}
 	}
-	if len(tombstones) == 0 {
+	if len(tombstones) < 2 {
 		return nil
 	}
 	scopes := make([]common.ID, 0, len(tombstones))
