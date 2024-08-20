@@ -351,4 +351,22 @@ var (
 
 	TxnReaderTombstoneZMSelectivityHistogram = txnReaderTombstoneSelectivityHistogram.WithLabelValues("zm_selectivity")
 	TxnReaderTombstoneBLSelectivityHistogram = txnReaderTombstoneSelectivityHistogram.WithLabelValues("bl_selectivity")
+	TransferTombstonesCountHistogram         = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "mo",
+		Subsystem: "txn",
+		Name:      "transfer_tombstones_count",
+		Help:      "The total number of transfer tombstones.",
+	})
+
+	txnTransferDurationHistogram = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "mo",
+			Subsystem: "txn",
+			Name:      "transfer_duration",
+			Help:      "Bucketed histogram of tombstones transfer durations.",
+			Buckets:   getDurationBuckets(),
+		}, []string{"type"})
+
+	TransferTombstonesDurationHistogram      = txnTransferDurationHistogram.WithLabelValues("tombstones")
+	BatchTransferTombstonesDurationHistogram = txnTransferDurationHistogram.WithLabelValues("batch")
 )

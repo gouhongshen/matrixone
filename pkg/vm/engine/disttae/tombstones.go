@@ -22,6 +22,11 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/options"
 	"sort"
 
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/index"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/options"
+	"go.uber.org/zap"
+
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/container/nulls"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
@@ -168,8 +173,72 @@ func (tomb *tombstoneData) HasAnyTombstoneFile() bool {
 	return tomb != nil && len(tomb.files) > 0
 }
 
-func (tomb *tombstoneData) HasTombstones() bool {
-	return tomb != nil && (len(tomb.rowids) > 0 || len(tomb.files) > 0)
+// false positive check
+func (tomb *tombstoneData) HasBlockTombstone(
+	ctx context.Context,
+	id objectio.Blockid,
+	fs fileservice.FileService,
+) (bool, error) {
+	if tomb == nil {
+		return false, nil
+	}
+	if len(tomb.rowids) > 0 {
+		// TODO: optimize binary search once
+		start, end := blockio.FindIntervalForBlock(tomb.rowids, &id)
+		if end > start {
+			return true, nil
+		}
+	}
+	if len(tomb.files) > 0 {
+		for i, end := 0, tomb.files.Len(); i < end; i++ {
+			objectStats := tomb.files.Get(i)
+			zm := objectStats.SortKeyZoneMap()
+			if zm.PrefixEq(id[:]) {
+				return true, nil
+			}
+			bf, err := objectio.FastLoadBF(
+				ctx,
+				objectStats.ObjectLocation(),
+				false,
+				fs,
+			)
+			if err != nil {
+				logutil.Error(
+					"LOAD-BF-ERROR",
+					zap.String("location", objectStats.ObjectLocation().String()),
+					zap.Error(err),
+				)
+				return false, err
+			}
+			oneBlockBF := index.NewEmptyBloomFilterWithType(index.HBF)
+			for idx, end := 0, int(objectStats.BlkCnt()); idx < end; idx++ {
+				buf := bf.GetBloomFilter(uint32(idx))
+				if err := index.DecodeBloomFilter(oneBlockBF, buf); err != nil {
+					logutil.Error(
+						"DECODE-BF-ERROR",
+						zap.String("location", objectStats.ObjectLocation().String()),
+						zap.Error(err),
+					)
+					return false, err
+				}
+				if exist, err := oneBlockBF.PrefixMayContainsKey(
+					id[:],
+					index.PrefixFnID_Block,
+					2,
+				); err != nil {
+					logutil.Error(
+						"PREFIX-MAY-CONTAINS-ERROR",
+						zap.String("location", objectStats.ObjectLocation().String()),
+						zap.Error(err),
+					)
+					return false, err
+				} else if exist {
+					return true, nil
+				}
+			}
+		}
+	}
+	return false, nil
 }
 
 // FIXME:
@@ -280,6 +349,7 @@ func (tomb *tombstoneData) Merge(other engine.Tombstoner) error {
 		tomb.rowids = append(tomb.rowids, v.rowids...)
 		tomb.files = append(tomb.files, v.files...)
 		tomb.SortInMemory()
+		return nil
 	}
 	return moerr.NewInternalErrorNoCtx(
 		"tombstone type mismatch %d, %d", tomb.Type(), other.Type(),
@@ -360,13 +430,19 @@ func (tomb *tombstoneDataWithDeltaLoc) StringWithPrefix(prefix string) string {
 	return w.String()
 }
 
-func (tomb *tombstoneDataWithDeltaLoc) HasTombstones() bool {
-	if len(tomb.inMemTombstones) == 0 &&
-		len(tomb.blk2UncommitLoc) == 0 &&
-		len(tomb.blk2CommitLoc) == 0 {
-		return false
+func (tomb *tombstoneDataWithDeltaLoc) HasBlockTombstone(
+	_ context.Context, bid objectio.Blockid, _ fileservice.FileService,
+) (bool, error) {
+	if _, ok := tomb.inMemTombstones[bid]; ok {
+		return true, nil
 	}
-	return true
+	if _, ok := tomb.blk2UncommitLoc[bid]; ok {
+		return true, nil
+	}
+	if _, ok := tomb.blk2CommitLoc[bid]; ok {
+		return true, nil
+	}
+	return false, nil
 }
 
 func (tomb *tombstoneDataWithDeltaLoc) UnmarshalBinary(buf []byte) error {
@@ -628,6 +704,7 @@ func (tomb *tombstoneDataWithDeltaLoc) Merge(other engine.Tombstoner) error {
 		for blkID, loc := range v.blk2CommitLoc {
 			tomb.blk2CommitLoc[blkID] = loc
 		}
+		return nil
 	}
 	return moerr.NewInternalErrorNoCtx("tombstone type mismatch")
 }

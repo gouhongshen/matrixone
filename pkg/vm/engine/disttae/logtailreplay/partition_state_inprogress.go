@@ -104,7 +104,7 @@ func (p *PartitionStateInProgress) HandleDataObjectList(
 	fs fileservice.FileService,
 	pool *mpool.MPool) {
 
-	var numDeleted, blockDeleted, scanCnt int64
+	var numDeleted, blockDeleted int64
 
 	statsVec := mustVectorFromProto(ee.Bat.Vecs[2])
 	defer statsVec.Free(pool)
@@ -147,7 +147,7 @@ func (p *PartitionStateInProgress) HandleDataObjectList(
 			continue
 		}
 
-		objEntry.EntryState = stateCol[idx]
+		objEntry.Appendable = stateCol[idx]
 		objEntry.CreateTime = createTSCol[idx]
 		objEntry.DeleteTime = deleteTSCol[idx]
 		objEntry.CommitTS = commitTSCol[idx]
@@ -172,7 +172,7 @@ func (p *PartitionStateInProgress) HandleDataObjectList(
 				Time:         createTSCol[idx],
 				ShortObjName: *objEntry.ObjectShortName(),
 				IsDelete:     false,
-				IsAppendable: objEntry.EntryState,
+				IsAppendable: objEntry.Appendable,
 			}
 			p.objectIndexByTS.Set(e)
 		}
@@ -190,12 +190,12 @@ func (p *PartitionStateInProgress) HandleDataObjectList(
 				Time:         deleteTSCol[idx],
 				IsDelete:     true,
 				ShortObjName: *objEntry.ObjectShortName(),
-				IsAppendable: objEntry.EntryState,
+				IsAppendable: objEntry.Appendable,
 			}
 			p.objectIndexByTS.Set(e)
 		}
 
-		if objEntry.EntryState && objEntry.DeleteTime.IsEmpty() {
+		if objEntry.Appendable && objEntry.DeleteTime.IsEmpty() {
 			panic("logic error")
 		}
 
@@ -218,10 +218,15 @@ func (p *PartitionStateInProgress) HandleDataObjectList(
 				}
 				scanCnt++
 
+				// cannot gc the inmem tombstone at this point
+				if entry.Deleted {
+					continue
+				}
+
 				// if the inserting block is appendable, need to delete the rows for it;
 				// if the inserting block is non-appendable and has delta location, need to delete
 				// the deletes for it.
-				if objEntry.EntryState {
+				if objEntry.Appendable {
 					if entry.Time.LessEq(&trunctPoint) {
 						// delete the row
 						p.rows.Delete(entry)
@@ -300,13 +305,7 @@ func (p *PartitionStateInProgress) HandleTombstoneObjectList(
 	commitTSCol := vector.MustFixedCol[types.TS](vec)
 
 	var tbIter = p.inMemTombstoneIndex.Copy().Iter()
-	//var rowIter = p.rows.Copy().Iter()
-
-	//var buf bytes.Buffer
-
-	//if p.tid == 272515 {
-	//buf.WriteString(fmt.Sprint("before gc", p.rows.Len(), p.primaryIndex.Len(), p.inMemTombstoneIndex.Len()))
-	//}
+	defer tbIter.Release()
 
 	for idx := 0; idx < statsVec.Length(); idx++ {
 		p.shared.Lock()
@@ -321,7 +320,7 @@ func (p *PartitionStateInProgress) HandleTombstoneObjectList(
 			continue
 		}
 
-		objEntry.EntryState = stateCol[idx]
+		objEntry.Appendable = stateCol[idx]
 		objEntry.CreateTime = createTSCol[idx]
 		objEntry.DeleteTime = deleteTSCol[idx]
 		objEntry.CommitTS = commitTSCol[idx]
@@ -350,12 +349,12 @@ func (p *PartitionStateInProgress) HandleTombstoneObjectList(
 
 		p.tombstoneObjets.Set(objEntry)
 
-		if objEntry.EntryState && objEntry.DeleteTime.IsEmpty() {
+		if objEntry.Appendable && objEntry.DeleteTime.IsEmpty() {
 			panic("logic error")
 		}
 
 		// for appendable object, gc rows when delete object
-		if !objEntry.EntryState {
+		if !objEntry.Appendable {
 			continue
 		}
 
@@ -365,18 +364,21 @@ func (p *PartitionStateInProgress) HandleTombstoneObjectList(
 		var rowId types.Rowid
 		copy((*rowId.BorrowObjectID())[:], (*objEntry.ObjectName().ObjectId())[:])
 
-		for ok := tbIter.Seek(&PrimaryIndexEntry{Bytes: rowId[:]}); ok; ok = tbIter.Next() {
+		for ok := tbIter.Seek(&PrimaryIndexEntry{
+			Bytes: objEntry.ObjectName().ObjectId()[:],
+		}); ok; ok = tbIter.Next() {
 			if truncatePoint.Less(&tbIter.Item().Time) {
 				continue
 			}
 
-			curTbRowId := types.Rowid(tbIter.Item().Bytes)
-			if !objEntry.ObjectName().ObjectId().Eq(*curTbRowId.BorrowObjectID()) {
+			current := types.Objectid(tbIter.Item().Bytes)
+			if !objEntry.ObjectName().ObjectId().Eq(current) {
 				break
 			}
 
 			if deletedRow, exist = p.rows.Get(RowEntry{
-				BlockID: *tbIter.Item().RowID.BorrowBlockID(),
+				ID:      tbIter.Item().RowEntryID,
+				BlockID: tbIter.Item().BlockID,
 				RowID:   tbIter.Item().RowID,
 				Time:    tbIter.Item().Time,
 			}); !exist {
@@ -397,6 +399,7 @@ func (p *PartitionStateInProgress) HandleTombstoneObjectList(
 			}
 
 			p.rows.Delete(deletedRow)
+			p.inMemTombstoneIndex.Delete(tbIter.Item())
 			if len(deletedRow.PrimaryIndexBytes) > 0 {
 				p.primaryIndex.Delete(&PrimaryIndexEntry{
 					Bytes:      deletedRow.PrimaryIndexBytes,
@@ -480,21 +483,23 @@ func (p *PartitionStateInProgress) HandleRowsDelete(
 
 		// primary key
 		if i < len(primaryKeys) && len(primaryKeys[i]) > 0 {
-			entry := &PrimaryIndexEntry{
+			pe := &PrimaryIndexEntry{
 				Bytes:      primaryKeys[i],
 				RowEntryID: entry.ID,
 				BlockID:    blockID,
 				RowID:      rowID,
 				Time:       entry.Time,
 			}
-			p.primaryIndex.Set(entry)
+			p.primaryIndex.Set(pe)
 		}
 
 		var tbRowId types.Rowid = tbRowIdVector[i]
 		index := PrimaryIndexEntry{
-			Bytes: tbRowId[:],
-			RowID: rowID,
-			Time:  entry.Time,
+			Bytes:      tbRowId.BorrowObjectID()[:],
+			BlockID:    entry.BlockID,
+			RowID:      entry.RowID,
+			Time:       entry.Time,
+			RowEntryID: entry.ID,
 		}
 
 		p.inMemTombstoneIndex.Set(&index)

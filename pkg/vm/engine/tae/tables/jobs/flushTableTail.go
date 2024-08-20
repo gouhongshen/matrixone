@@ -237,13 +237,7 @@ func NewFlushTableTailTask(
 		}
 	}
 
-	task.doTransfer = !strings.Contains(task.schema.Comment, pkgcatalog.MO_COMMENT_NO_DEL_HINT)
-	if task.doTransfer {
-		task.transMappings = make(api.TransferMaps, len(task.aObjHandles))
-		for i := range len(task.aObjHandles) {
-			task.transMappings[i] = make(api.TransferMap)
-		}
-	}
+	task.tombstoneSchema = rel.Schema(true).(*catalog.Schema)
 
 	task.BaseTask = tasks.NewBaseTask(task, tasks.DataCompactionTask, ctx)
 
@@ -457,6 +451,7 @@ func (task *flushTableTailTask) Execute(ctx context.Context) (err error) {
 		txnEntry,
 		nil,
 		nil,
+		nil,
 	); err != nil {
 		return
 	}
@@ -553,7 +548,7 @@ func (task *flushTableTailTask) prepareAObjSortedData(
 		return
 	}
 	if task.doTransfer {
-		mergesort.AddSortPhaseMapping(task.transMappings, objIdx, totalRowCnt, sortMapping)
+		mergesort.AddSortPhaseMapping(task.transMappings[objIdx], totalRowCnt, sortMapping)
 	}
 	return
 }
@@ -873,24 +868,35 @@ func (task *flushTableTailTask) mergePersistedTombstones(ctx context.Context) er
 			tombstones = append(tombstones, tombstone)
 		}
 	}
-	if len(tombstones) < 2 {
+	if len(tombstones) == 0 {
 		return nil
 	}
 	scopes := make([]common.ID, 0, len(tombstones))
 	for _, obj := range tombstones {
 		scopes = append(scopes, *obj.AsCommonID())
 	}
-	task.txn.GetMemo().IsFlushOrMerge = true
-	tombstoneTask, err := NewMergeObjectsTask(tasks.WaitableCtx,
-		task.txn,
-		tombstones,
-		task.rt,
-		common.DefaultMaxOsizeObjMB*common.Const1MBytes,
-		true)
-	if err != nil {
-		return err
+	factory := func(ctx *tasks.Context, txn txnif.AsyncTxn) (tasks.Task, error) {
+		txn.GetMemo().IsFlushOrMerge = true
+		return NewMergeObjectsTask(
+			ctx,
+			txn,
+			tombstones,
+			task.rt,
+			common.DefaultMaxOsizeObjMB*common.Const1MBytes,
+			true,
+		)
 	}
-	return tombstoneTask.Execute(ctx)
+	_, err := task.rt.Scheduler.ScheduleMultiScopedTxnTask(tasks.WaitableCtx, tasks.DataCompactionTask, scopes, factory)
+	return err
+
+	// TODO
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//ctx, cancel := context.WithTimeout(ctx, 6*time.Minute)
+	//defer cancel()
+	//return tombstoneTask.WaitDone(ctx)
 }
 
 func releaseFlushObjTasks(ftask *flushTableTailTask, subtasks []*flushObjTask, err error) {

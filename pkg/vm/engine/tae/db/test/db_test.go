@@ -64,7 +64,6 @@ import (
 	"github.com/panjf2000/ants/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"sort"
 
 	"net/http"
 	_ "net/http/pprof"
@@ -644,7 +643,7 @@ func TestAddObjsWithMetaLoc(t *testing.T) {
 		t.Log(db.Catalog.SimplePPString(3))
 		cntOfAblk := 0
 		cntOfblk := 0
-		testutil.ForEachObject(rel, func(blk handle.Object) (err error) {
+		testutil.ForEachObject(t, rel, func(blk handle.Object) (err error) {
 			var view *containers.Batch
 			if blk.IsAppendable() {
 				err := blk.Scan(ctx, &view, 0, []int{3}, common.DefaultAllocator)
@@ -680,7 +679,7 @@ func TestAddObjsWithMetaLoc(t *testing.T) {
 		cntOfAobj := 0
 		cntOfobj := 0
 		txn, rel = testutil.GetRelation(t, 0, db, "db", schema.Name)
-		testutil.ForEachObject(rel, func(obj handle.Object) (err error) {
+		testutil.ForEachObject(t, rel, func(obj handle.Object) (err error) {
 			if obj.IsAppendable() {
 				cntOfAobj++
 				return
@@ -4136,7 +4135,7 @@ func TestBlockRead(t *testing.T) {
 
 			info := &objectio.BlockInfo{
 				BlockID:    *objectio.NewBlockidWithObjectID(bid, 0),
-				EntryState: false,
+				Appendable: false, // TODO: jxm
 			}
 			metaloc := objectEntry.ObjectLocation()
 			metaloc.SetRows(schema.BlockMaxRows)
@@ -4200,7 +4199,7 @@ func TestBlockRead(t *testing.T) {
 			assert.Equal(t, 16, b4.Vecs[0].Length())
 
 			// read rowid column only
-			info.EntryState = false
+			info.Appendable = false
 			b5, err := blockio.BlockDataReadInner(
 				context.Background(), "", info,
 				ds, []uint16{2},
@@ -5212,6 +5211,186 @@ func TestInsertPerf(t *testing.T) {
 	}
 	wg.Wait()
 	t.Log(time.Since(now))
+}
+
+func TestUpdatePerf(t *testing.T) {
+	t.Skip(any("for debug"))
+	ctx := context.Background()
+
+	totalCnt := 4000
+	poolSize := 2
+	cnt := totalCnt / poolSize
+
+	opts := config.WithLongScanAndCKPOpts(nil)
+	tae := testutil.NewTestEngine(ctx, ModuleName, t, opts)
+	defer tae.Close()
+	schema := catalog.MockSchemaAll(10, 2)
+	schema.BlockMaxRows = 1000
+	schema.ObjectMaxBlocks = 5
+	tae.BindSchema(schema)
+
+	bat := catalog.MockBatch(schema, poolSize)
+	defer bat.Close()
+
+	tae.CreateRelAndAppend(bat, true)
+	var wg sync.WaitGroup
+	run := func(idx int) func() {
+		return func() {
+			defer wg.Done()
+			v := bat.Vecs[schema.GetSingleSortKeyIdx()].Get(idx)
+			filter := handle.NewEQFilter(v)
+			for i := 0; i < cnt; i++ {
+				txn, rel := tae.GetRelation()
+				err := rel.UpdateByFilter(context.Background(), filter, 0, int8(0), false)
+				assert.NoError(t, err)
+				err = txn.Commit(context.Background())
+				assert.NoError(t, err)
+				if i%50 == 0 {
+					t.Logf("lalala %d", i)
+				}
+			}
+		}
+	}
+
+	p, _ := ants.NewPool(poolSize)
+	defer p.Release()
+	now := time.Now()
+	for i := 0; i < poolSize; i++ {
+		wg.Add(1)
+		_ = p.Submit(run(i))
+	}
+	wg.Wait()
+	t.Log(time.Since(now))
+}
+
+func TestUpdatePerf2(t *testing.T) {
+	t.Skip(any("for debug"))
+	ctx := context.Background()
+
+	totalCnt := 10000000
+	deleteCnt := 1000000
+	updateCnt := 100000
+	poolSize := 200
+
+	opts := config.WithLongScanAndCKPOpts(nil)
+	tae := testutil.NewTestEngine(ctx, ModuleName, t, opts)
+	defer tae.Close()
+	schema := catalog.MockSchemaAll(3, 2)
+	schema.BlockMaxRows = 1000
+	schema.ObjectMaxBlocks = 5
+	tae.BindSchema(schema)
+
+	bat := catalog.MockBatch(schema, totalCnt)
+	defer bat.Close()
+
+	tae.CreateRelAndAppend(bat, true)
+	tae.CompactBlocks(true)
+
+	txn, rel := tae.GetRelation()
+	it := rel.MakeObjectIt(false)
+	blkCnt := totalCnt / int(schema.BlockMaxRows)
+	deleteEachBlock := deleteCnt / blkCnt
+	t.Logf("%d blocks", blkCnt)
+	blkIdx := 0
+	for it.Next() {
+		txn2, rel2 := tae.GetRelation()
+		obj := it.GetObject()
+		meta := obj.GetMeta().(*catalog.ObjectEntry)
+		id := meta.AsCommonID()
+		for i := 0; i < meta.BlockCnt(); i++ {
+			id.SetBlockOffset(uint16(i))
+			for j := 0; j < deleteEachBlock; j++ {
+				idx := uint32(rand.Intn(int(schema.BlockMaxRows)))
+				rel2.RangeDelete(id, idx, idx, handle.DT_Normal)
+			}
+			blkIdx++
+			if blkIdx%50 == 0 {
+				t.Logf("lalala %d blk", blkIdx)
+			}
+		}
+		txn2.Commit(ctx)
+		tae.CompactBlocks(true)
+	}
+	it.Close()
+	txn.Commit(ctx)
+
+	var wg sync.WaitGroup
+	var now time.Time
+	run := func(index int) func() {
+		return func() {
+			defer wg.Done()
+			for i := 0; i < (updateCnt)/poolSize; i++ {
+				idx := rand.Intn(totalCnt)
+				v := bat.Vecs[schema.GetSingleSortKeyIdx()].Get(idx)
+				filter := handle.NewEQFilter(v)
+				txn, rel := tae.GetRelation()
+				rel.UpdateByFilter(context.Background(), filter, 0, int8(0), false)
+				txn.Commit(context.Background())
+				if index == 0 && i%50 == 0 {
+					logutil.Infof("lalala %d", i)
+				}
+			}
+		}
+	}
+	t.Log("start update")
+	now = time.Now()
+
+	p, _ := ants.NewPool(poolSize)
+	defer p.Release()
+	for i := 0; i < poolSize; i++ {
+		wg.Add(1)
+		_ = p.Submit(run(i))
+	}
+	wg.Wait()
+	t.Log(time.Since(now))
+}
+
+func TestDeletePerf(t *testing.T) {
+	t.Skip(any("for debug"))
+	ctx := context.Background()
+
+	opts := config.WithQuickScanAndCKPAndGCOpts(nil)
+	tae := testutil.NewTestEngine(ctx, ModuleName, t, opts)
+	defer tae.Close()
+	schema := catalog.MockSchemaAll(10, 2)
+	schema.BlockMaxRows = 1000
+	schema.ObjectMaxBlocks = 5
+	tae.BindSchema(schema)
+
+	totalCount := 50000
+	poolSize := 20
+	cnt := totalCount / poolSize
+
+	bat := catalog.MockBatch(schema, totalCount)
+	defer bat.Close()
+
+	tae.CreateRelAndAppend(bat, true)
+	var wg sync.WaitGroup
+	run := func(start int) func() {
+		return func() {
+			defer wg.Done()
+			for i := start * cnt; i < start*cnt+cnt; i++ {
+				v := bat.Vecs[schema.GetSingleSortKeyIdx()].Get(i)
+				filter := handle.NewEQFilter(v)
+				txn, rel := tae.GetRelation()
+				err := rel.DeleteByFilter(context.Background(), filter)
+				assert.NoError(t, err)
+				err = txn.Commit(context.Background())
+				assert.NoError(t, err)
+			}
+		}
+	}
+
+	p, _ := ants.NewPool(poolSize)
+	defer p.Release()
+	now := time.Now()
+	for i := 0; i < poolSize; i++ {
+		wg.Add(1)
+		_ = p.Submit(run(i))
+	}
+	wg.Wait()
+	t.Log(time.Since(now))
+	t.Log(tae.Catalog.SimplePPString(3))
 }
 
 func TestUpdatePerf(t *testing.T) {
@@ -7804,6 +7983,46 @@ func TestDedupSnapshot3(t *testing.T) {
 		require.Equal(t, totalRows, rows)
 	}
 	require.NoError(t, txn.Commit(context.Background()))
+}
+
+func TestSoftDeleteRollback(t *testing.T) {
+	defer testutils.AfterTest(t)()
+	ctx := context.Background()
+	opts := config.WithLongScanAndCKPOpts(nil)
+	tae := testutil.NewTestEngine(ctx, ModuleName, t, opts)
+	defer tae.Close()
+	schema := catalog.MockSchemaAll(2, 1)
+	schema.BlockMaxRows = 20
+	schema.Name = "testtable"
+	tae.BindSchema(schema)
+	bat := catalog.MockBatch(schema, 50)
+	defer bat.Close()
+
+	tae.CreateRelAndAppend(bat, true)
+
+	// flush the table
+	txn2, rel := tae.GetRelation()
+	metas := testutil.GetAllBlockMetas(rel, false)
+	task, err := jobs.NewFlushTableTailTask(nil, txn2, metas, nil, tae.Runtime, types.MaxTs())
+	assert.NoError(t, err)
+	err = task.OnExec(context.Background())
+	assert.NoError(t, err)
+	assert.NoError(t, txn2.Commit(context.Background()))
+
+	txn, rel := tae.GetRelation()
+	it := rel.MakeObjectIt(false)
+	var obj *catalog.ObjectEntry
+	for it.Next() {
+		obj = it.GetObject().GetMeta().(*catalog.ObjectEntry)
+		if obj.IsActive() && !obj.IsAppendable() {
+			break
+		}
+	}
+	t.Log(obj.ID().String())
+	require.NoError(t, txn.GetStore().SoftDeleteObject(false, obj.AsCommonID()))
+	require.NoError(t, txn.Rollback(ctx))
+
+	tae.CheckRowsByScan(50, false)
 }
 
 func TestDeduplication(t *testing.T) {
