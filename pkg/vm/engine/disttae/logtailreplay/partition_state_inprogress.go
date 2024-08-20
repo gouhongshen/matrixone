@@ -104,7 +104,7 @@ func (p *PartitionStateInProgress) HandleDataObjectList(
 	fs fileservice.FileService,
 	pool *mpool.MPool) {
 
-	var numDeleted, blockDeleted, scanCnt int64
+	var numDeleted, blockDeleted int64
 
 	statsVec := mustVectorFromProto(ee.Bat.Vecs[2])
 	defer statsVec.Free(pool)
@@ -216,7 +216,11 @@ func (p *PartitionStateInProgress) HandleDataObjectList(
 				if entry.BlockID != *blkID {
 					break
 				}
-				scanCnt++
+
+				// cannot gc the inmem tombstone at this point
+				if entry.Deleted {
+					continue
+				}
 
 				// if the inserting block is appendable, need to delete the rows for it;
 				// if the inserting block is non-appendable and has delta location, need to delete
