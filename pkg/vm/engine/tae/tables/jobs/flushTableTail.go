@@ -873,7 +873,7 @@ func (task *flushTableTailTask) mergePersistedTombstones(ctx context.Context) er
 			tombstones = append(tombstones, tombstone)
 		}
 	}
-	if len(tombstones) == 0 {
+	if len(tombstones) < 2 {
 		return nil
 	}
 	scopes := make([]common.ID, 0, len(tombstones))
