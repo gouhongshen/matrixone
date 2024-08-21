@@ -15,7 +15,7 @@
 package deletion
 
 import (
-	"sort"
+	"slices"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
@@ -24,7 +24,6 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/container/nulls"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
-	"github.com/matrixorigin/matrixone/pkg/objectio"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec"
 	"github.com/matrixorigin/matrixone/pkg/sql/plan"
 	"github.com/matrixorigin/matrixone/pkg/vm"
@@ -208,12 +207,9 @@ func (deletion *Deletion) SplitBatch(proc *process.Process, srcBat *batch.Batch)
 }
 
 func (ctr *container) flush(proc *process.Process) (uint32, error) {
-	var err error
 	resSize := uint32(0)
 	for pidx, blockId_rowIdBatch := range ctr.partitionId_blockId_rowIdBatch {
-		s3writer := &colexec.S3Writer{}
-		s3writer.SetSortIdx(0)
-		_, err = s3writer.GenerateWriter(proc)
+		s3writer, err := colexec.NewS3TombstoneWriter()
 		if err != nil {
 			return 0, err
 		}
@@ -225,25 +221,20 @@ func (ctr *container) flush(proc *process.Process) (uint32, error) {
 			}
 			blkids = append(blkids, blkid)
 		}
-
-		sort.Slice(blkids, func(i, j int) bool {
-			return blkids[i].Less(blkids[j])
+		slices.SortFunc(blkids, func(a, b types.Blockid) int {
+			return a.Compare(b)
 		})
-
 		for _, blkid := range blkids {
 			bat := blockId_rowIdBatch[blkid]
 
-			err = s3writer.WriteBlock(bat, objectio.SchemaTombstone)
-			if err != nil {
-				return 0, err
-			}
+			s3writer.WriteBatch(proc, bat)
 			resSize += uint32(bat.Size())
 			bat.CleanOnlyData()
 			ctr.pool.put(bat)
 			delete(blockId_rowIdBatch, blkid)
 		}
 
-		blkInfos, _, err := s3writer.WriteEndBlocks(proc)
+		blkInfos, _, err := s3writer.SortAndSync(proc)
 		if err != nil {
 			return 0, err
 		}
