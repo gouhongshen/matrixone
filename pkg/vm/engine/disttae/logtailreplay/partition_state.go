@@ -222,13 +222,48 @@ type PrimaryIndexEntry struct {
 	Time    types.TS
 }
 
+//func (p *PrimaryIndexEntry) Less(than *PrimaryIndexEntry) bool {
+//	if res := bytes.Compare(p.Bytes, than.Bytes); res < 0 {
+//		return true
+//	} else if res > 0 {
+//		return false
+//	}
+//	return p.RowEntryID < than.RowEntryID
+//}
+
+// Less attention:
+// for the same pk val
+// case 1:
+//
+//	   (txn1)insert --> (txn2)delete
+//			pk1 = pk2
+//		    ts1 != ts2
+//	     row1 = row2
+//
+// case 2:
+//
+//	  (txn) update | (txn) delete insert
+//		pk1 = pk2
+//		ts1 = ts2
+//		row1 != row2
+//
+// for the same PK value, the latest always be the very first one.
+//
+// Note that: pk val need to be ordered with ascending.
 func (p *PrimaryIndexEntry) Less(than *PrimaryIndexEntry) bool {
-	if res := bytes.Compare(p.Bytes, than.Bytes); res < 0 {
-		return true
-	} else if res > 0 {
-		return false
+	if res := bytes.Compare(p.Bytes, than.Bytes); res != 0 {
+		return res < 0
 	}
-	return p.RowEntryID < than.RowEntryID
+
+	if res := p.Time.Compare(&than.Time); res != 0 {
+		return res > 0
+	}
+
+	if res := bytes.Compare(p.BlockID[:], than.BlockID[:]); res != 0 {
+		return res > 0
+	}
+
+	return p.RowID.GetRowOffset() > than.RowID.GetRowOffset()
 }
 
 type ObjectIndexByTSEntry struct {

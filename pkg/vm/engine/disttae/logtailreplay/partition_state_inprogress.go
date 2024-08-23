@@ -233,6 +233,8 @@ func (p *PartitionStateInProgress) HandleDataObjectList(
 						// delete the row's primary index
 						if len(entry.PrimaryIndexBytes) > 0 {
 							p.primaryIndex.Delete(&PrimaryIndexEntry{
+								Time:       entry.Time,
+								RowID:      entry.RowID,
 								Bytes:      entry.PrimaryIndexBytes,
 								RowEntryID: entry.ID,
 							})
@@ -363,6 +365,7 @@ func (p *PartitionStateInProgress) HandleTombstoneObjectList(
 
 		for ok := tbIter.Seek(&PrimaryIndexEntry{
 			Bytes: objEntry.ObjectName().ObjectId()[:],
+			Time:  types.MaxTs(),
 		}); ok; ok = tbIter.Next() {
 			if truncatePoint.Less(&tbIter.Item().Time) {
 				continue
@@ -386,6 +389,8 @@ func (p *PartitionStateInProgress) HandleTombstoneObjectList(
 			p.inMemTombstoneIndex.Delete(tbIter.Item())
 			if len(deletedRow.PrimaryIndexBytes) > 0 {
 				p.primaryIndex.Delete(&PrimaryIndexEntry{
+					Time:       deletedRow.Time,
+					RowID:      deletedRow.RowID,
 					Bytes:      deletedRow.PrimaryIndexBytes,
 					RowEntryID: deletedRow.ID,
 				})
@@ -744,7 +749,9 @@ func (p *PartitionStateInProgress) PKExistInMemBetween(
 	pivot := RowEntry{
 		Time: types.BuildTS(math.MaxInt64, math.MaxUint32),
 	}
-	idxEntry := &PrimaryIndexEntry{}
+	idxEntry := &PrimaryIndexEntry{
+		Time: types.MaxTs(),
+	}
 	defer iter.Release()
 
 	for _, key := range keys {

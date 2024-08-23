@@ -215,7 +215,7 @@ func newMemPKFilter(
 		return
 	}
 
-	filter.tryConstructPrimaryKeyIndexIter(ts)
+	filter.tryConstructPrimaryKeyIndexIter(ts, tableDef.Name)
 	return
 }
 
@@ -239,13 +239,18 @@ func (f *MemPKFilter) SetFullData(op int, isVec bool, val ...[]byte) {
 	f.isValid = true
 }
 
-func (f *MemPKFilter) tryConstructPrimaryKeyIndexIter(ts timestamp.Timestamp) {
+func (f *MemPKFilter) tryConstructPrimaryKeyIndexIter(ts timestamp.Timestamp, name string) {
 	if !f.isValid {
 		return
 	}
 
 	switch f.op {
-	case function.EQUAL, function.PREFIX_EQ:
+	case function.EQUAL:
+		f.SpecFactory = func(f *MemPKFilter) logtailreplay.PrimaryKeyMatchSpec {
+			return logtailreplay.Exact(f.packed[0], name)
+		}
+
+	case function.PREFIX_EQ:
 		//spec = logtailreplay.Prefix(f.packed[0])
 		f.SpecFactory = func(f *MemPKFilter) logtailreplay.PrimaryKeyMatchSpec {
 			return logtailreplay.Prefix(f.packed[0])
