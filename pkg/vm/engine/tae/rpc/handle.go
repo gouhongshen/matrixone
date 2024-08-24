@@ -771,21 +771,17 @@ func (h *Handle) HandleWrite(
 			defer closeFunc()
 			blkids := getBlkIDsFromRowids(vectors[0].GetDownstreamVector())
 			id := tb.GetMeta().(*catalog.TableEntry).AsCommonID()
-			if len(blkids) == 1 {
-				for blkID := range blkids {
-					id.BlockID = blkID
-				}
-				ok, err = tb.TryDeleteByDeltaloc(id, location)
-				if err != nil {
-					return
-				}
-				if ok {
-					continue
-				}
-				logutil.Warnf("blk %v try delete by deltaloc failed", id.BlockID.String())
-			} else {
-				logutil.Warnf("multiply blocks in one deltalocation")
+			for blkID := range blkids {
+				id.BlockID = blkID
 			}
+			ok, err = tb.TryDeleteByDeltaloc(id, location)
+			if err != nil {
+				return
+			}
+			if ok {
+				continue
+			}
+			logutil.Warnf("blk %v try delete by deltaloc failed", id.BlockID.String())
 			rowIDVec := vectors[0]
 			defer rowIDVec.Close()
 			pkVec := vectors[1]

@@ -320,6 +320,7 @@ func collectBatchInfo(proc *process.Process, deletion *Deletion, destBatch *batc
 	var batchSize int
 	for _, bat := range deletion.ctr.partitionId_blockId_rowIdBatch[pIdx] {
 		batchSize += bat.Size()
+		bat.SetRowCount(bat.Vecs[0].Length())
 	}
 	deletion.ctr.batch_size = uint32(batchSize)
 }
