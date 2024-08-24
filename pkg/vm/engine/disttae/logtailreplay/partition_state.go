@@ -220,6 +220,7 @@ type PrimaryIndexEntry struct {
 	BlockID types.Blockid
 	RowID   types.Rowid
 	Time    types.TS
+	Deleted bool
 }
 
 //func (p *PrimaryIndexEntry) Less(than *PrimaryIndexEntry) bool {

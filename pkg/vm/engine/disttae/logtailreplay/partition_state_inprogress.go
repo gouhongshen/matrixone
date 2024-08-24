@@ -474,6 +474,7 @@ func (p *PartitionStateInProgress) HandleRowsDelete(
 				BlockID:    blockID,
 				RowID:      rowID,
 				Time:       entry.Time,
+				Deleted:    entry.Deleted,
 			}
 			p.primaryIndex.Set(pe)
 		}
@@ -555,6 +556,7 @@ func (p *PartitionStateInProgress) HandleRowsInsert(
 				BlockID:    blockID,
 				RowID:      rowID,
 				Time:       entry.Time,
+				Deleted:    entry.Deleted,
 			}
 			p.primaryIndex.Set(entry)
 		}

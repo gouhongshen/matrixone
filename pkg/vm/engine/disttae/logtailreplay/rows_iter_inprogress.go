@@ -80,6 +80,7 @@ func (p *PartitionStateInProgress) NewPrimaryKeyDelIter(
 			primaryIndex: index,
 			iter:         index.Iter(),
 			rows:         p.rows.Copy(),
+			checkBlockID: true,
 		},
 		bid: bid,
 	}

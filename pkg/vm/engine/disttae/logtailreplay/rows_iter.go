@@ -16,12 +16,10 @@ package logtailreplay
 
 import (
 	"bytes"
-	"fmt"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/sql/plan/function"
 	"github.com/tidwall/btree"
-	"strings"
 )
 
 type RowsIter interface {
@@ -119,6 +117,7 @@ type primaryKeyIter struct {
 	rows         *btree.BTreeG[RowEntry]
 	primaryIndex *btree.BTreeG[*PrimaryIndexEntry]
 	curRow       RowEntry
+	checkBlockID bool
 }
 
 type PrimaryKeyMatchSpec struct {
@@ -128,49 +127,70 @@ type PrimaryKeyMatchSpec struct {
 }
 
 func Exact(key []byte, tableName string) PrimaryKeyMatchSpec {
-	var buf bytes.Buffer
+	//var buf bytes.Buffer
+	//
+	//	bb, _ := types.Unpack(key)
+	//buf.WriteString(fmt.Sprintf("key: %s", bb.String()))
+	//buf.WriteString("\n")
+	//
+	//debug := strings.Contains(tableName, "bmsql_district") || strings.Contains(tableName, "bmsql_warehouse")
 
-	bb, _ := types.Unpack(key)
-	buf.WriteString(fmt.Sprintf("key: %s", bb.String()))
-	buf.WriteString("\n")
-
+	cnt := 1
 	first := true
 	return PrimaryKeyMatchSpec{
 		Name: "Exact",
-		Move: func(p *primaryKeyIter) bool {
-			var ok bool
+		Move: func(p *primaryKeyIter) (ok bool) {
+			//defer func() {
+			//	if debug && ok {
+			//		fmt.Println()
+			//		fmt.Println()
+			//	}
+			//}()
 			if first {
-				ii := p.primaryIndex.Iter()
-				ii.First()
-				for ii.Next() {
-					bb, _ = types.Unpack(ii.Item().Bytes)
-					buf.WriteString(fmt.Sprintf("has: %s, %s, %s", bb.String(), ii.Item().Time.ToString(), ii.Item().RowID.String()))
-					buf.WriteString("\n")
-				}
-				ii.Release()
+				//ii := p.primaryIndex.Iter()
+				//ii.First()
+				//for ii.Next() {
+				//	bb, _ = types.Unpack(ii.Item().Bytes)
+				//	buf.WriteString(fmt.Sprintf("has: %s, %s, %s, %v",
+				//		bb.String(), ii.Item().Time.ToString(), ii.Item().RowID.String(), ii.Item().Deleted))
+				//	buf.WriteString("\n")
+				//}
+				//ii.Release()
 
 				first = false
 				ok = p.iter.Seek(&PrimaryIndexEntry{
 					Bytes: key,
-					Time:  types.MaxTs(),
+					Time:  p.ts,
 				})
 
-				if ok {
-					bb, _ = types.Unpack(p.iter.Item().Bytes)
-					buf.WriteString(fmt.Sprintf("seek: %v, %s, %s, %s", ok, bb.String(), p.iter.Item().Time.ToString(), p.iter.Item().RowID.String()))
-				} else {
-					buf.WriteString("seek false")
-				}
-
-				buf.WriteString("\n")
-				if strings.Contains(tableName, "mo_tables") {
-					fmt.Println(buf.String(), "\n")
-				}
+				//if ok {
+				//	bb, _ = types.Unpack(p.iter.Item().Bytes)
+				//	buf.WriteString(fmt.Sprintf("seek: %v, %s, %s, %s, %v",
+				//		ok, bb.String(), p.iter.Item().Time.ToString(),
+				//		p.iter.Item().RowID.String(), p.iter.Item().Deleted))
+				//} else {
+				//	buf.WriteString("seek false")
+				//}
+				//
+				//buf.WriteString("\n")
+				//if debug {
+				//	fmt.Println(buf.String(), "\n")
+				//}
 
 			} else {
+				if cnt <= 0 && !p.checkBlockID {
+					return false
+				}
+				cnt--
 				// exact only need to find the latest item.
-				//ok = p.iter.Next()
-				return false
+				ok = p.iter.Next()
+				//if ok && debug {
+				//	bb, _ = types.Unpack(p.iter.Item().Bytes)
+				//	fmt.Printf("return, %v, %s, %s, %s, %v\n",
+				//		ok, bb.String(), p.iter.Item().Time.ToString(),
+				//		p.iter.Item().RowID.String(), p.iter.Item().Deleted)
+				//}
+				//return false
 			}
 
 			if !ok {
@@ -193,7 +213,7 @@ func Prefix(prefix []byte) PrimaryKeyMatchSpec {
 				first = false
 				ok = p.iter.Seek(&PrimaryIndexEntry{
 					Bytes: prefix,
-					Time:  types.MaxTs(),
+					Time:  p.ts,
 				})
 			} else {
 				ok = p.iter.Next()
@@ -268,7 +288,7 @@ func BetweenKind(lb, ub []byte, kind int) PrimaryKeyMatchSpec {
 				first = false
 				if ok = p.iter.Seek(&PrimaryIndexEntry{
 					Bytes: lb,
-					Time:  types.MaxTs(),
+					Time:  p.ts,
 				}); ok {
 					ok = seek2First(&p.iter)
 				}
@@ -330,7 +350,7 @@ func GreatKind(lb []byte, closed bool) PrimaryKeyMatchSpec {
 				first = false
 				ok = p.iter.Seek(&PrimaryIndexEntry{
 					Bytes: lb,
-					Time:  types.MaxTs(),
+					Time:  p.ts,
 				})
 
 				for ok && !closed && bytes.Equal(p.iter.Item().Bytes, lb) {
@@ -418,7 +438,7 @@ func InKind(encodes [][]byte, kind int) PrimaryKeyMatchSpec {
 					}
 					if !p.iter.Seek(&PrimaryIndexEntry{
 						Bytes: encoded,
-						Time:  types.MaxTs(),
+						Time:  p.ts,
 					}) {
 						return false
 					}
