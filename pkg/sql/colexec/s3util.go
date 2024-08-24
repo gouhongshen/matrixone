@@ -346,7 +346,7 @@ func (w *S3Writer) SortAndSync(proc *process.Process) ([]objectio.BlockInfo, []o
 	}()
 
 	if w.sortIndex == -1 {
-		if _, err := w.generateWriter(proc); err != nil {
+		if err := w.generateWriter(proc); err != nil {
 			return nil, nil, err
 		}
 
@@ -420,7 +420,7 @@ func (w *S3Writer) SortAndSync(proc *process.Process) ([]objectio.BlockInfo, []o
 		// Update Oct 20 2023: I don't think it is necessary to add T_array here. Keeping this comment,
 		// in case anything fails in vector S3 flush in future.
 	}
-	if _, err := w.generateWriter(proc); err != nil {
+	if err := w.generateWriter(proc); err != nil {
 		return nil, nil, err
 	}
 	lens := 0
@@ -460,44 +460,41 @@ func (w *S3Writer) putBatch(bat *batch.Batch) {
 	w.tableBatchPool = append(w.tableBatchPool, bat)
 }
 
-func (w *S3Writer) generateWriter(proc *process.Process) (objectio.ObjectName, error) {
+func (w *S3Writer) generateWriter(proc *process.Process) error {
 	// Use uuid as segment id
 	// TODO: multiple 64m file in one segment
 	obj := Get().GenerateObject()
 	s3, err := fileservice.Get[fileservice.FileService](proc.GetFileService(), defines.SharedFileServiceName)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	w.writer, err = blockio.NewBlockWriterNew(s3, obj, w.schemaVersion, w.seqnums)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if w.sortIndex > -1 {
 		w.writer.SetSortKey(uint16(w.sortIndex))
 	}
 
-	if w.pk > -1 {
-		pkIdx := uint16(w.pk)
-		if !w.isTombstone {
-			w.writer.SetPrimaryKey(pkIdx)
-		} else {
+	if w.isTombstone {
+		w.writer.SetDataType(objectio.SchemaTombstone)
+		if w.pk > -1 {
 			w.writer.SetPrimaryKeyWithType(
-				pkIdx,
+				uint16(w.pk),
 				index.HBF,
 				index.ObjectPrefixFn,
 				index.BlockPrefixFn,
 			)
 		}
-	}
-
-	if w.isTombstone {
-		w.writer.SetDataType(objectio.SchemaTombstone)
 	} else {
 		w.writer.SetDataType(objectio.SchemaData)
+		if w.pk > -1 {
+			w.writer.SetPrimaryKey(uint16(w.pk))
+		}
 	}
 
-	return obj, err
+	return err
 }
 
 // reference to pkg/sql/colexec/order/order.go logic
