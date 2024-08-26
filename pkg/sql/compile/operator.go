@@ -577,7 +577,7 @@ func dupOperator(sourceOp vm.Operator, regMap map[*process.WaitRegister]*process
 		return op
 	case vm.Deletion:
 		t := sourceOp.(*deletion.Deletion)
-		op := deletion.NewArgument()
+		op := deletion.NewArgument(t.DeletionFlushThreshold)
 		op.IBucket = t.IBucket
 		op.Nbucket = t.Nbucket
 		op.DeleteCtx = t.DeleteCtx
@@ -640,7 +640,11 @@ func constructDeletion(n *plan.Node, eg engine.Engine) (*deletion.Deletion, erro
 		Engine:                eg,
 	}
 
-	op := deletion.NewArgument()
+	flushThreshold := int32(0)
+	if tuner := eg.TestingTuner(); tuner != nil {
+		flushThreshold = tuner.DeletionFlushThreshold
+	}
+	op := deletion.NewArgument(flushThreshold)
 	op.DeleteCtx = delCtx
 	return op, nil
 }

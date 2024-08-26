@@ -86,6 +86,8 @@ type Deletion struct {
 	IBucket      uint32
 	Nbucket      uint32
 
+	DeletionFlushThreshold int32
+
 	vm.OperatorBase
 }
 
@@ -110,8 +112,14 @@ func (deletion Deletion) TypeName() string {
 	return opName
 }
 
-func NewArgument() *Deletion {
-	return reuse.Alloc[Deletion](nil)
+func NewArgument(deletionFlushThreshold int32) *Deletion {
+	deletion := reuse.Alloc[Deletion](nil)
+	if deletionFlushThreshold == 0 {
+		deletion.DeletionFlushThreshold = flushThreshold
+	} else {
+		deletion.DeletionFlushThreshold = deletionFlushThreshold
+	}
+	return deletion
 }
 
 func (deletion *Deletion) Release() {
@@ -196,7 +204,7 @@ func (deletion *Deletion) SplitBatch(proc *process.Process, srcBat *batch.Batch)
 		collectBatchInfo(proc, deletion, srcBat, deletion.DeleteCtx.RowIdIdx, 0, delCtx.PrimaryKeyIdx)
 	}
 	// we will flush all
-	if deletion.ctr.batch_size >= flushThreshold {
+	if deletion.ctr.batch_size >= uint32(deletion.DeletionFlushThreshold) {
 		size, err := deletion.ctr.flush(proc)
 		if err != nil {
 			return err

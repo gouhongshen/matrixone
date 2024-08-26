@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
+	"github.com/matrixorigin/matrixone/pkg/common/tuner"
 	"github.com/matrixorigin/matrixone/pkg/defines"
 	"github.com/matrixorigin/matrixone/pkg/pb/plan"
 	pb "github.com/matrixorigin/matrixone/pkg/pb/statsinfo"
@@ -112,4 +113,8 @@ func (e *EntireEngine) GetMessageCenter() any {
 
 func (e *EntireEngine) GetService() string {
 	return e.Engine.GetService()
+}
+
+func (e *EntireEngine) TestingTuner() *tuner.EngineTestingTuner {
+	return e.Engine.TestingTuner()
 }

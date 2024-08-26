@@ -3039,7 +3039,13 @@ func (c *Compile) compileDelete(n *plan.Node, ss []*Scope) ([]*Scope, error) {
 	arg.SetAnalyzeControl(c.anal.curNodeIdx, currentFirstFlag)
 	c.anal.isFirst = false
 
-	if n.Stats.Cost*float64(SingleLineSizeEstimate) > float64(DistributedThreshold) && !arg.DeleteCtx.CanTruncate {
+	forceRemote := false
+	if tuner := c.e.TestingTuner(); tuner != nil {
+		if tuner.DeletionFlushThreshold < 0 {
+			forceRemote = true
+		}
+	}
+	if forceRemote || (n.Stats.Cost*float64(SingleLineSizeEstimate) > float64(DistributedThreshold) && !arg.DeleteCtx.CanTruncate) {
 		rs := c.newDeleteMergeScope(arg, ss)
 		rs.Magic = MergeDelete
 

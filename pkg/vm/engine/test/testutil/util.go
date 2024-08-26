@@ -80,7 +80,7 @@ func CreateEngines(ctx context.Context, opts TestOptions,
 	taeEngine, err = NewTestTAEEngine(ctx, "partition_state", t, rpcAgent, opts.TaeEngineOptions)
 	require.Nil(t, err)
 
-	disttaeEngine, err = NewTestDisttaeEngine(ctx, mp, taeEngine.GetDB().Runtime.Fs.Service, rpcAgent, taeEngine)
+	disttaeEngine, err = NewTestDisttaeEngine(ctx, mp, taeEngine.GetDB().Runtime.Fs.Service, rpcAgent, taeEngine, opts.TestingTuner)
 	require.Nil(t, err)
 
 	return

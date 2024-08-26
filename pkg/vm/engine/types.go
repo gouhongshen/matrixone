@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
+	"github.com/matrixorigin/matrixone/pkg/common/tuner"
 	"github.com/matrixorigin/matrixone/pkg/compress"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/nulls"
@@ -935,6 +936,8 @@ type Engine interface {
 	GetMessageCenter() any
 
 	GetService() string
+
+	TestingTuner() *tuner.EngineTestingTuner
 }
 
 type VectorPool interface {

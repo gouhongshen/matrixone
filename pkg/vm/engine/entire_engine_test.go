@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/matrixorigin/matrixone/pkg/common/tuner"
 	"github.com/matrixorigin/matrixone/pkg/defines"
 	"github.com/matrixorigin/matrixone/pkg/pb/lock"
 	"github.com/matrixorigin/matrixone/pkg/pb/plan"
@@ -323,6 +324,10 @@ func (e *testEngine) Size(ctx context.Context, key pb.StatsInfoKey, colName stri
 
 func (e *testEngine) GetService() string {
 	return ""
+}
+
+func (e *testEngine) TestingTuner() *tuner.EngineTestingTuner {
+	return nil
 }
 
 func newtestOperator() *testOperator {

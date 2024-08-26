@@ -16,6 +16,7 @@ package memoryengine
 
 import (
 	"context"
+	"github.com/matrixorigin/matrixone/pkg/common/tuner"
 	"strings"
 	"time"
 
@@ -60,6 +61,10 @@ var _ engine.Engine = new(Engine)
 
 func (e *Engine) GetService() string {
 	return e.sid
+}
+
+func (e *Engine) TestingTuner() *tuner.EngineTestingTuner {
+	return nil
 }
 
 func (e *Engine) New(_ context.Context, _ client.TxnOperator) error {

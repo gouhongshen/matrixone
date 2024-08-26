@@ -17,6 +17,7 @@ package memoryengine
 import (
 	"context"
 
+	"github.com/matrixorigin/matrixone/pkg/common/tuner"
 	pb "github.com/matrixorigin/matrixone/pkg/pb/statsinfo"
 	"github.com/matrixorigin/matrixone/pkg/pb/timestamp"
 	"github.com/matrixorigin/matrixone/pkg/sql/plan"
@@ -115,4 +116,8 @@ func (b *BindedEngine) GetMessageCenter() any {
 
 func (b *BindedEngine) GetService() string {
 	return b.engine.GetService()
+}
+
+func (b *BindedEngine) TestingTuner() *tuner.EngineTestingTuner {
+	return b.engine.TestingTuner()
 }

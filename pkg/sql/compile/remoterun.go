@@ -863,7 +863,11 @@ func convertToVmOperator(opr *pipeline.Instruction, ctx *scopeContext, eng engin
 	switch vm.OpType(opr.Op) {
 	case vm.Deletion:
 		t := opr.GetDelete()
-		arg := deletion.NewArgument()
+		flushThreshold := int32(0)
+		if tuner := eng.TestingTuner(); tuner != nil {
+			flushThreshold = tuner.DeletionFlushThreshold
+		}
+		arg := deletion.NewArgument(flushThreshold)
 		arg.RemoteDelete = t.RemoteDelete
 		arg.SegmentMap = t.SegmentMap
 		arg.IBucket = t.IBucket

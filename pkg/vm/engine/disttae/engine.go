@@ -22,8 +22,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matrixorigin/matrixone/pkg/vm/message"
-
 	"github.com/google/uuid"
 	"github.com/panjf2000/ants/v2"
 	"go.uber.org/zap"
@@ -33,6 +31,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	moruntime "github.com/matrixorigin/matrixone/pkg/common/runtime"
+	"github.com/matrixorigin/matrixone/pkg/common/tuner"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
@@ -57,6 +56,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/route"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/common"
+	"github.com/matrixorigin/matrixone/pkg/vm/message"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 )
 
@@ -72,6 +72,7 @@ func New(
 	hakeeper logservice.CNHAKeeperClient,
 	keyRouter client2.KeyRouter[pb.StatsInfoKey],
 	updateWorkerFactor int,
+	testingTuner ...*tuner.EngineTestingTuner,
 ) *Engine {
 	cluster := clusterservice.GetMOCluster(service)
 	services := cluster.GetAllTNServices()
@@ -136,6 +137,9 @@ func New(
 	}
 
 	e.pClient.LogtailRPCClientFactory = DefaultNewRpcStreamToTnLogTailService
+	if len(testingTuner) > 0 {
+		e.testingTuner = testingTuner[0]
+	}
 	return e
 }
 
@@ -775,4 +779,8 @@ func (e *Engine) FS() fileservice.FileService {
 
 func (e *Engine) PackerPool() *fileservice.Pool[*types.Packer] {
 	return e.packerPool
+}
+
+func (b *Engine) TestingTuner() *tuner.EngineTestingTuner {
+	return b.testingTuner
 }

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/runtime"
+	"github.com/matrixorigin/matrixone/pkg/common/tuner"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"github.com/matrixorigin/matrixone/pkg/defines"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
@@ -764,6 +765,7 @@ func TestDeleteUsingS3Writer(t *testing.T) {
 	defer cancel()
 
 	opts.TaeEngineOptions = config.WithLongScanAndCKPOpts(nil)
+	opts.TestingTuner = &tuner.EngineTestingTuner{DeletionFlushThreshold: -1}
 	p := testutil.InitEnginePack(opts, t)
 	defer p.Close()
 
@@ -884,39 +886,6 @@ func TestDeleteUsingS3Writer(t *testing.T) {
 		require.NoError(t, err)
 		res.Close()
 		require.NoError(t, txnop.Commit(ctx))
-	}
-	// flush tombstones
-	{
-		tnTxnop, err := p.T.GetDB().StartTxn(nil)
-		require.NoError(t, err)
-
-		dbHandle, err := tnTxnop.GetDatabase(databaseName)
-		require.NoError(t, err)
-
-		relHandle, err := dbHandle.GetRelationByName(tableName)
-		require.NoError(t, err)
-
-		tombstones := make([]*catalog.ObjectEntry, 0)
-		it := relHandle.MakeObjectIt(true)
-		for it.Next() {
-			tombstone := it.GetObject().GetMeta().(*catalog.ObjectEntry)
-			tombstones = append(tombstones, tombstone)
-			require.NoError(t, it.Close())
-		}
-
-		worker := ops.NewOpWorker(context.Background(), "xx")
-		worker.Start()
-		defer worker.Stop()
-
-		task1, err := jobs.NewFlushTableTailTask(
-			tasks.WaitableCtx, tnTxnop, nil,
-			tombstones, p.T.GetDB().Runtime)
-
-		require.NoError(t, err)
-		worker.SendOp(task1)
-		err = task1.WaitDone(context.Background())
-		require.NoError(t, err)
-		require.NoError(t, tnTxnop.Commit(ctx))
 	}
 	// check left rows
 	{

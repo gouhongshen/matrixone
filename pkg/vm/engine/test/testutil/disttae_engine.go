@@ -16,11 +16,6 @@ package testutil
 
 import (
 	"context"
-
-	"github.com/matrixorigin/matrixone/pkg/logutil"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine"
-	catalog2 "github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
-
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,10 +27,12 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/common/morpc"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/common/runtime"
+	"github.com/matrixorigin/matrixone/pkg/common/tuner"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
 	"github.com/matrixorigin/matrixone/pkg/lockservice"
 	"github.com/matrixorigin/matrixone/pkg/logservice"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
 	"github.com/matrixorigin/matrixone/pkg/pb/lock"
 	logservice2 "github.com/matrixorigin/matrixone/pkg/pb/logservice"
@@ -46,9 +43,11 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/sql/compile"
 	"github.com/matrixorigin/matrixone/pkg/txn/client"
 	"github.com/matrixorigin/matrixone/pkg/txn/service"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/blockio"
+	catalog2 "github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
 )
 
 type TestDisttaeEngine struct {
@@ -69,6 +68,7 @@ func NewTestDisttaeEngine(
 	fs fileservice.FileService,
 	rpcAgent *MockRPCAgent,
 	storage *TestTxnStorage,
+	testingTuner ...*tuner.EngineTestingTuner,
 ) (*TestDisttaeEngine, error) {
 	de := new(TestDisttaeEngine)
 	de.logtailReceiver = make(chan morpc.Message)
@@ -90,7 +90,7 @@ func NewTestDisttaeEngine(
 	colexec.NewServer(hakeeper)
 
 	catalog.SetupDefines("")
-	de.Engine = disttae.New(ctx, "", mp, fs, de.txnClient, hakeeper, nil, 1)
+	de.Engine = disttae.New(ctx, "", mp, fs, de.txnClient, hakeeper, nil, 1, testingTuner...)
 	de.Engine.PushClient().LogtailRPCClientFactory = rpcAgent.MockLogtailRPCClientFactory
 
 	go func() {
