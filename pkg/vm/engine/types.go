@@ -597,6 +597,7 @@ const (
 	Policy_CheckAll             = 0
 	Policy_CheckCommittedS3Only = Policy_SkipUncommitedInMemory | Policy_SkipCommittedInMemory | Policy_SkipUncommitedS3
 	Policy_CheckCommittedOnly   = Policy_SkipUncommitedInMemory | Policy_SkipUncommitedS3
+	Policy_CheckUnCommittedOnly = Policy_SkipCommittedInMemory | Policy_SkipCommittedS3
 )
 
 type Tombstoner interface {
@@ -743,6 +744,7 @@ type DataSource interface {
 		ctx context.Context,
 		bid objectio.Blockid,
 		rowsOffset []int64,
+		applyPolicy TombstoneApplyPolicy,
 	) ([]int64, error)
 
 	GetTombstones(

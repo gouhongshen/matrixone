@@ -89,10 +89,10 @@ func ReadDataByFilter(
 			return deleteMask.Contains(uint64(i))
 		})
 	}
-	sels, err = ds.ApplyTombstones(ctx, info.BlockID, sels)
-	if err != nil {
+	if len(sels) == 0 {
 		return
 	}
+	sels, err = ds.ApplyTombstones(ctx, info.BlockID, sels, engine.Policy_CheckAll)
 	return
 }
 
@@ -142,7 +142,7 @@ func BlockDataReadNoCopy(
 	}
 
 	// merge deletes from tombstones
-	deleteMask.Merge(tombstones)
+	deleteMask.Or(tombstones)
 
 	// build rowid column if needed
 	if rowidPos >= 0 {
@@ -275,6 +275,64 @@ func BlockCompactionRead(
 	return result, nil
 }
 
+func windowCNBatch(bat *batch.Batch, start, end uint64) error {
+	var err error
+	for i, vec := range bat.Vecs {
+		bat.Vecs[i], err = vec.Window(int(start), int(end))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func BlockDataReadBackup(
+	ctx context.Context,
+	sid string,
+	info *objectio.BlockInfo,
+	ds engine.DataSource,
+	ts types.TS,
+	fs fileservice.FileService,
+) (loaded *batch.Batch, sortKey uint16, err error) {
+	if logutil.GetSkip1Logger().Core().Enabled(zap.DebugLevel) {
+		logutil.Debugf("read block %s, columns %v, types %v", info.BlockID.String())
+	}
+	// read block data from storage specified by meta location
+	loaded, sortKey, err = LoadOneBlock(ctx, fs, info.MetaLocation(), objectio.SchemaData)
+	if err != nil {
+		return
+	}
+	if !ts.IsEmpty() {
+		commitTs := types.TS{}
+		for v := 0; v < loaded.Vecs[0].Length(); v++ {
+			err = commitTs.Unmarshal(loaded.Vecs[len(loaded.Vecs)-1].GetRawBytesAt(v))
+			if err != nil {
+				return
+			}
+			if commitTs.Greater(&ts) {
+				err = windowCNBatch(loaded, 0, uint64(v))
+				if err != nil {
+					return
+				}
+				logutil.Debug("[BlockDataReadBackup]",
+					zap.String("commitTs", commitTs.ToString()),
+					zap.String("ts", ts.ToString()),
+					zap.String("location", info.MetaLocation().String()))
+				break
+			}
+		}
+	}
+	tombstones, err := ds.GetTombstones(ctx, info.BlockID)
+	if err != nil {
+		return
+	}
+	rows := tombstones.ToI64Arrary()
+	if len(rows) > 0 {
+		loaded.Shrink(rows, true)
+	}
+	return
+}
+
 // BlockDataReadInner only read data,don't apply deletes.
 func BlockDataReadInner(
 	ctx context.Context,
@@ -356,7 +414,7 @@ func BlockDataReadInner(
 	}
 
 	// merge deletes from tombstones
-	deleteMask.Merge(tombstones)
+	deleteMask.Or(tombstones)
 
 	// Note: it always goes here if no filter or the block is not sorted
 
@@ -598,14 +656,14 @@ func EvalDeleteRowsByTimestamp(
 
 	start, end := FindIntervalForBlock(rowids, blockid)
 
-	for i := start; i < end; i++ {
-		//abort := vector.GetFixedAt[bool](aborts, i)
+	for i := end - 1; i >= start; i-- {
 		if tss[i].Greater(&ts) {
 			continue
 		}
 		row := rowids[i].GetRowOffset()
 		rows.Add(uint64(row))
 	}
+
 	return
 }
 

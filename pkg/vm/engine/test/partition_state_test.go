@@ -45,7 +45,6 @@ import (
 )
 
 func Test_Append(t *testing.T) {
-	t.Skip("need fix me")
 	var (
 		opts         testutil.TestOptions
 		rel          handle.Relation
@@ -176,7 +175,6 @@ func Test_Append(t *testing.T) {
 }
 
 func Test_Bug_CheckpointInsertObjectOverwrittenMergeDeletedObject(t *testing.T) {
-	t.Skip("need fix me")
 	blockio.RunPipelineTest(
 		func() {
 			var (
@@ -285,7 +283,6 @@ func Test_Bug_CheckpointInsertObjectOverwrittenMergeDeletedObject(t *testing.T) 
 // see PR#13644
 // should remove the dirty block flag
 func Test_Bug_MissCleanDirtyBlockFlag(t *testing.T) {
-	t.Skip("need fix me")
 	var (
 		txn          txnif.AsyncTxn
 		opts         testutil.TestOptions
@@ -399,13 +396,13 @@ func Test_Bug_MissCleanDirtyBlockFlag(t *testing.T) {
 		fmt.Println(stats.String(), stats.Details.DirtyBlocks)
 		require.Equal(t, 0, stats.InmemRows.InvisibleCnt)
 		require.Equal(t, 0, len(stats.Details.DirtyBlocks))
+		require.Equal(t, 3, stats.DeltaLocationRowsCnt)
 	}
 }
 
 // see #PR17415
 // consume and consume ckp should be an atomic operation
 func Test_EmptyObjectStats(t *testing.T) {
-	t.Skip("need fix me")
 	var (
 		txn          txnif.AsyncTxn
 		opts         testutil.TestOptions
@@ -511,7 +508,6 @@ func Test_EmptyObjectStats(t *testing.T) {
 }
 
 func Test_SubscribeUnsubscribeConsistency(t *testing.T) {
-	t.Skip("need fix me")
 	var (
 		txn          txnif.AsyncTxn
 		opts         testutil.TestOptions
@@ -689,7 +685,7 @@ func Test_Bug_DupEntryWhenGCInMemTombstones(t *testing.T) {
 
 		task1, err := jobs.NewFlushTableTailTask(
 			tasks.WaitableCtx, tnTxnop, nil,
-			[]*catalog.ObjectEntry{tombstone}, p.T.GetDB().Runtime, tnTxnop.GetStartTS())
+			[]*catalog.ObjectEntry{tombstone}, p.T.GetDB().Runtime)
 
 		require.NoError(t, err)
 		worker.SendOp(task1)

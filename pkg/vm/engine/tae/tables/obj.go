@@ -83,6 +83,7 @@ func (obj *object) GetDuplicatedRows(
 	keysZM index.ZM,
 	precommit bool,
 	checkWWConflict bool,
+	_ bool, /*skipCommittedBeforeTxnForAblk*/
 	rowIDs containers.Vector,
 	mp *mpool.MPool,
 ) (err error) {
@@ -98,11 +99,11 @@ func (obj *object) GetDuplicatedRows(
 	return obj.persistedGetDuplicatedRows(
 		ctx,
 		txn,
-		precommit,
+		false, /*skipCommittedBeforeTxnForAblk*/
 		keys,
 		keysZM,
 		rowIDs,
-		false,
+		false, /*is ablk*/
 		0,
 		mp,
 	)
@@ -135,15 +136,6 @@ func (obj *object) Contains(
 		false,
 		mp,
 	)
-}
-
-func (obj *object) RunCalibration() (score int, err error) {
-	score, _ = obj.estimateRawScore()
-	return
-}
-
-func (obj *object) estimateRawScore() (score int, dropped bool) {
-	return 0, obj.meta.Load().HasDropCommitted()
 }
 
 func (obj *object) EstimateMemSize() (int, int) {

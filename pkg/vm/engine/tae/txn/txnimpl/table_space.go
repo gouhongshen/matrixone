@@ -264,6 +264,8 @@ func (space *tableSpace) prepareApplyObjectStats(stats objectio.ObjectStats) (er
 			return
 		}
 		space.nobj.GetMeta().(*catalog.ObjectEntry).SetSorted()
+		stats.SetSorted()
+		stats.SetCNCreated()
 		err = space.nobj.UpdateStats(stats)
 		if err != nil {
 			return
@@ -456,7 +458,7 @@ func (space *tableSpace) HybridScan(
 	if (*bat).Deletes == nil {
 		(*bat).Deletes = &nulls.Nulls{}
 	}
-	(*bat).Deletes.Merge(space.node.data.Deletes)
+	(*bat).Deletes.Or(space.node.data.Deletes)
 }
 
 func (space *tableSpace) Prefetch(obj *catalog.ObjectEntry, idxes []uint16) error {
