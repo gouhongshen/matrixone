@@ -149,7 +149,6 @@ func (p *PartitionState) HandleDataObjectList(
 		objEntry.Appendable = stateCol[idx]
 		objEntry.CreateTime = createTSCol[idx]
 		objEntry.DeleteTime = deleteTSCol[idx]
-		objEntry.CommitTS = commitTSCol[idx]
 		objEntry.Sorted = sortedCol[idx]
 
 		old, exist := p.dataObjects.Get(objEntry)
@@ -316,7 +315,6 @@ func (p *PartitionState) HandleTombstoneObjectList(
 		objEntry.Appendable = stateCol[idx]
 		objEntry.CreateTime = createTSCol[idx]
 		objEntry.DeleteTime = deleteTSCol[idx]
-		objEntry.CommitTS = commitTSCol[idx]
 		objEntry.Sorted = sortedCol[idx]
 
 		old, exist := p.tombstoneObjects.Get(objEntry)
