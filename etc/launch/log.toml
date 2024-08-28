@@ -3,7 +3,8 @@ service-type = "LOG"
 data-dir = "./mo-data"
 
 [log]
-level = "info"
+level = "panic"
+format = "console"
 
 [malloc]
 check-fraction = 65536
