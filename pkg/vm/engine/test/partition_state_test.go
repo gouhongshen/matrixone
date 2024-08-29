@@ -17,6 +17,7 @@ package test
 import (
 	"context"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/fileservice"
 	"slices"
 	"sync"
 	"testing"
@@ -750,4 +751,53 @@ func Test_Bug_DupEntryWhenGCInMemTombstones(t *testing.T) {
 				[]int32{4, 3, 2, 1}))
 		res.Close()
 	}
+}
+
+func Test_ConsumeCheckpoint(t *testing.T) {
+	var (
+		opts         testutil.TestOptions
+		tableName    = "test1"
+		databaseName = "db1"
+	)
+
+	opts.TaeEngineOptions = config.WithLongScanAndCKPOpts(nil)
+	opts.TaeEngineOptions.Fs = fileservice.Get[fileservice.FileService](s.fileService, defines.SharedFileServiceName)
+	p := testutil.InitEnginePack(opts, t)
+	defer p.Close()
+
+	schema := catalog.MockSchemaAll(3, 2)
+	schema.Name = tableName
+
+	txnop := p.StartCNTxn()
+	_, rel := p.CreateDBAndTable(txnop, databaseName, schema)
+	require.NoError(t, txnop.Commit(p.Ctx))
+
+	txnop = p.StartCNTxn()
+	v, ok := runtime.ServiceRuntime("").GetGlobalVariables(runtime.InternalSQLExecutor)
+	require.True(t, ok)
+
+	exec := v.(executor.SQLExecutor)
+	_, err := exec.Exec(p.Ctx,
+		fmt.Sprintf(
+			"insert into `%s`.`%s` select 1,1, * from generate_series(1, 8192000)g; "+
+				"select mo_ctl('dn', 'checkpoint', '');",
+			databaseName, tableName),
+		executor.Options{}.
+			WithTxn(txnop).
+			WithWaitCommittedLogApplied())
+	require.NoError(t, err)
+
+	txnop = p.StartCNTxn()
+	_, err = exec.Exec(p.Ctx,
+		fmt.Sprintf("select * from `%s`.`%s` where %s = 1",
+			databaseName, tableName, schema.GetPrimaryKey().Name),
+		executor.Options{}.
+			WithTxn(txnop).
+			WithWaitCommittedLogApplied())
+	require.NoError(t, err)
+
+	stats, err := p.D.GetPartitionStateStats(p.Ctx, rel.GetDBID(p.Ctx), rel.GetTableID(p.Ctx))
+	require.NoError(t, err)
+
+	require.Equal(t, 8192000, stats.DataObjectsVisible.RowCnt)
 }
