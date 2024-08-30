@@ -21,6 +21,7 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -239,6 +240,10 @@ func (h *Handle) HandlePreCommitWrite(
 	var e any
 	es := req.EntryList
 	for len(es) > 0 {
+		if strings.Contains(es[0].TableName, "hhh") {
+			fmt.Println("handle pre commit write", es[0].TableName, es[0].FileName)
+		}
+
 		e, es, err = pkgcatalog.ParseEntryList(es)
 		if err != nil {
 			return err
@@ -276,6 +281,7 @@ func (h *Handle) HandlePreCommitWrite(
 					} else {
 						stats := objectio.ObjectStats(col.GetBytesAt(i))
 						req.TombstoneStats = append(req.TombstoneStats, stats)
+						fmt.Println("handle pre commit write", stats.ObjectName(), stats.BlkCnt(), stats.Rows())
 					}
 				}
 			}
