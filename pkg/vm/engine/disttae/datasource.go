@@ -1133,10 +1133,6 @@ func (ls *LocalDataSource) batchApplyTombstoneObjects(
 	minTS types.TS,
 	rowIds []objectio.Rowid,
 ) (deleted []int64, err error) {
-	//maxTombstoneTS := ls.pState.MaxTombstoneCreateTS()
-	//if maxTombstoneTS.Less(&minTS) {
-	//	return nil, nil
-	//}
 
 	if ls.pState.ApproxTombstoneObjectsNum() == 0 {
 		return nil, nil
@@ -1154,8 +1150,9 @@ func (ls *LocalDataSource) batchApplyTombstoneObjects(
 		bfIndex  index.StaticFilter
 		location objectio.Location
 
-		loaded  *batch.Batch
-		release func()
+		loaded      *batch.Batch
+		release     func()
+		applyOffset int
 	)
 
 	anyIf := func(check func(row objectio.Rowid) bool) bool {
@@ -1167,7 +1164,7 @@ func (ls *LocalDataSource) batchApplyTombstoneObjects(
 		return false
 	}
 
-	for iter.Next() && len(rowIds) > len(deleted) {
+	for iter.Next() && applyOffset < len(rowIds) {
 		obj := iter.Entry()
 
 		if !obj.ZMIsEmpty() {
@@ -1185,7 +1182,7 @@ func (ls *LocalDataSource) batchApplyTombstoneObjects(
 			return nil, err
 		}
 
-		for idx := 0; idx < int(obj.BlkCnt()) && len(rowIds) > len(deleted); idx++ {
+		for idx := 0; idx < int(obj.BlkCnt()) && applyOffset < len(rowIds); idx++ {
 			buf := bf.GetBloomFilter(uint32(idx))
 			bfIndex = index.NewEmptyBloomFilterWithType(index.HBF)
 			if err = index.DecodeBloomFilter(bfIndex, buf); err != nil {
@@ -1219,11 +1216,14 @@ func (ls *LocalDataSource) batchApplyTombstoneObjects(
 				commit = vector.MustFixedColWithTypeCheck[types.TS](loaded.Vecs[1])
 			}
 
-			for i := range rowIds {
-				s, e := blockio.FindStartEndOfBlockFromSortedRowids(deletedRowIds, rowIds[i].BorrowBlockID())
+			for ; applyOffset < len(rowIds); applyOffset++ {
+				s, e := blockio.FindStartEndOfBlockFromSortedRowids(
+					deletedRowIds, rowIds[applyOffset].BorrowBlockID())
+
 				for j := s; j < e; j++ {
-					if rowIds[i].EQ(&deletedRowIds[j]) && (commit == nil || commit[j].LessEq(&ls.snapshotTS)) {
-						deleted = append(deleted, int64(i))
+					if rowIds[applyOffset].EQ(&deletedRowIds[j]) &&
+						(commit == nil || commit[j].LessEq(&ls.snapshotTS)) {
+						deleted = append(deleted, int64(applyOffset))
 						break
 					}
 				}
