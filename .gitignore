@@ -22,7 +22,7 @@ main
 /mo-debug
 cube*/
 store/
-mo-data/
+mo-data*/
 node-*-data/
 pkg/catalog/test/
 pkg/config/system_vars.go
