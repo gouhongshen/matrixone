@@ -611,6 +611,7 @@ func (s *Schema) ReadFromBatch(bat *containers.Batch, offset int, targetTid uint
 			return i.Idx - j.Idx
 		})
 	}()
+	var seenRowid bool
 	for {
 		if offset >= nameVec.Length() {
 			break
@@ -618,7 +619,7 @@ func (s *Schema) ReadFromBatch(bat *containers.Batch, offset int, targetTid uint
 		name := string(nameVec.Get(offset).([]byte))
 		id := tidVec.Get(offset).(uint64)
 		// every schema has 1 rowid column as last column, if have one, break
-		if name != s.Name || targetTid != id {
+		if name != s.Name || targetTid != id || seenRowid {
 			break
 		}
 		def := new(ColDef)
@@ -645,6 +646,7 @@ func (s *Schema) ReadFromBatch(bat *containers.Batch, offset int, targetTid uint
 		s.NameMap[def.Name] = def.Idx
 		s.ColDefs = append(s.ColDefs, def)
 		if def.Name == PhyAddrColumnName {
+			seenRowid = true
 			def.PhyAddr = true
 		}
 		constraint := string(bat.GetVectorByName(pkgcatalog.SystemColAttr_ConstraintType).Get(offset).([]byte))

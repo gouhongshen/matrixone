@@ -87,6 +87,10 @@ func (e *CheckpointEntry) LSN() uint64 {
 	return e.ckpLSN
 }
 
+func (e *CheckpointEntry) TrunateLSN() uint64 {
+	return e.truncateLSN
+}
+
 func (e *CheckpointEntry) GetStart() types.TS { return e.start }
 func (e *CheckpointEntry) GetEnd() types.TS   { return e.end }
 func (e *CheckpointEntry) GetState() State {

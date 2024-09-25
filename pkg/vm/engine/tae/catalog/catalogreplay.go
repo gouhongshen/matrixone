@@ -26,6 +26,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/iface/txnif"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/txn/txnbase"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/wal"
+	"go.uber.org/zap"
 )
 
 const (
@@ -269,11 +270,11 @@ func (catalog *Catalog) ReplayMODatabase(ctx context.Context, txnNode *txnbase.T
 		createAt := bat.GetVectorByName(pkgcatalog.SystemDBAttr_CreateAt).Get(i).(types.Timestamp)
 		createSql := string(bat.GetVectorByName(pkgcatalog.SystemDBAttr_CreateSQL).Get(i).([]byte))
 		datType := string(bat.GetVectorByName(pkgcatalog.SystemDBAttr_Type).Get(i).([]byte))
-		catalog.onReplayCreateDB(dbid, name, txnNode, tenantID, userID, roleID, createAt, createSql, datType)
+		catalog.OnReplayCreateDB(dbid, name, txnNode, tenantID, userID, roleID, createAt, createSql, datType)
 	}
 }
 
-func (catalog *Catalog) onReplayCreateDB(
+func (catalog *Catalog) OnReplayCreateDB(
 	dbid uint64, name string, txnNode *txnbase.TxnMVCCNode,
 	tenantID, userID, roleID uint32, createAt types.Timestamp, createSql, datType string) {
 	catalog.OnReplayDBID(dbid)
@@ -310,6 +311,32 @@ func (catalog *Catalog) onReplayCreateDB(
 	db.InsertLocked(un)
 }
 
+func (catalog *Catalog) OnReplayDeleteDB(dbid uint64, txnNode *txnbase.TxnMVCCNode) {
+	catalog.OnReplayDBID(dbid)
+	db, err := catalog.GetDatabaseByID(dbid)
+	if err != nil {
+		logutil.Info("delete %d", zap.Uint64("dbid", dbid), zap.String("catalog pp", catalog.SimplePPString(common.PPL3)))
+		panic(err)
+	}
+	dbDeleteAt := db.GetDeleteAtLocked()
+	if !dbDeleteAt.IsEmpty() {
+		if !dbDeleteAt.Equal(&txnNode.End) {
+			panic(moerr.NewInternalErrorNoCtxf("logic err expect %s, get %s", txnNode.End.ToString(), dbDeleteAt.ToString()))
+		}
+		return
+	}
+	prev := db.MVCCChain.GetLatestNodeLocked()
+	un := &MVCCNode[*EmptyMVCCNode]{
+		EntryMVCCNode: &EntryMVCCNode{
+			CreatedAt: db.GetCreatedAtLocked(),
+			DeletedAt: txnNode.End,
+		},
+		TxnMVCCNode: txnNode,
+		BaseNode:    prev.BaseNode.CloneAll(),
+	}
+	db.InsertLocked(un)
+}
+
 func (catalog *Catalog) ReplayMOTables(ctx context.Context, txnNode *txnbase.TxnMVCCNode, dataF DataFactory, tblBat, colBat *containers.Batch) {
 	schemaOffset := 0
 	for i := 0; i < tblBat.Length(); i++ {
@@ -337,11 +364,11 @@ func (catalog *Catalog) ReplayMOTables(ctx context.Context, txnNode *txnbase.Txn
 		if err := schema.Finalize(true); err != nil {
 			panic(err)
 		}
-		catalog.onReplayCreateTable(dbid, tid, schema, txnNode, dataF)
+		catalog.OnReplayCreateTable(dbid, tid, schema, txnNode, dataF)
 	}
 }
 
-func (catalog *Catalog) onReplayCreateTable(dbid, tid uint64, schema *Schema, txnNode *txnbase.TxnMVCCNode, dataFactory DataFactory) {
+func (catalog *Catalog) OnReplayCreateTable(dbid, tid uint64, schema *Schema, txnNode *txnbase.TxnMVCCNode, dataFactory DataFactory) {
 	catalog.OnReplayTableID(tid)
 	db, err := catalog.GetDatabaseByID(dbid)
 	if err != nil {
@@ -396,6 +423,38 @@ func (catalog *Catalog) onReplayCreateTable(dbid, tid uint64, schema *Schema, tx
 		},
 	}
 	tbl.InsertLocked(un)
+}
+
+func (catalog *Catalog) OnReplayDeleteTable(dbid, tid uint64, txnNode *txnbase.TxnMVCCNode) {
+	catalog.OnReplayTableID(tid)
+	db, err := catalog.GetDatabaseByID(dbid)
+	if err != nil {
+		logutil.Info(catalog.SimplePPString(common.PPL3))
+		panic(err)
+	}
+	tbl, err := db.GetTableEntryByID(tid)
+	if err != nil {
+		logutil.Info(catalog.SimplePPString(common.PPL3))
+		panic(err)
+	}
+	tableDeleteAt := tbl.GetDeleteAtLocked()
+	if !tableDeleteAt.IsEmpty() {
+		if !tableDeleteAt.Equal(&txnNode.End) {
+			panic(moerr.NewInternalErrorNoCtxf("logic err expect %s, get %s", txnNode.End.ToString(), tableDeleteAt.ToString()))
+		}
+		return
+	}
+	prev := tbl.MVCCChain.GetLatestCommittedNodeLocked()
+	un := &MVCCNode[*TableMVCCNode]{
+		EntryMVCCNode: &EntryMVCCNode{
+			CreatedAt: prev.CreatedAt,
+			DeletedAt: txnNode.End,
+		},
+		TxnMVCCNode: txnNode,
+		BaseNode:    prev.BaseNode.CloneAll(),
+	}
+	tbl.InsertLocked(un)
+
 }
 
 func (catalog *Catalog) OnReplayObjectBatch(objectInfo *containers.Batch, isTombstone bool, dataFactory DataFactory, forSys bool) {
