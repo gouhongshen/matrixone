@@ -211,6 +211,8 @@ func Open(ctx context.Context, dirname string, opts *options.Options) (db *DB, e
 	// 2. replay all table Entries
 	ckpReplayer.ReplayCatalog(txn)
 
+	panic("let's stop here")
+
 	// 3. replay other tables' objectlist
 	if err = ckpReplayer.ReplayObjectlist(); err != nil {
 		panic(err)

@@ -340,13 +340,14 @@ func (c *CkpReplayer) ReplayCatalog(readTxn txnif.AsyncTxn) {
 		return
 	}
 
-	logutil.Info(c.r.catalog.SimplePPString(common.PPL3))
+	logutil.Info(c.r.catalog.SimplePPString(common.PPL2))
 	sortFunc := func(cols []containers.Vector, pkidx int) error {
 		_, err := mergesort.SortBlockColumns(cols, pkidx, c.r.rt.VectorPool.Transient)
 		return err
 	}
 	// logutil.Infof(c.r.catalog.SimplePPString(common.PPL3))
 	c.r.catalog.RelayFromSysTableObjects(c.r.ctx, readTxn, c.dataF, tables.ReadSysTableBatch, sortFunc)
+	logutil.Info(c.r.catalog.SimplePPString(common.PPL2))
 }
 
 // ReplayObjectlist replays the data part of the checkpoint.
