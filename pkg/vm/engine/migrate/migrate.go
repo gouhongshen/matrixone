@@ -236,6 +236,38 @@ func ReplayTable(cata *catalog.Catalog, ins, insTxn, insCol, del, delTxn *contai
 	}
 }
 
+const (
+	ObjectFlag_Appendable = 1 << iota
+	ObjectFlag_Sorted
+	ObjectFlag_CNCreated
+)
+
+func ReplayObjectBatch(objects *containers.Batch) {
+	objectStats := objects.GetVectorByName(ObjectAttr_ObjectStats)
+	sortedVec := objects.GetVectorByName(ObjectAttr_Sorted)
+	appendableVec := objects.GetVectorByName(ObjectAttr_State)
+	for i := 0; i < objectStats.Length(); i++ {
+		obj := objectStats.Get(i).([]byte)
+		sorted := sortedVec.Get(i).(bool)
+		appendable := appendableVec.Get(i).(bool)
+		var reserved byte
+		if appendable {
+			reserved |= ObjectFlag_Appendable
+		} else {
+			reserved |= ObjectFlag_CNCreated
+		}
+		if sorted {
+			reserved |= ObjectFlag_Sorted
+		}
+		obj = append(obj, reserved)
+		ss := objectio.ObjectStats(obj)
+		if len(obj) < objectio.ObjectStatsLen {
+			panic("invalid object stats")
+		}
+		logutil.Infof("replay object %v", ss.String())
+	}
+}
+
 func DumpCatalogToBatches(cata *catalog.Catalog) (bDbs, bTables, bCols *containers.Batch) {
 	bDbs = makeBasicRespBatchFromSchema(catalog.SystemDBSchema, common.CheckpointAllocator, nil)
 	bTables = makeBasicRespBatchFromSchema(catalog.SystemTableSchema, common.CheckpointAllocator, nil)
