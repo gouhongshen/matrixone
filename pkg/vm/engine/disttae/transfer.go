@@ -18,8 +18,6 @@ import (
 	"context"
 	"time"
 
-	"go.uber.org/zap"
-
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
@@ -30,24 +28,23 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
-	"github.com/matrixorigin/matrixone/pkg/pb/plan"
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/engine_util"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/common"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/mergesort"
+	"go.uber.org/zap"
 )
 
 func TransferTombstones(
 	ctx context.Context,
 	table *txnTable,
-	state *logtailreplay.PartitionState,
-	deletedObjects, createdObjects map[objectio.ObjectNameShort]struct{},
+	createdObjects []objectio.ObjectStats,
+	deletedMap map[objectio.ObjectNameShort]struct{},
 	mp *mpool.MPool,
 	fs fileservice.FileService,
 ) (err error) {
-	if len(deletedObjects) == 0 || len(createdObjects) == 0 {
+	if len(deletedMap) == 0 || len(createdObjects) == 0 {
 		return
 	}
 	wantDetail := false
@@ -63,19 +60,13 @@ func TransferTombstones(
 				zap.Int("count", transferCnt),
 				zap.String("table-name", table.tableDef.Name),
 				zap.Uint64("table-id", table.tableId),
-				zap.Int("deleted-objects", len(deletedObjects)),
+				zap.Int("deleted-objects", len(deletedMap)),
 				zap.Int("created-objects", len(createdObjects)),
 				zap.Error(err),
 			)
 		}
 		v2.TransferTombstonesDurationHistogram.Observe(duration.Seconds())
 	}()
-	var objectList []objectio.ObjectStats
-	for name := range createdObjects {
-		if obj, ok := state.GetObject(name); ok {
-			objectList = append(objectList, obj.ObjectStats)
-		}
-	}
 
 	txnWrites := table.getTxn().writes
 
@@ -127,7 +118,7 @@ func TransferTombstones(
 		for j, rowid := range rowids {
 			blockId := rowid.BorrowBlockID()
 			// if the block of the rowid is not in the deleted objects, skip transfer
-			if _, deleted := deletedObjects[*objectio.ShortName(blockId)]; !deleted {
+			if _, deleted := deletedMap[*objectio.ShortName(blockId)]; !deleted {
 				continue
 			}
 			if transferIntents == nil {
@@ -157,7 +148,7 @@ func TransferTombstones(
 					ctx,
 					table,
 					txnWrites,
-					objectList,
+					createdObjects,
 					transferIntents,
 					targetRowids,
 					searchPKColumn,
@@ -180,7 +171,7 @@ func TransferTombstones(
 			ctx,
 			table,
 			txnWrites,
-			objectList,
+			createdObjects,
 			transferIntents,
 			targetRowids,
 			searchPKColumn,
@@ -332,40 +323,21 @@ func doTransferRowids(
 	pkColumName := table.GetTableDef(ctx).Pkey.PkeyColName
 	expr := engine_util.ConstructInExpr(ctx, pkColumName, searchPKColumn)
 
-	var blockList objectio.BlockInfoSlice
-	if _, err = engine_util.TryFastFilterBlocks(
+	r, err := table.BuildReaderWithObjectListAndExpr(
 		ctx,
-		table.db.op.SnapshotTS(),
-		table.GetTableDef(ctx),
-		[]*plan.Expr{expr},
-		nil,
-		objectList,
-		nil,
-		&blockList,
-		fs,
-	); err != nil {
-		return
-	}
-	relData := engine_util.NewBlockListRelationData(1)
-	for i, end := 0, blockList.Len(); i < end; i++ {
-		relData.AppendBlockInfo(blockList.Get(i))
-	}
-
-	readers, err := table.BuildReaders(
-		ctx,
-		table.proc.Load(),
 		expr,
-		relData,
-		1,
-		0,
 		false,
+		0,
 		engine.Policy_CheckCommittedOnly,
+		objectList...,
 	)
+
 	if err != nil {
 		return
 	}
+
 	defer func() {
-		readers[0].Close()
+		r.Close()
 	}()
 
 	attrs := []string{
@@ -387,7 +359,7 @@ func doTransferRowids(
 	var isEnd bool
 	for {
 		bat.CleanOnlyData()
-		isEnd, err = readers[0].Read(
+		isEnd, err = r.Read(
 			ctx,
 			attrs,
 			expr,

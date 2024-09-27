@@ -1853,160 +1853,57 @@ func (tbl *txnTable) tryToSubscribe(ctx context.Context) (ps *logtailreplay.Part
 
 }
 
-func (tbl *txnTable) PKPersistedBetween(
-	p *logtailreplay.PartitionState,
-	from types.TS,
-	to types.TS,
+func (tbl *txnTable) PKPersistedBetweenInProgress(
+	pState *logtailreplay.PartitionState,
+	from, to types.TS,
 	keys *vector.Vector,
 ) (bool, error) {
 
 	ctx := tbl.proc.Load().Ctx
-	fs := tbl.getTxn().engine.fs
-	primaryIdx := tbl.primaryIdx
 
-	var (
-		meta objectio.ObjectDataMeta
-		bf   objectio.BloomFilter
+	pkColumName := tbl.GetTableDef(ctx).Pkey.PkeyColName
+	pkColIdx := tbl.tableDef.Name2ColIndex[pkColumName]
+	pkColDef := tbl.tableDef.Cols[pkColIdx]
+	expr := engine_util.ConstructInExpr(ctx, pkColumName, keys)
+
+	inserted, deleted := pState.CollectObjectsBetweenInProgress(from.Next(), types.MaxTs())
+
+	if len(inserted) == 0 && len(deleted) == 0 {
+		return false, nil
+	}
+
+	r, err := tbl.BuildReaderWithObjectListAndExpr(
+		ctx,
+		expr,
+		false,
+		0,
+		engine.Policy_SkipAll,
+		append(inserted, deleted...)...,
 	)
 
-	candidateBlks := make(map[types.Blockid]*objectio.BlockInfo)
-
-	//only check data objects.
-	delObjs, cObjs := p.GetChangedObjsBetween(from.Next(), types.MaxTs())
-	isFakePK := tbl.GetTableDef(ctx).Pkey.PkeyColName == catalog.FakePrimaryKeyColName
-	if err := ForeachCommittedObjects(cObjs, delObjs, p,
-		func(obj logtailreplay.ObjectInfo) (err2 error) {
-			var zmCkecked bool
-			if !isFakePK {
-				// if the object info contains a pk zonemap, fast-check with the zonemap
-				if !obj.ZMIsEmpty() {
-					if !obj.SortKeyZoneMap().AnyIn(keys) {
-						return
-					}
-					zmCkecked = true
-				}
-			}
-
-			var objMeta objectio.ObjectMeta
-			location := obj.Location()
-
-			// load object metadata
-			if objMeta, err2 = objectio.FastLoadObjectMeta(
-				ctx, &location, false, fs,
-			); err2 != nil {
-				return
-			}
-
-			// reset bloom filter to nil for each object
-			meta = objMeta.MustDataMeta()
-
-			// check whether the object is skipped by zone map
-			// If object zone map doesn't contains the pk value, we need to check bloom filter
-			if !zmCkecked {
-				if !meta.MustGetColumn(uint16(primaryIdx)).ZoneMap().AnyIn(keys) {
-					return
-				}
-			}
-
-			bf = nil
-			//fake pk has no bf
-			if !isFakePK {
-				if bf, err2 = objectio.LoadBFWithMeta(
-					ctx, meta, location, fs,
-				); err2 != nil {
-					return
-				}
-			}
-
-			ForeachBlkInObjStatsList(false, meta,
-				func(blk objectio.BlockInfo, blkMeta objectio.BlockObject) bool {
-					if !blkMeta.IsEmpty() &&
-						!blkMeta.MustGetColumn(uint16(primaryIdx)).ZoneMap().AnyIn(keys) {
-						return true
-					}
-					//fake pk has no bf
-					if !isFakePK {
-						blkBf := bf.GetBloomFilter(uint32(blk.BlockID.Sequence()))
-						blkBfIdx := index.NewEmptyBloomFilter()
-						if err2 = index.DecodeBloomFilter(blkBfIdx, blkBf); err2 != nil {
-							return false
-						}
-						var exist bool
-						lowerBound, upperBound := blkMeta.MustGetColumn(uint16(primaryIdx)).ZoneMap().SubVecIn(keys)
-						if exist = blkBfIdx.MayContainsAny(keys, lowerBound, upperBound); !exist {
-							return true
-						}
-					}
-
-					blk.SetFlagByObjStats(&obj.ObjectStats)
-
-					blk.PartitionNum = -1
-					candidateBlks[blk.BlockID] = &blk
-					return true
-				}, obj.ObjectStats)
-
-			return
-		}); err != nil {
+	if err != nil {
+		// not sure
 		return true, err
 	}
 
-	keys.InplaceSort()
-	bytes, _ := keys.MarshalBinary()
-	colExpr := engine_util.NewColumnExpr(0, plan2.MakePlan2Type(keys.GetType()), tbl.tableDef.Pkey.PkeyColName)
-	inExpr := plan2.MakeInExpr(
-		tbl.proc.Load().Ctx,
-		colExpr,
-		int32(keys.Length()),
-		bytes,
-		false)
+	attrs := []string{pkColumName}
+	bat := batch.NewWithSize(1)
+	bat.Attrs = attrs
+	bat.Vecs[0] = vector.NewVec(plan2.ExprType2Type(&pkColDef.Typ))
 
-	basePKFilter, err := engine_util.ConstructBasePKFilter(inExpr, tbl.tableDef, tbl.proc.Load().Mp())
+	_, err = r.Read(
+		ctx,
+		attrs,
+		expr,
+		tbl.getTxn().engine.mp,
+		bat)
+
 	if err != nil {
-		return false, err
+		return true, err
 	}
 
-	filter, err := engine_util.ConstructBlockPKFilter(
-		catalog.IsFakePkName(tbl.tableDef.Pkey.PkeyColName),
-		basePKFilter,
-	)
-	if err != nil {
-		return false, err
-	}
-
-	buildUnsortedFilter := func() objectio.ReadFilterSearchFuncType {
-		return getNonSortedPKSearchFuncByPKVec(keys)
-	}
-
-	cacheBat := batch.EmptyBatchWithSize(1)
-	//read block ,check if keys exist in the block.
-	pkDef := tbl.tableDef.Cols[tbl.primaryIdx]
-	pkSeq := pkDef.Seqnum
-	pkType := plan2.ExprType2Type(&pkDef.Typ)
-	for _, blk := range candidateBlks {
-		release, err := blockio.LoadColumns(
-			ctx,
-			[]uint16{uint16(pkSeq)},
-			[]types.Type{pkType},
-			fs,
-			blk.MetaLocation(),
-			&cacheBat,
-			tbl.proc.Load().GetMPool(),
-			fileservice.Policy(0),
-		)
-		if err != nil {
-			return true, err
-		}
-
-		searchFunc := filter.DecideSearchFunc(blk.IsSorted())
-		if searchFunc == nil {
-			searchFunc = buildUnsortedFilter()
-		}
-
-		sels := searchFunc(cacheBat.Vecs)
-		release()
-		if len(sels) > 0 {
-			return true, nil
-		}
+	if bat.RowCount() != 0 {
+		return true, nil
 	}
 
 	return false, nil
@@ -2050,7 +1947,7 @@ func (tbl *txnTable) PrimaryKeysMayBeModified(
 	// }
 
 	//need check pk whether exist on S3 block.
-	return tbl.PKPersistedBetween(
+	return tbl.PKPersistedBetweenInProgress(
 		snap,
 		from,
 		to,
@@ -2367,4 +2264,50 @@ func (tbl *txnTable) getCommittedRows(
 		return rows, nil
 	}
 	return uint64(s.TableCnt) + rows, nil
+}
+
+func (tbl *txnTable) BuildReaderWithObjectListAndExpr(
+	ctx context.Context,
+	expr *plan.Expr,
+	orderBy bool,
+	txnOffset int,
+	policy engine.TombstoneApplyPolicy,
+	objList ...objectio.ObjectStats,
+) (engine.Reader, error) {
+
+	var blockList objectio.BlockInfoSlice
+	if _, err := engine_util.TryFastFilterBlocks(
+		ctx,
+		tbl.db.op.SnapshotTS(),
+		tbl.GetTableDef(ctx),
+		[]*plan.Expr{expr},
+		nil,
+		objList,
+		nil,
+		&blockList,
+		tbl.getTxn().engine.fs,
+	); err != nil {
+		return nil, err
+	}
+
+	relData := engine_util.NewBlockListRelationData(1)
+	for i, end := 0, blockList.Len(); i < end; i++ {
+		relData.AppendBlockInfo(blockList.Get(i))
+	}
+
+	readers, err := tbl.BuildReaders(
+		ctx,
+		tbl.proc.Load(),
+		expr,
+		relData,
+		1,
+		txnOffset,
+		orderBy,
+		policy,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return readers[0], nil
 }

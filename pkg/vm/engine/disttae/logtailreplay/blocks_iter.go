@@ -138,44 +138,44 @@ func (p *PartitionState) NewDirtyBlocksIter() BlocksIter {
 	return nil
 }
 
-// GetChangedObjsBetween get changed objects between [begin, end],
-// notice that if an object is created after begin and deleted before end, it will be ignored.
-func (p *PartitionState) GetChangedObjsBetween(
-	begin types.TS,
-	end types.TS,
-) (
-	deleted map[objectio.ObjectNameShort]struct{},
-	inserted map[objectio.ObjectNameShort]struct{},
-) {
-	inserted = make(map[objectio.ObjectNameShort]struct{})
-	deleted = make(map[objectio.ObjectNameShort]struct{})
-
-	iter := p.dataObjectTSIndex.Copy().Iter()
-	defer iter.Release()
-
-	for ok := iter.Seek(ObjectIndexByTSEntry{
-		Time: begin,
-	}); ok; ok = iter.Next() {
-		entry := iter.Item()
-
-		if entry.Time.GT(&end) {
-			break
-		}
-
-		if entry.IsDelete {
-			// if the object is inserted and deleted between [begin, end], it will be ignored.
-			if _, ok := inserted[entry.ShortObjName]; !ok {
-				deleted[entry.ShortObjName] = struct{}{}
-			} else {
-				delete(inserted, entry.ShortObjName)
-			}
-		} else {
-			inserted[entry.ShortObjName] = struct{}{}
-		}
-
-	}
-	return
-}
+//// GetChangedObjsBetween get changed objects between [begin, end],
+//// notice that if an object is created after begin and deleted before end, it will be ignored.
+//func (p *PartitionState) GetChangedObjsBetween(
+//	begin types.TS,
+//	end types.TS,
+//) (
+//	deleted map[objectio.ObjectNameShort]struct{},
+//	inserted map[objectio.ObjectNameShort]struct{},
+//) {
+//	inserted = make(map[objectio.ObjectNameShort]struct{})
+//	deleted = make(map[objectio.ObjectNameShort]struct{})
+//
+//	iter := p.dataObjectTSIndex.Copy().Iter()
+//	defer iter.Release()
+//
+//	for ok := iter.Seek(ObjectIndexByTSEntry{
+//		Time: begin,
+//	}); ok; ok = iter.Next() {
+//		entry := iter.Item()
+//
+//		if entry.Time.GT(&end) {
+//			break
+//		}
+//
+//		if entry.IsDelete {
+//			// if the object is inserted and deleted between [begin, end], it will be ignored.
+//			if _, ok := inserted[entry.ShortObjName]; !ok {
+//				deleted[entry.ShortObjName] = struct{}{}
+//			} else {
+//				delete(inserted, entry.ShortObjName)
+//			}
+//		} else {
+//			inserted[entry.ShortObjName] = struct{}{}
+//		}
+//
+//	}
+//	return
+//}
 
 func (p *PartitionState) BlockPersisted(blockID *types.Blockid) bool {
 	iter := p.dataObjectsNameIndex.Copy().Iter()
@@ -192,9 +192,72 @@ func (p *PartitionState) BlockPersisted(blockID *types.Blockid) bool {
 	return false
 }
 
-func (p *PartitionState) CollectObjectsBetween(
+func (p *PartitionState) CollectObjectsBetweenInProgress(
 	start, end types.TS,
-	collectDeleted bool,
+) (insertList, deletedList []objectio.ObjectStats) {
+
+	iter := p.dataObjectTSIndex.Copy().Iter()
+	defer iter.Release()
+
+	if !iter.Seek(ObjectIndexByTSEntry{
+		Time: start,
+	}) {
+		return
+	}
+
+	nameIdx := p.dataObjectsNameIndex.Copy()
+
+	for ok := true; ok; ok = iter.Next() {
+		entry := iter.Item()
+
+		if entry.Time.GT(&end) {
+			break
+		}
+
+		var ss objectio.ObjectStats
+		objectio.SetObjectStatsShortName(&ss, &entry.ShortObjName)
+
+		val, exist := nameIdx.Get(ObjectEntry{
+			ObjectInfo{
+				ObjectStats: ss,
+			},
+		})
+
+		if !exist {
+			continue
+		}
+
+		// case1: no soft delete
+		if val.DeleteTime.IsEmpty() {
+			insertList = append(insertList, val.ObjectStats)
+		} else {
+			// case2: delete after end
+			// start----end----delete
+			if !val.DeleteTime.IsEmpty() && val.DeleteTime.GT(&end) {
+				insertList = append(insertList, val.ObjectStats)
+			}
+
+			// case3: delete before end
+			// start----delete----end
+			if !val.DeleteTime.IsEmpty() && val.DeleteTime.LE(&end) {
+				// case3.1: insert before start
+				// insert----start----delete----end
+				if val.CreateTime.LT(&start) {
+					deletedList = append(deletedList, val.ObjectStats)
+				}
+				// case 3.2: insert after start
+				// start----insert----delete----end
+				// do nothing
+			}
+		}
+	}
+
+	return
+}
+
+func (p *PartitionState) CollectVisibleObjectsBetween(
+	start, end types.TS,
+	isTombstone bool,
 ) (stats []objectio.ObjectStats) {
 
 	iter := p.dataObjectTSIndex.Copy().Iter()
@@ -211,6 +274,10 @@ func (p *PartitionState) CollectObjectsBetween(
 	for ok := true; ok; ok = iter.Next() {
 		entry := iter.Item()
 
+		if entry.IsDelete {
+			continue
+		}
+
 		var ss objectio.ObjectStats
 		objectio.SetObjectStatsShortName(&ss, &entry.ShortObjName)
 
@@ -224,20 +291,12 @@ func (p *PartitionState) CollectObjectsBetween(
 			continue
 		}
 
-		if !collectDeleted {
-			// if deleted before end
-			if !val.DeleteTime.IsEmpty() && val.DeleteTime.LE(&end) {
-				continue
-			}
-		} else {
-			// only collect deletes
-			// if not delete or delete after end
-			if val.DeleteTime.IsEmpty() || val.DeleteTime.GT(&end) {
-				continue
-			}
+		// if deleted before end
+		if !val.DeleteTime.IsEmpty() && val.DeleteTime.LE(&end) {
+			continue
 		}
 
-		// if created not in [start, end]
+		// if created in [start, end]
 		if val.CreateTime.LT(&start) && val.CreateTime.GT(&end) {
 			continue
 		}

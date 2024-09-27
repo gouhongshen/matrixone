@@ -1435,9 +1435,14 @@ func (txn *Transaction) transferInmemTombstoneLocked(ctx context.Context, commit
 				} else {
 					endTs = tbl.db.op.SnapshotTS()
 				}
-				deleteObjs, createObjs := state.GetChangedObjsBetween(
+				deleteObjs, createObjs := state.CollectObjectsBetweenInProgress(
 					types.TimestampToTS(ts),
 					types.TimestampToTS(endTs))
+
+				deletedMap := make(map[objectio.ObjectNameShort]struct{})
+				for _, obj := range deleteObjs {
+					deletedMap[*obj.ObjectShortName()] = struct{}{}
+				}
 
 				trace.GetService(txn.proc.GetService()).ApplyFlush(
 					tbl.db.op.Txn().ID,
@@ -1450,9 +1455,8 @@ func (txn *Transaction) transferInmemTombstoneLocked(ctx context.Context, commit
 					if err := TransferTombstones(
 						ctx,
 						tbl,
-						state,
-						deleteObjs,
 						createObjs,
+						deletedMap,
 						txn.proc.Mp(),
 						txn.engine.fs,
 					); err != nil {
