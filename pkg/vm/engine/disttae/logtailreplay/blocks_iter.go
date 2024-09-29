@@ -231,23 +231,18 @@ func (p *PartitionState) CollectObjectsBetweenInProgress(
 		if val.DeleteTime.IsEmpty() {
 			insertList = append(insertList, val.ObjectStats)
 		} else {
-			// case2: delete after end
-			// start----end----delete
-			if !val.DeleteTime.IsEmpty() && val.DeleteTime.GT(&end) {
-				insertList = append(insertList, val.ObjectStats)
-			}
-
-			// case3: delete before end
-			// start----delete----end
-			if !val.DeleteTime.IsEmpty() && val.DeleteTime.LE(&end) {
-				// case3.1: insert before start
-				// insert----start----delete----end
-				if val.CreateTime.LT(&start) {
+			if val.CreateTime.LT(&start) {
+				// create --------- delete
+				//          start -------- end
+				if val.DeleteTime.LE(&end) {
 					deletedList = append(deletedList, val.ObjectStats)
 				}
-				// case 3.2: insert after start
-				// start----insert----delete----end
-				// do nothing
+			} else {
+				//        create ---------- delete
+				// start ------------ end
+				if val.DeleteTime.GT(&end) {
+					insertList = append(insertList, val.ObjectStats)
+				}
 			}
 		}
 	}
