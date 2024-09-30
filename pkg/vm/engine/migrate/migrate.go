@@ -236,38 +236,6 @@ func ReplayTable(cata *catalog.Catalog, ins, insTxn, insCol, del, delTxn *contai
 	}
 }
 
-const (
-	ObjectFlag_Appendable = 1 << iota
-	ObjectFlag_Sorted
-	ObjectFlag_CNCreated
-)
-
-func ReplayObjectBatch(objects *containers.Batch) {
-	objectStats := objects.GetVectorByName(ObjectAttr_ObjectStats)
-	sortedVec := objects.GetVectorByName(ObjectAttr_Sorted)
-	appendableVec := objects.GetVectorByName(ObjectAttr_State)
-	for i := 0; i < objectStats.Length(); i++ {
-		obj := objectStats.Get(i).([]byte)
-		sorted := sortedVec.Get(i).(bool)
-		appendable := appendableVec.Get(i).(bool)
-		var reserved byte
-		if appendable {
-			reserved |= ObjectFlag_Appendable
-		} else {
-			reserved |= ObjectFlag_CNCreated
-		}
-		if sorted {
-			reserved |= ObjectFlag_Sorted
-		}
-		obj = append(obj, reserved)
-		ss := objectio.ObjectStats(obj)
-		if len(obj) < objectio.ObjectStatsLen {
-			panic("invalid object stats")
-		}
-		logutil.Infof("replay object %v", ss.String())
-	}
-}
-
 func DumpCatalogToBatches(cata *catalog.Catalog) (bDbs, bTables, bCols *containers.Batch) {
 	bDbs = makeBasicRespBatchFromSchema(catalog.SystemDBSchema, common.CheckpointAllocator, nil)
 	bTables = makeBasicRespBatchFromSchema(catalog.SystemTableSchema, common.CheckpointAllocator, nil)
@@ -359,7 +327,10 @@ func SinkBatch(schema *catalog.Schema, bat *containers.Batch, fs fileservice.Fil
 	return objStats
 }
 
-func RewriteCkp(fs fileservice.FileService, oldCkpEntry *checkpoint.CheckpointEntry, txnMVCCNode *txnbase.TxnMVCCNode, entryMVCCNode *catalog.EntryMVCCNode, dbs, tbls, cols []objectio.ObjectStats) {
+func RewriteCkp(
+	fs fileservice.FileService, oldCkpEntry *checkpoint.CheckpointEntry, oldCkpBats []*containers.Batch,
+	txnMVCCNode *txnbase.TxnMVCCNode, entryMVCCNode *catalog.EntryMVCCNode, dbs, tbls, cols []objectio.ObjectStats,
+) {
 	ckpData := logtail.NewCheckpointData("", common.CheckpointAllocator)
 	batch := ckpData.GetObjectBatchs()
 
@@ -377,10 +348,16 @@ func RewriteCkp(fs fileservice.FileService, oldCkpEntry *checkpoint.CheckpointEn
 		ckpData.UpdateDataObjectMeta(tid, 0, int32(len(objs)))
 	}
 
-	// write new object info
+	// write three table
 	fillObjStats(dbs, pkgcatalog.MO_DATABASE_ID)
 	fillObjStats(tbls, pkgcatalog.MO_TABLES_ID)
 	fillObjStats(cols, pkgcatalog.MO_COLUMNS_ID)
+	// write object stats
+	ReplayObjectBatch(oldCkpBats[ObjectInfoIDX], batch)
+	ReplayObjectBatch(oldCkpBats[TNObjectInfoIDX], batch)
+
+	// write delta location
+
 	cnLocation, tnLocation, files, err := ckpData.WriteTo(fs, logtail.DefaultCheckpointBlockRows, logtail.DefaultCheckpointSize)
 	if err != nil {
 		panic(err)
@@ -415,4 +392,80 @@ func RewriteCkp(fs fileservice.FileService, oldCkpEntry *checkpoint.CheckpointEn
 		panic(err)
 	}
 
+}
+
+const (
+	ObjectFlag_Appendable = 1 << iota
+	ObjectFlag_Sorted
+	ObjectFlag_CNCreated
+)
+
+func ReplayObjectBatch(objects, data *containers.Batch) {
+	objectStats := objects.GetVectorByName(ObjectAttr_ObjectStats)
+	sortedVec := objects.GetVectorByName(ObjectAttr_Sorted)
+	appendableVec := objects.GetVectorByName(ObjectAttr_State)
+	dbidVec := objects.GetVectorByName(SnapshotAttr_DBID)
+	tidVec := objects.GetVectorByName(SnapshotAttr_TID)
+	createAtVec := objects.GetVectorByName(EntryNode_CreateAt)
+	deleteAtVec := objects.GetVectorByName(EntryNode_DeleteAt)
+	startTSVec := objects.GetVectorByName(txnbase.SnapshotAttr_StartTS)
+	prepareTSVec := objects.GetVectorByName(txnbase.SnapshotAttr_PrepareTS)
+	commitTSVec := objects.GetVectorByName(txnbase.SnapshotAttr_CommitTS)
+
+	for i := 0; i < objectStats.Length(); i++ {
+		obj := objectStats.Get(i).([]byte)
+		sorted := sortedVec.Get(i).(bool)
+		appendable := appendableVec.Get(i).(bool)
+		var reserved byte
+		if appendable {
+			reserved |= ObjectFlag_Appendable
+		} else {
+			reserved |= ObjectFlag_CNCreated
+		}
+		if sorted {
+			reserved |= ObjectFlag_Sorted
+		}
+		obj = append(obj, reserved)
+
+		data.GetVectorByName(ObjectAttr_ObjectStats).Append(obj, false)
+		data.GetVectorByName(SnapshotAttr_DBID).Append(dbidVec.Get(i), false)
+		data.GetVectorByName(SnapshotAttr_TID).Append(tidVec.Get(i), false)
+		data.GetVectorByName(EntryNode_CreateAt).Append(createAtVec.Get(i), false)
+		data.GetVectorByName(EntryNode_DeleteAt).Append(deleteAtVec.Get(i), false)
+		data.GetVectorByName(txnbase.SnapshotAttr_StartTS).Append(startTSVec.Get(i), false)
+		data.GetVectorByName(txnbase.SnapshotAttr_PrepareTS).Append(prepareTSVec.Get(i), false)
+		data.GetVectorByName(txnbase.SnapshotAttr_CommitTS).Append(commitTSVec.Get(i), false)
+	}
+}
+
+func ReplayDeltaLocation(objects, data *containers.Batch) {
+	objectStats := objects.GetVectorByName(ObjectAttr_ObjectStats)
+	sortedVec := objects.GetVectorByName(ObjectAttr_Sorted)
+	appendableVec := objects.GetVectorByName(ObjectAttr_State)
+	var ss objectio.ObjectStats
+	for i := 0; i < objectStats.Length(); i++ {
+		obj := objectStats.Get(i).([]byte)
+		sorted := sortedVec.Get(i).(bool)
+		appendable := appendableVec.Get(i).(bool)
+		var reserved byte
+		if appendable {
+			reserved |= ObjectFlag_Appendable
+		} else {
+			reserved |= ObjectFlag_CNCreated
+		}
+		if sorted {
+			reserved |= ObjectFlag_Sorted
+		}
+		obj = append(obj, reserved)
+		ss = objectio.ObjectStats(obj)
+
+		data.GetVectorByName(ObjectAttr_ObjectStats).Append(ss, false)
+		data.GetVectorByName(SnapshotAttr_DBID).Append(objects.GetVectorByName(SnapshotAttr_DBID), false)
+		data.GetVectorByName(SnapshotAttr_TID).Append(objects.GetVectorByName(SnapshotAttr_TID), false)
+		data.GetVectorByName(EntryNode_CreateAt).Append(objects.GetVectorByName(EntryNode_CreateAt), false)
+		data.GetVectorByName(EntryNode_DeleteAt).Append(objects.GetVectorByName(EntryNode_DeleteAt), false)
+		data.GetVectorByName(txnbase.SnapshotAttr_StartTS).Append(objects.GetVectorByName(txnbase.SnapshotAttr_StartTS), false)
+		data.GetVectorByName(txnbase.SnapshotAttr_PrepareTS).Append(objects.GetVectorByName(txnbase.SnapshotAttr_PrepareTS), false)
+		data.GetVectorByName(txnbase.SnapshotAttr_CommitTS).Append(objects.GetVectorByName(txnbase.SnapshotAttr_CommitTS), false)
+	}
 }
