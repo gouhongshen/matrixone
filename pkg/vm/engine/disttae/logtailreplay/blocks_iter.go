@@ -250,58 +250,6 @@ func (p *PartitionState) CollectObjectsBetween(
 	return
 }
 
-func (p *PartitionState) CollectVisibleObjectsBetween(
-	start, end types.TS,
-	isTombstone bool,
-) (stats []objectio.ObjectStats) {
-
-	iter := p.dataObjectTSIndex.Copy().Iter()
-	defer iter.Release()
-
-	if !iter.Seek(ObjectIndexByTSEntry{
-		Time: start,
-	}) {
-		return
-	}
-
-	nameIdx := p.dataObjectsNameIndex.Copy()
-
-	for ok := true; ok; ok = iter.Next() {
-		entry := iter.Item()
-
-		if entry.IsDelete {
-			continue
-		}
-
-		var ss objectio.ObjectStats
-		objectio.SetObjectStatsShortName(&ss, &entry.ShortObjName)
-
-		val, exist := nameIdx.Get(ObjectEntry{
-			ObjectInfo{
-				ObjectStats: ss,
-			},
-		})
-
-		if !exist {
-			continue
-		}
-
-		// if deleted before end
-		if !val.DeleteTime.IsEmpty() && val.DeleteTime.LE(&end) {
-			continue
-		}
-
-		// if created in [start, end]
-		if val.CreateTime.LT(&start) && val.CreateTime.GT(&end) {
-			continue
-		}
-
-		stats = append(stats, val.ObjectStats)
-	}
-
-	return
-}
-
 func (p *PartitionState) CheckIfObjectDeletedBeforeTS(
 	ts types.TS,
 	isTombstone bool,

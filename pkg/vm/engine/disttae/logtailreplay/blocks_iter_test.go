@@ -15,6 +15,7 @@
 package logtailreplay
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/matrixorigin/matrixone/pkg/container/types"
@@ -26,8 +27,8 @@ import (
 func TestPartitionState_CollectObjectsBetweenInProgress(t *testing.T) {
 	pState := NewPartitionState("", false, 0x3fff)
 
-	//       t1			t2		   t3		  t4           t4
-	// ---- obj1 ----- obj2 ----- obj3 ----- d-obj1 ----- obj4
+	//       t1			t2		   t3		  t4           t4         t5		 t5			t6		   t6
+	// ---- obj1 ----- obj2 ----- obj3 ----- d-obj1 ----- obj4 ---- d-obj2 ---- obj5 ---- d-obj3 ---- obj6
 	ts := types.TimestampToTS(timestamp.Timestamp{
 		PhysicalTime: 10,
 		LogicalTime:  00,
@@ -39,8 +40,10 @@ func TestPartitionState_CollectObjectsBetweenInProgress(t *testing.T) {
 		t2    = ts.Next()
 		t3    = t2.Next()
 		t4    = t3.Next()
+		t5    = t4.Next()
+		t6    = t5.Next()
 
-		obj1, obj2, obj3, obj4 ObjectEntry
+		obj1, obj2, obj3, obj4, obj5, obj6 ObjectEntry
 	)
 
 	// t1: insert obj1
@@ -150,5 +153,98 @@ func TestPartitionState_CollectObjectsBetweenInProgress(t *testing.T) {
 		require.Equal(t, deleted, []objectio.ObjectStats{obj1.ObjectStats})
 		require.Equal(t, inserted,
 			[]objectio.ObjectStats{obj2.ObjectStats, obj3.ObjectStats, obj4.ObjectStats})
+	}
+
+	// t5: delete obj2, insert obj5
+	{
+		obj2.DeleteTime = t5
+		pState.dataObjectsNameIndex.Set(obj2)
+		pState.dataObjectTSIndex.Set(ObjectIndexByTSEntry{
+			Time:         obj2.DeleteTime,
+			ShortObjName: *obj2.ObjectShortName(),
+			IsDelete:     true,
+		})
+
+		objectio.SetObjectStatsObjectName(&stats, objectio.ObjectName("obj5"))
+		obj5 = ObjectEntry{
+			ObjectInfo{
+				ObjectStats: stats,
+				CreateTime:  t5,
+			},
+		}
+
+		pState.dataObjectsNameIndex.Set(obj5)
+		pState.dataObjectTSIndex.Set(ObjectIndexByTSEntry{
+			Time:         obj5.CreateTime,
+			ShortObjName: *obj5.ObjectShortName(),
+			IsDelete:     false,
+		})
+	}
+
+	// t6: delete obj3, insert obj6
+	{
+		obj3.DeleteTime = t6
+		pState.dataObjectsNameIndex.Set(obj3)
+		pState.dataObjectTSIndex.Set(ObjectIndexByTSEntry{
+			Time:         obj3.DeleteTime,
+			ShortObjName: *obj3.ObjectShortName(),
+			IsDelete:     true,
+		})
+
+		objectio.SetObjectStatsObjectName(&stats, objectio.ObjectName("obj6"))
+		obj6 = ObjectEntry{
+			ObjectInfo{
+				ObjectStats: stats,
+				CreateTime:  t6,
+			},
+		}
+
+		pState.dataObjectsNameIndex.Set(obj6)
+		pState.dataObjectTSIndex.Set(ObjectIndexByTSEntry{
+			Time:         obj6.CreateTime,
+			ShortObjName: *obj6.ObjectShortName(),
+			IsDelete:     false,
+		})
+	}
+
+	// random check
+	{
+		//name := []string{"t1", "t2", "t3", "t4", "t5", "t6"}
+		tss := []types.TS{t1, t2, t3, t4, t5, t6}
+		for i := 0; i < 10000; i++ {
+			x := rand.Int() % (len(tss) - 1)
+			y := rand.Int()%(len(tss)-x) + x
+
+			tx := tss[x]
+			ty := tss[y]
+
+			require.True(t, ty.GE(&tx))
+
+			inserted, deleted := pState.CollectObjectsBetween(tx, ty)
+			for _, ss := range inserted {
+				obj, ok := pState.GetObject(*ss.ObjectShortName())
+				require.True(t, ok)
+
+				if obj.DeleteTime.IsEmpty() {
+					ok = obj.CreateTime.GE(&tx) && obj.CreateTime.LE(&ty)
+					require.True(t, ok)
+				} else {
+					ok = obj.CreateTime.GE(&tx) && obj.CreateTime.LE(&ty) && obj.DeleteTime.GT(&ty)
+				}
+			}
+
+			for _, ss := range deleted {
+				obj, ok := pState.GetObject(*ss.ObjectShortName())
+				require.True(t, ok)
+
+				require.False(t, obj.DeleteTime.IsEmpty())
+
+				ok = obj.CreateTime.LT(&tx) && obj.DeleteTime.GE(&tx) && obj.DeleteTime.LE(&ty)
+				require.True(t, ok)
+			}
+
+			//fmt.Println(name[x], name[y], len(inserted), len(deleted))
+
+		}
 	}
 }
