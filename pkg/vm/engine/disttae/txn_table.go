@@ -1853,7 +1853,7 @@ func (tbl *txnTable) tryToSubscribe(ctx context.Context) (ps *logtailreplay.Part
 
 }
 
-func (tbl *txnTable) PKPersistedBetweenInProgress(
+func (tbl *txnTable) PKPersistedBetween(
 	pState *logtailreplay.PartitionState,
 	from, to types.TS,
 	keys *vector.Vector,
@@ -1866,7 +1866,7 @@ func (tbl *txnTable) PKPersistedBetweenInProgress(
 	pkColDef := tbl.tableDef.Cols[pkColIdx]
 	expr := engine_util.ConstructInExpr(ctx, pkColumName, keys)
 
-	inserted, deleted := pState.CollectObjectsBetweenInProgress(from.Next(), types.MaxTs())
+	inserted, deleted := pState.CollectObjectsBetween(from.Next(), types.MaxTs())
 
 	if len(inserted) == 0 && len(deleted) == 0 {
 		return false, nil
@@ -1947,7 +1947,7 @@ func (tbl *txnTable) PrimaryKeysMayBeModified(
 	// }
 
 	//need check pk whether exist on S3 block.
-	return tbl.PKPersistedBetweenInProgress(
+	return tbl.PKPersistedBetween(
 		snap,
 		from,
 		to,

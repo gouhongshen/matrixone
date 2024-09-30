@@ -1435,7 +1435,7 @@ func (txn *Transaction) transferInmemTombstoneLocked(ctx context.Context, commit
 				} else {
 					endTs = tbl.db.op.SnapshotTS()
 				}
-				deleteObjs, createObjs := state.CollectObjectsBetweenInProgress(
+				deleteObjs, createObjs := state.CollectObjectsBetween(
 					types.TimestampToTS(ts),
 					types.TimestampToTS(endTs))
 

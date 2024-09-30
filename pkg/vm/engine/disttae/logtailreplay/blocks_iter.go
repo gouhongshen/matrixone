@@ -192,7 +192,7 @@ func (p *PartitionState) BlockPersisted(blockID *types.Blockid) bool {
 	return false
 }
 
-func (p *PartitionState) CollectObjectsBetweenInProgress(
+func (p *PartitionState) CollectObjectsBetween(
 	start, end types.TS,
 ) (insertList, deletedList []objectio.ObjectStats) {
 

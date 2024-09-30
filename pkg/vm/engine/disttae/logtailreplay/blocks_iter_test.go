@@ -125,7 +125,7 @@ func TestPartitionState_CollectObjectsBetweenInProgress(t *testing.T) {
 
 	// check 1
 	{
-		inserted, deleted := pState.CollectObjectsBetweenInProgress(t1, t3)
+		inserted, deleted := pState.CollectObjectsBetween(t1, t3)
 		require.Nil(t, deleted)
 
 		require.Equal(t, inserted,
@@ -138,7 +138,7 @@ func TestPartitionState_CollectObjectsBetweenInProgress(t *testing.T) {
 
 	// check 2
 	{
-		inserted, deleted := pState.CollectObjectsBetweenInProgress(t1, t4)
+		inserted, deleted := pState.CollectObjectsBetween(t1, t4)
 		require.Nil(t, deleted)
 		require.Equal(t, inserted,
 			[]objectio.ObjectStats{obj2.ObjectStats, obj3.ObjectStats, obj4.ObjectStats})
@@ -146,7 +146,7 @@ func TestPartitionState_CollectObjectsBetweenInProgress(t *testing.T) {
 
 	// check 3
 	{
-		inserted, deleted := pState.CollectObjectsBetweenInProgress(t2, t4)
+		inserted, deleted := pState.CollectObjectsBetween(t2, t4)
 		require.Equal(t, deleted, []objectio.ObjectStats{obj1.ObjectStats})
 		require.Equal(t, inserted,
 			[]objectio.ObjectStats{obj2.ObjectStats, obj3.ObjectStats, obj4.ObjectStats})
