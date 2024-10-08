@@ -230,6 +230,7 @@ func TestPartitionState_CollectObjectsBetweenInProgress(t *testing.T) {
 					require.True(t, ok)
 				} else {
 					ok = obj.CreateTime.GE(&tx) && obj.CreateTime.LE(&ty) && obj.DeleteTime.GT(&ty)
+					require.True(t, ok)
 				}
 			}
 
