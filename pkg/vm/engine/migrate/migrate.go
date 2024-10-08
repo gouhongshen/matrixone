@@ -2,8 +2,11 @@ package db
 
 import (
 	"context"
+	"fmt"
+	"path"
 
 	pkgcatalog "github.com/matrixorigin/matrixone/pkg/catalog"
+	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
@@ -16,8 +19,14 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/containers"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/db/checkpoint"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logtail"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/mergesort"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/txn/txnbase"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/txn/txnimpl"
+)
+
+var (
+	rootDir    = "/Users/ghs-mo/MOWorkSpace/matrixone-debug/mo-data/"
+	newDataDir = path.Join(rootDir, "rewritten")
 )
 
 func NewFileFs(path string) fileservice.FileService {
@@ -328,22 +337,27 @@ func SinkBatch(schema *catalog.Schema, bat *containers.Batch, fs fileservice.Fil
 }
 
 func RewriteCkp(
-	fs fileservice.FileService, oldCkpEntry *checkpoint.CheckpointEntry, oldCkpBats []*containers.Batch,
-	txnMVCCNode *txnbase.TxnMVCCNode, entryMVCCNode *catalog.EntryMVCCNode, dbs, tbls, cols []objectio.ObjectStats,
+	oldDataFS, newDataFS fileservice.FileService,
+	oldCkpEntry *checkpoint.CheckpointEntry,
+	oldCkpBats []*containers.Batch,
+	txnMVCCNode *txnbase.TxnMVCCNode,
+	entryMVCCNode *catalog.EntryMVCCNode,
+	dbs, tbls, cols []objectio.ObjectStats,
 ) {
 	ckpData := logtail.NewCheckpointData("", common.CheckpointAllocator)
-	batch := ckpData.GetObjectBatchs()
+	dataObjectBatch := ckpData.GetObjectBatchs()
+	tombstoneObjectBatch := ckpData.GetTombstoneObjectBatchs()
 
 	fillObjStats := func(objs []objectio.ObjectStats, tid uint64) {
 		for _, obj := range objs {
 			// padding rowid + committs
-			batch.GetVectorByName(catalog.PhyAddrColumnName).Append(objectio.HackObjid2Rowid(objectio.NewObjectid()), false)
-			batch.GetVectorByName(objectio.DefaultCommitTS_Attr).Append(txnMVCCNode.End, false)
-			batch.GetVectorByName(ObjectAttr_ObjectStats).Append(obj[:], false)
-			txnMVCCNode.AppendTuple(batch)
-			entryMVCCNode.AppendObjectTuple(batch, true)
-			batch.GetVectorByName(SnapshotAttr_DBID).Append(uint64(pkgcatalog.MO_CATALOG_ID), false)
-			batch.GetVectorByName(SnapshotAttr_TID).Append(tid, false)
+			dataObjectBatch.GetVectorByName(catalog.PhyAddrColumnName).Append(objectio.HackObjid2Rowid(objectio.NewObjectid()), false)
+			dataObjectBatch.GetVectorByName(objectio.DefaultCommitTS_Attr).Append(txnMVCCNode.End, false)
+			dataObjectBatch.GetVectorByName(ObjectAttr_ObjectStats).Append(obj[:], false)
+			txnMVCCNode.AppendTuple(dataObjectBatch)
+			entryMVCCNode.AppendObjectTuple(dataObjectBatch, true)
+			dataObjectBatch.GetVectorByName(SnapshotAttr_DBID).Append(uint64(pkgcatalog.MO_CATALOG_ID), false)
+			dataObjectBatch.GetVectorByName(SnapshotAttr_TID).Append(tid, false)
 		}
 		ckpData.UpdateDataObjectMeta(tid, 0, int32(len(objs)))
 	}
@@ -352,13 +366,20 @@ func RewriteCkp(
 	fillObjStats(dbs, pkgcatalog.MO_DATABASE_ID)
 	fillObjStats(tbls, pkgcatalog.MO_TABLES_ID)
 	fillObjStats(cols, pkgcatalog.MO_COLUMNS_ID)
+
 	// write object stats
-	ReplayObjectBatch(oldCkpBats[ObjectInfoIDX], batch)
-	ReplayObjectBatch(oldCkpBats[TNObjectInfoIDX], batch)
+	ReplayObjectBatch(oldCkpBats[ObjectInfoIDX], dataObjectBatch)
+	ReplayObjectBatch(oldCkpBats[TNObjectInfoIDX], dataObjectBatch)
 
 	// write delta location
+	ReplayDeletes(
+		txnMVCCNode.End,
+		newDataFS, oldDataFS,
+		oldCkpBats[BLKMetaInsertIDX],
+		oldCkpBats[BLKMetaInsertTxnIDX],
+		tombstoneObjectBatch)
 
-	cnLocation, tnLocation, files, err := ckpData.WriteTo(fs, logtail.DefaultCheckpointBlockRows, logtail.DefaultCheckpointSize)
+	cnLocation, tnLocation, files, err := ckpData.WriteTo(newDataFS, logtail.DefaultCheckpointBlockRows, logtail.DefaultCheckpointSize)
 	if err != nil {
 		panic(err)
 	}
@@ -379,7 +400,7 @@ func RewriteCkp(
 	newCkpMetaBat.GetVectorByName(checkpoint.CheckpointAttr_Type).Append(int8(checkpoint.ET_Global), false)
 
 	name := blockio.EncodeCheckpointMetadataFileName(checkpoint.CheckpointDir, checkpoint.PrefixMetadata, oldCkpEntry.GetStart(), oldCkpEntry.GetEnd())
-	writer, err := objectio.NewObjectWriterSpecial(objectio.WriterCheckpoint, name, fs)
+	writer, err := objectio.NewObjectWriterSpecial(objectio.WriterCheckpoint, name, newDataFS)
 	if err != nil {
 		panic(err)
 	}
@@ -467,5 +488,98 @@ func ReplayDeltaLocation(objects, data *containers.Batch) {
 		data.GetVectorByName(txnbase.SnapshotAttr_StartTS).Append(objects.GetVectorByName(txnbase.SnapshotAttr_StartTS), false)
 		data.GetVectorByName(txnbase.SnapshotAttr_PrepareTS).Append(objects.GetVectorByName(txnbase.SnapshotAttr_PrepareTS), false)
 		data.GetVectorByName(txnbase.SnapshotAttr_CommitTS).Append(objects.GetVectorByName(txnbase.SnapshotAttr_CommitTS), false)
+	}
+}
+
+func ReplayDeletes(
+	ts types.TS,
+	newDataFS, oldDataFS fileservice.FileService,
+	srcBat, srcTxnBat, destBat *containers.Batch) {
+
+	var (
+		err            error
+		locColIdx      = 6
+		blkIdColIdx    = 2
+		commitTSColIdx = 7
+	)
+
+	srcCNBat := containers.ToCNBatch(srcBat)
+	blkIdCol := vector.MustFixedColWithTypeCheck[types.Blockid](srcCNBat.Vecs[blkIdColIdx])
+
+	tblBlks := make(map[[2]uint64][]types.Blockid)
+	for i := range srcCNBat.RowCount() {
+		dbid := srcTxnBat.GetVectorByName(SnapshotAttr_DBID).Get(i).(uint64)
+		tid := srcTxnBat.GetVectorByName(SnapshotAttr_TID).Get(i).(uint64)
+		tblBlks[[2]uint64{dbid, tid}] = append(tblBlks[[2]uint64{dbid, tid}], blkIdCol[i])
+	}
+
+	// sort bat rows by commits column,
+	// to get the latest delta loc for each blk
+	err = mergesort.SortColumnsByIndex(srcCNBat.Vecs, commitTSColIdx, common.CheckpointAllocator)
+	if err != nil {
+		panic(err)
+	}
+
+	blkDeltaLocs := make(map[types.Blockid]objectio.Location)
+	for i := range blkIdCol {
+		deltaLoc := objectio.Location(srcCNBat.Vecs[locColIdx].GetBytesAt(i))
+		blkDeltaLocs[blkIdCol[i]] = deltaLoc
+	}
+
+	var (
+		bat     *batch.Batch
+		release func()
+		cols    = []uint16{0, 1}
+		ctx     = context.Background()
+	)
+
+	for tblId, blks := range tblBlks {
+		var sinker *engine_util.Sinker
+		for _, blk := range blks {
+			loc := blkDeltaLocs[blk]
+			fmt.Println(loc.Name())
+			bat, _, release, err = blockio.LoadTombstoneColumns(
+				ctx, cols, nil, oldDataFS, loc, common.CheckpointAllocator, 0)
+			if err != nil {
+				panic(err)
+			}
+
+			if sinker == nil {
+				sinker = engine_util.NewTombstoneSinker(
+					false,
+					*bat.Vecs[1].GetType(),
+					common.CheckpointAllocator, newDataFS,
+					engine_util.WithTailSizeCap(0),
+					engine_util.WithDedupAll())
+			}
+
+			if err = sinker.Write(ctx, bat); err != nil {
+				panic(err)
+			}
+
+			release()
+		}
+
+		if sinker == nil {
+			continue
+		}
+
+		if err = sinker.Sync(ctx); err != nil {
+			panic(err)
+		}
+
+		ss, _ := sinker.GetResult()
+		for _, s := range ss {
+			destBat.GetVectorByName(ObjectAttr_ObjectStats).Append(s, false)
+			destBat.GetVectorByName(SnapshotAttr_DBID).Append(tblId[0], false)
+			destBat.GetVectorByName(SnapshotAttr_TID).Append(tblId[1], false)
+			destBat.GetVectorByName(EntryNode_CreateAt).Append(ts, false)
+			destBat.GetVectorByName(EntryNode_DeleteAt).Append(types.TS{}, false)
+			destBat.GetVectorByName(txnbase.SnapshotAttr_CommitTS).Append(ts, false)
+		}
+
+		if err = sinker.Close(); err != nil {
+			panic(err)
+		}
 	}
 }
