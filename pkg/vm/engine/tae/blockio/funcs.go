@@ -128,6 +128,57 @@ func LoadColumnsData2(
 	return
 }
 
+func LoadTombstoneColumnsOldVersion(
+	ctx context.Context,
+	typs []types.Type,
+	fs fileservice.FileService,
+	location objectio.Location,
+	m *mpool.MPool,
+	policy fileservice.Policy,
+) (bat *batch.Batch, release func(), err error) {
+
+	name := location.Name()
+	var meta objectio.ObjectMeta
+	var ioVectors fileservice.IOVector
+	if meta, err = objectio.FastLoadObjectMeta(ctx, &location, false, fs); err != nil {
+		return
+	}
+	dataMeta := meta.MustGetMeta(objectio.SchemaTombstone)
+
+	blkmeta := dataMeta.GetBlockMeta(uint32(location.ID()))
+	columnCount := blkmeta.GetColumnCount()
+
+	var cols []uint16
+	if columnCount == 2 {
+		cols = []uint16{0, 1}
+	} else {
+		// []string{catalog.PhyAddrColumnName, catalog.AttrCommitTs, catalog.AttrPKVal, catalog.AttrAborted}
+		cols = []uint16{0, 2}
+	}
+
+	if ioVectors, err = objectio.ReadOneBlock(ctx, &dataMeta, name.String(), location.ID(), cols, typs, m, fs, policy); err != nil {
+		return
+	}
+
+	release = func() {
+		objectio.ReleaseIOVector(&ioVectors)
+		bat.Clean(m)
+	}
+
+	var obj any
+	bat = batch.NewWithSize(len(cols))
+	for i := range cols {
+		obj, err = objectio.Decode(ioVectors.Entries[i].CachedData.Bytes())
+		if err != nil {
+			return
+		}
+		bat.Vecs[i] = obj.(*vector.Vector)
+		bat.SetRowCount(bat.Vecs[i].Length())
+	}
+
+	return
+}
+
 func LoadTombstoneColumns(
 	ctx context.Context,
 	cols []uint16,

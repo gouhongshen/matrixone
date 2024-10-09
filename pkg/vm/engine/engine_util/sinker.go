@@ -627,7 +627,7 @@ func (sinker *Sinker) Sync(ctx context.Context) error {
 		sinker.result.persisted = append(sinker.result.persisted, sinker.staged.persisted...)
 		return nil
 	}
-	panic("not implemented")
+	//panic("not implemented")
 	// TODO: merge the files and dedup
 	// newPersied, err := MergeSortedFilesAndDedup(sinker.staged.persisted)
 	// if err != nil {
@@ -635,6 +635,7 @@ func (sinker *Sinker) Sync(ctx context.Context) error {
 	// }
 	// sinker.results = append(sinker.results, newPersied...)
 	//return nil
+	return nil
 }
 
 func (sinker *Sinker) Close() error {
