@@ -16,7 +16,7 @@ func TestXxx(t *testing.T) {
 
 	oldDataFS := NewFileFs(path.Join(rootDir, "shared"))
 	// 1. ReadCkp11File
-	fromEntry, ckpbats := ReadCkp11File(oldDataFS, "ckp/meta_0-0_1728382922337692000-1.ckp")
+	fromEntry, ckpbats := ReadCkp11File(oldDataFS, "ckp/meta_0-0_1728463596441582000-1.ckp")
 	t.Log(fromEntry.String())
 
 	// 2. Replay To 1.3 catalog
@@ -42,7 +42,7 @@ func TestXxx(t *testing.T) {
 		CreatedAt: types.BuildTS(42424243, 0),
 	}
 
-	RewriteCkp(oldDataFS, newDataFS, fromEntry, ckpbats, txnNode, entryNode, objDB, objTbl, objCol)
+	RewriteCkp(cata, oldDataFS, newDataFS, fromEntry, ckpbats, txnNode, entryNode, objDB, objTbl, objCol)
 
 	for _, v := range objDB {
 		t.Log(v.String())
