@@ -1,6 +1,7 @@
 package db
 
 import (
+	"fmt"
 	"path"
 	"testing"
 
@@ -16,11 +17,21 @@ func TestXxx(t *testing.T) {
 
 	oldDataFS := NewFileFs(path.Join(rootDir, "shared"))
 	// 1. ReadCkp11File
-	fromEntry, ckpbats := ReadCkp11File(oldDataFS, "ckp/meta_0-0_1728463596441582000-1.ckp")
+	fromEntry, ckpbats := ReadCkp11File(oldDataFS, "ckp/meta_0-0_1728468637208116000-1.ckp")
 	t.Log(fromEntry.String())
 
 	// 2. Replay To 1.3 catalog
 	cata := ReplayCatalogFromCkpData11(ckpbats)
+
+	dbIt := cata.MakeDBIt(false)
+	for ; dbIt.Valid(); dbIt.Next() {
+		dbEntry := dbIt.Get().GetPayload()
+		tblIt := dbEntry.MakeTableIt(false)
+		for ; tblIt.Valid(); tblIt.Next() {
+			tblEntry := tblIt.Get().GetPayload()
+			fmt.Println(tblEntry.GetFullName(), tblEntry.GetID())
+		}
+	}
 
 	// 3. Dump catalog to 3 tables batch
 	bDb, bTbl, bCol := DumpCatalogToBatches(cata)
