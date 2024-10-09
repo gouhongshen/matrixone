@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"go.uber.org/zap"
 	"path"
 
@@ -348,6 +349,7 @@ func RewriteCkp(
 	dataObjectBatch := ckpData.GetObjectBatchs()
 	tombstoneObjectBatch := ckpData.GetTombstoneObjectBatchs()
 
+	metaOffset := int32(0)
 	fillObjStats := func(objs []objectio.ObjectStats, tid uint64) {
 		for _, obj := range objs {
 			// padding rowid + committs
@@ -358,8 +360,10 @@ func RewriteCkp(
 			entryMVCCNode.AppendObjectTuple(dataObjectBatch, true)
 			dataObjectBatch.GetVectorByName(SnapshotAttr_DBID).Append(uint64(pkgcatalog.MO_CATALOG_ID), false)
 			dataObjectBatch.GetVectorByName(SnapshotAttr_TID).Append(tid, false)
+			fmt.Println("A", tid, obj.ObjectLocation().String())
 		}
-		ckpData.UpdateDataObjectMeta(tid, 0, int32(len(objs)))
+		ckpData.UpdateDataObjectMeta(tid, metaOffset, int32(len(objs)))
+		metaOffset += int32(len(objs))
 	}
 
 	// write three table
@@ -461,6 +465,9 @@ func ReplayObjectBatch(objects, data *containers.Batch) {
 		data.GetVectorByName(txnbase.SnapshotAttr_StartTS).Append(startTSVec.Get(i), false)
 		data.GetVectorByName(txnbase.SnapshotAttr_PrepareTS).Append(prepareTSVec.Get(i), false)
 		data.GetVectorByName(txnbase.SnapshotAttr_CommitTS).Append(commitTSVec.Get(i), false)
+
+		s := objectio.ObjectStats(obj)
+		fmt.Println("B", tidVec.Get(i), s.String(), s.ObjectLocation().String())
 	}
 }
 
@@ -543,11 +550,6 @@ func ReplayDeletes(
 	for tblId, blks := range tblBlks {
 		pkType := getPKType(tblId[0], tblId[1])
 
-		if bat != nil {
-			bat.Clean(common.CheckpointAllocator)
-		}
-		bat = engine_util.NewCNTombstoneBatch(pkType, objectio.HiddenColumnSelection_None)
-
 		var sinker *engine_util.Sinker
 
 		for _, blk := range blks {
@@ -610,6 +612,8 @@ func ReplayDeletes(
 			destBat.GetVectorByName(txnbase.SnapshotAttr_CommitTS).Append(ts, false)
 			destBat.GetVectorByName(txnbase.SnapshotAttr_StartTS).Append(ts, false)
 			destBat.GetVectorByName(txnbase.SnapshotAttr_PrepareTS).Append(ts, false)
+
+			fmt.Println("C", tblId[1], s.ObjectLocation().String())
 		}
 
 		ckpData.UpdateTombstoneObjectMeta(tblId[1], metaOffset, int32(len(ss)))
