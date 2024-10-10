@@ -1,6 +1,7 @@
 package migrate
 
 import (
+	"context"
 	"fmt"
 	"path"
 	"testing"
@@ -17,6 +18,20 @@ func TestXxx(t *testing.T) {
 
 	oldDataFS := NewFileFs(path.Join(rootDir, "shared"))
 	newDataFS := NewFileFs(path.Join(rootDir, "rewritten"))
+
+	// 0. ListCkpFiles
+	ctx := context.Background()
+	entries := ListCkpFiles(oldDataFS)
+	sinker := NewSinker(ObjectListSchema, newDataFS)
+	defer sinker.Close()
+	for _, entry := range entries {
+		DumpCkpFiles(ctx, oldDataFS, entry, sinker)
+	}
+	err := sinker.Sync(ctx)
+	if err != nil {
+		panic(err)
+	}
+	objlist, _ := sinker.GetResult()
 
 	// 1. ReadCkp11File
 	fromEntry, ckpbats := ReadCkp11File(oldDataFS, "ckp/meta_0-0_1728551542479837000-1.ckp")
@@ -62,6 +77,9 @@ func TestXxx(t *testing.T) {
 		t.Log(v.String())
 	}
 	for _, v := range objCol {
+		t.Log(v.String())
+	}
+	for _, v := range objlist {
 		t.Log(v.String())
 	}
 }

@@ -94,6 +94,8 @@ const (
 	CheckpointMetaAttr_StorageUsageInsLocation  = "checkpoint_meta_storage_usage_ins_location"
 	CheckpointMetaAttr_StorageUsageDelLocation  = "checkpoint_meta_storage_usage_del_location"
 	SnapshotAttr_SchemaExtra                    = "schema_extra"
+
+	BlockMeta_DeltaLoc = "delta_loc"
 )
 
 var (
@@ -118,6 +120,8 @@ var (
 	DBSchema11         *catalog.Schema
 	TblSchema11        *catalog.Schema
 	ColumnSchema11     *catalog.Schema
+
+	ObjectListSchema *catalog.Schema
 )
 
 var (
@@ -438,6 +442,13 @@ var (
 		types.New(types.T_uuid, 0, 0),
 		types.New(types.T_uint64, 0, 0),
 	}
+
+	ObjectListSchemaAttr = []string{
+		ObjectAttr_ID,
+	}
+	ObjectListSchemaTypes = []types.Type{
+		types.New(types.T_varchar, types.MaxVarcharLen, 0),
+	}
 )
 
 func init() {
@@ -675,6 +686,22 @@ func init() {
 				panic(err)
 			}
 		}
+	}
+
+	ObjectListSchema = catalog.NewEmptySchema("object_list")
+	for i, colname := range ObjectListSchemaAttr {
+		if i == 0 {
+			if err := ObjectListSchema.AppendPKCol(colname, ObjectListSchemaTypes[i], 0); err != nil {
+				panic(err)
+			}
+		} else {
+			if err := ObjectListSchema.AppendCol(colname, ObjectListSchemaTypes[i]); err != nil {
+				panic(err)
+			}
+		}
+	}
+	if err := ObjectListSchema.Finalize(true); err != nil { // no phyaddr column
+		panic(err)
 	}
 
 	// v11 add storage usage del bat
