@@ -1,51 +1,12 @@
-package db
+package migrate
 
 import (
 	pkgcatalog "github.com/matrixorigin/matrixone/pkg/catalog"
-	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/containers"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/iface/data"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/txn/txnbase"
 )
-
-func makeRespBatchFromSchema(schema *catalog.Schema, mp *mpool.MPool) *containers.Batch {
-	bat := containers.NewBatch()
-
-	bat.AddVector(
-		pkgcatalog.Row_ID,
-		containers.MakeVector(types.T_Rowid.ToType(), mp),
-	)
-	bat.AddVector(
-		pkgcatalog.TableTailAttrCommitTs,
-		containers.MakeVector(types.T_TS.ToType(), mp),
-	)
-	return makeBasicRespBatchFromSchema(schema, mp, bat)
-}
-
-func makeBasicRespBatchFromSchema(schema *catalog.Schema, mp *mpool.MPool, base *containers.Batch) *containers.Batch {
-	var bat *containers.Batch
-	if base == nil {
-		bat = containers.NewBatch()
-	} else {
-		bat = base
-	}
-
-	// Types() is not used, then empty schema can also be handled here
-	typs := schema.AllTypes()
-	attrs := schema.AllNames()
-	for i, attr := range attrs {
-		if attr == catalog.PhyAddrColumnName {
-			continue
-		}
-		bat.AddVector(
-			attr,
-			containers.MakeVector(typs[i], mp),
-		)
-	}
-	return bat
-}
 
 type dummyDataFactory struct{}
 
