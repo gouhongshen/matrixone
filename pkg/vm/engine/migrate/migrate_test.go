@@ -1,4 +1,4 @@
-package db
+package migrate
 
 import (
 	"fmt"
@@ -64,4 +64,12 @@ func TestXxx(t *testing.T) {
 	for _, v := range objCol {
 		t.Log(v.String())
 	}
+}
+
+func TestBackCkp(t *testing.T) {
+	blockio.Start("")
+	defer blockio.Stop("")
+	fs := NewFileFs("/root/matrixone/mo-data/shared")
+
+	BackupCkpDir(fs, "ckp")
 }
