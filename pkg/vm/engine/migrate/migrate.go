@@ -27,7 +27,7 @@ import (
 )
 
 var (
-	rootDir    = "/Users/ghs-mo/MOWorkSpace/matrixone-debug/mo-data/"
+	rootDir    = "/home/ghs/codes/MOWorkspace/matrixone-2/mo-data/"
 	newDataDir = path.Join(rootDir, "rewritten")
 )
 
@@ -799,6 +799,8 @@ func ReplayDeletes(
 		loc := objectio.Location(srcCNBat.Vecs[locColIdx].GetBytesAt(i))
 		cts := srcTxnBat.GetVectorByName(txnbase.SnapshotAttr_CommitTS).Get(i).(types.TS)
 
+		fmt.Println("Update DeltaLoc", tid, cts.ToString(), blkIdCol[i].String(), loc.String())
+
 		if cur, ok := blkDeltaCts[blkIdCol[i]]; !ok {
 			blkDeltaLocs[blkIdCol[i]] = loc
 			blkDeltaCts[blkIdCol[i]] = cts
@@ -808,6 +810,12 @@ func ReplayDeletes(
 		}
 
 		tblBlks[[2]uint64{dbid, tid}] = append(tblBlks[[2]uint64{dbid, tid}], blkIdCol[i])
+	}
+
+	for id, blkId := range tblBlks {
+		for _, blk := range blkId {
+			fmt.Println("Final DeltaLoc", id[1], blkDeltaLocs[blk].String())
+		}
 	}
 
 	aliveObjectList = make(map[types.Objectid]struct{})

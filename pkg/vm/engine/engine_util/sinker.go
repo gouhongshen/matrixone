@@ -633,7 +633,7 @@ func (sinker *Sinker) Sync(ctx context.Context) error {
 	// if err != nil {
 	// 	return err
 	// }
-	// sinker.results = append(sinker.results, newPersied...)
+	sinker.result.persisted = append(sinker.result.persisted, sinker.staged.persisted...)
 	//return nil
 	return nil
 }
