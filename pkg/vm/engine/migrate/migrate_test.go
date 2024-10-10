@@ -16,8 +16,10 @@ func TestXxx(t *testing.T) {
 	defer blockio.Stop("")
 
 	oldDataFS := NewFileFs(path.Join(rootDir, "shared"))
+	newDataFS := NewFileFs(path.Join(rootDir, "rewritten"))
+
 	// 1. ReadCkp11File
-	fromEntry, ckpbats := ReadCkp11File(oldDataFS, "ckp/meta_0-0_1728468637208116000-1.ckp")
+	fromEntry, ckpbats := ReadCkp11File(oldDataFS, "ckp/meta_0-0_1728551542479837000-1.ckp")
 	t.Log(fromEntry.String())
 
 	// 2. Replay To 1.3 catalog
@@ -29,14 +31,12 @@ func TestXxx(t *testing.T) {
 		tblIt := dbEntry.MakeTableIt(false)
 		for ; tblIt.Valid(); tblIt.Next() {
 			tblEntry := tblIt.Get().GetPayload()
-			fmt.Println(tblEntry.GetFullName(), tblEntry.GetID())
+			fmt.Println(dbEntry.GetFullName(), tblEntry.GetFullName(), tblEntry.GetID())
 		}
 	}
 
 	// 3. Dump catalog to 3 tables batch
 	bDb, bTbl, bCol := DumpCatalogToBatches(cata)
-
-	newDataFS := NewFileFs(path.Join(rootDir, "rewritten"))
 
 	// 4. Sink and get object stats
 	objDB := SinkBatch(catalog.SystemDBSchema, bDb, newDataFS)

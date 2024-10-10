@@ -360,9 +360,9 @@ func RewriteCkp(
 			entryMVCCNode.AppendObjectTuple(dataObjectBatch, true)
 			dataObjectBatch.GetVectorByName(SnapshotAttr_DBID).Append(uint64(pkgcatalog.MO_CATALOG_ID), false)
 			dataObjectBatch.GetVectorByName(SnapshotAttr_TID).Append(tid, false)
-			fmt.Println("A", tid, obj.ObjectLocation().String())
+			fmt.Println("A", tid, obj.String())
 		}
-		ckpData.UpdateDataObjectMeta(tid, metaOffset, int32(len(objs)))
+		ckpData.UpdateDataObjectMeta(tid, metaOffset, metaOffset+int32(len(objs)))
 		metaOffset += int32(len(objs))
 	}
 
@@ -371,19 +371,28 @@ func RewriteCkp(
 	fillObjStats(tbls, pkgcatalog.MO_TABLES_ID)
 	fillObjStats(cols, pkgcatalog.MO_COLUMNS_ID)
 
+	fmt.Println("data object len A", dataObjectBatch.Length())
+
 	// write object stats
-	ReplayObjectBatch(oldCkpBats[ObjectInfoIDX], dataObjectBatch)
-	ReplayObjectBatch(oldCkpBats[TNObjectInfoIDX], dataObjectBatch)
+	metaOffset = ReplayObjectBatch(
+		oldCkpEntry.GetEnd(),
+		metaOffset, ckpData,
+		oldCkpBats[ObjectInfoIDX], oldCkpBats[TNObjectInfoIDX],
+		dataObjectBatch, cc, oldDataFS, newDataFS)
+
+	fmt.Println("data object len B", dataObjectBatch.Length())
 
 	// write delta location
 	_, newTombstoneObjectFiles := ReplayDeletes(
 		ckpData,
 		cc,
-		types.MaxTs(),
+		oldCkpEntry.GetEnd(),
 		newDataFS, oldDataFS,
 		oldCkpBats[BLKMetaInsertIDX],
 		oldCkpBats[BLKMetaInsertTxnIDX],
 		tombstoneObjectBatch)
+
+	fmt.Println("data object len C", tombstoneObjectBatch.Length())
 
 	logutil.Info("written new tombstone object files",
 		zap.Strings("file names", newTombstoneObjectFiles))
@@ -430,45 +439,129 @@ const (
 	ObjectFlag_CNCreated
 )
 
-func ReplayObjectBatch(objects, data *containers.Batch) {
-	objectStats := objects.GetVectorByName(ObjectAttr_ObjectStats)
-	sortedVec := objects.GetVectorByName(ObjectAttr_Sorted)
-	appendableVec := objects.GetVectorByName(ObjectAttr_State)
-	dbidVec := objects.GetVectorByName(SnapshotAttr_DBID)
-	tidVec := objects.GetVectorByName(SnapshotAttr_TID)
-	createAtVec := objects.GetVectorByName(EntryNode_CreateAt)
-	deleteAtVec := objects.GetVectorByName(EntryNode_DeleteAt)
-	startTSVec := objects.GetVectorByName(txnbase.SnapshotAttr_StartTS)
-	prepareTSVec := objects.GetVectorByName(txnbase.SnapshotAttr_PrepareTS)
-	commitTSVec := objects.GetVectorByName(txnbase.SnapshotAttr_CommitTS)
+func getTableSchemaFromCatalog(dbId, tblId uint64, cc *catalog.Catalog) *catalog.Schema {
+	var (
+		err      error
+		dbEntry  *catalog.DBEntry
+		tblEntry *catalog.TableEntry
+	)
 
-	for i := 0; i < objectStats.Length(); i++ {
-		obj := objectStats.Get(i).([]byte)
-		sorted := sortedVec.Get(i).(bool)
-		appendable := appendableVec.Get(i).(bool)
-		var reserved byte
+	dbEntry, err = cc.GetDatabaseByID(dbId)
+	if err != nil {
+		panic(err)
+	}
+
+	tblEntry, err = dbEntry.GetTableEntryByID(tblId)
+	if err != nil {
+		panic(err)
+	}
+
+	schema := tblEntry.GetLastestSchema(false)
+	return schema
+}
+
+func replayObjectBatchHelper(
+	ts types.TS,
+	src, dest *containers.Batch, indexes []int) {
+
+	objectStats := src.GetVectorByName(ObjectAttr_ObjectStats)
+	sortedVec := src.GetVectorByName(ObjectAttr_Sorted)
+	appendableVec := src.GetVectorByName(ObjectAttr_State)
+	dbidVec := src.GetVectorByName(SnapshotAttr_DBID)
+	tidVec := src.GetVectorByName(SnapshotAttr_TID)
+	createAtVec := src.GetVectorByName(EntryNode_CreateAt)
+	deleteAtVec := src.GetVectorByName(EntryNode_DeleteAt)
+	startTSVec := src.GetVectorByName(txnbase.SnapshotAttr_StartTS)
+	prepareTSVec := src.GetVectorByName(txnbase.SnapshotAttr_PrepareTS)
+	commitTSVec := src.GetVectorByName(txnbase.SnapshotAttr_CommitTS)
+
+	for _, idx := range indexes {
+		oldStatsBytes := objectStats.Get(idx).([]byte)
+		oldStatsBytes = append(oldStatsBytes, byte(0))
+		obj := objectio.ObjectStats(oldStatsBytes)
+
+		sorted := sortedVec.Get(idx).(bool)
+		appendable := appendableVec.Get(idx).(bool)
 		if appendable {
-			reserved |= ObjectFlag_Appendable
+			objectio.WithAppendable()(&obj)
 		} else {
-			reserved |= ObjectFlag_CNCreated
+			objectio.WithCNCreated()(&obj)
 		}
 		if sorted {
-			reserved |= ObjectFlag_Sorted
+			objectio.WithSorted()(&obj)
 		}
-		obj = append(obj, reserved)
 
-		data.GetVectorByName(ObjectAttr_ObjectStats).Append(obj, false)
-		data.GetVectorByName(SnapshotAttr_DBID).Append(dbidVec.Get(i), false)
-		data.GetVectorByName(SnapshotAttr_TID).Append(tidVec.Get(i), false)
-		data.GetVectorByName(EntryNode_CreateAt).Append(createAtVec.Get(i), false)
-		data.GetVectorByName(EntryNode_DeleteAt).Append(deleteAtVec.Get(i), false)
-		data.GetVectorByName(txnbase.SnapshotAttr_StartTS).Append(startTSVec.Get(i), false)
-		data.GetVectorByName(txnbase.SnapshotAttr_PrepareTS).Append(prepareTSVec.Get(i), false)
-		data.GetVectorByName(txnbase.SnapshotAttr_CommitTS).Append(commitTSVec.Get(i), false)
+		dest.GetVectorByName(catalog.PhyAddrColumnName).Append(
+			objectio.HackObjid2Rowid(obj.ObjectName().ObjectId()), false)
+		dest.GetVectorByName(objectio.DefaultCommitTS_Attr).Append(ts, false)
+		dest.GetVectorByName(ObjectAttr_ObjectStats).Append(obj[:], false)
+		dest.GetVectorByName(SnapshotAttr_DBID).Append(dbidVec.Get(idx), false)
+		dest.GetVectorByName(SnapshotAttr_TID).Append(tidVec.Get(idx), false)
+		dest.GetVectorByName(EntryNode_CreateAt).Append(createAtVec.Get(idx), false)
+		dest.GetVectorByName(EntryNode_DeleteAt).Append(deleteAtVec.Get(idx), false)
+		dest.GetVectorByName(txnbase.SnapshotAttr_StartTS).Append(startTSVec.Get(idx), false)
+		dest.GetVectorByName(txnbase.SnapshotAttr_PrepareTS).Append(prepareTSVec.Get(idx), false)
+		dest.GetVectorByName(txnbase.SnapshotAttr_CommitTS).Append(commitTSVec.Get(idx), false)
 
-		s := objectio.ObjectStats(obj)
-		fmt.Println("B", tidVec.Get(i), s.String(), s.ObjectLocation().String())
+		fmt.Println("B", tidVec.Get(idx), obj.String())
 	}
+}
+
+func ReplayObjectBatch(
+	ts types.TS,
+	metaOffset int32,
+	ckpData *logtail.CheckpointData,
+	srcObjInfoBat, srcTNObjInfoBat *containers.Batch,
+	dest *containers.Batch,
+	cc *catalog.Catalog,
+	oldDataFS, newDataFS fileservice.FileService,
+) int32 {
+
+	gatherTablId := func(mm *map[[2]uint64][]int, bat *containers.Batch) {
+		dbidVec := bat.GetVectorByName(SnapshotAttr_DBID)
+		tidVec := bat.GetVectorByName(SnapshotAttr_TID)
+
+		for i := 0; i < bat.Length(); i++ {
+			did := dbidVec.Get(i).(uint64)
+			tid := tidVec.Get(i).(uint64)
+
+			if pkgcatalog.IsSystemTable(tid) {
+				continue
+			}
+
+			id := [2]uint64{did, tid}
+			(*mm)[id] = append((*mm)[id], i)
+		}
+	}
+
+	tblIdx1 := make(map[[2]uint64][]int)
+	tblIdx2 := make(map[[2]uint64][]int)
+
+	// gather all index than belongs to the same table
+	gatherTablId(&tblIdx1, srcObjInfoBat)
+	gatherTablId(&tblIdx2, srcTNObjInfoBat)
+
+	for id, idxes2 := range tblIdx2 {
+		replayObjectBatchHelper(ts, srcTNObjInfoBat, dest, idxes2)
+		ckpData.UpdateDataObjectMeta(id[1], metaOffset, metaOffset+int32(len(idxes2)))
+		metaOffset += int32(len(idxes2))
+
+		if idxes1 := tblIdx1[id]; len(idxes1) != 0 {
+			replayObjectBatchHelper(ts, srcObjInfoBat, dest, idxes1)
+			ckpData.UpdateDataObjectMeta(id[1], metaOffset, metaOffset+int32(len(idxes1)))
+			metaOffset += int32(len(idxes1))
+
+			delete(tblIdx1, id)
+		}
+	}
+
+	for id, idxes := range tblIdx1 {
+		replayObjectBatchHelper(ts, srcObjInfoBat, dest, idxes)
+		ckpData.UpdateDataObjectMeta(id[1], metaOffset, metaOffset+int32(len(idxes)))
+		metaOffset += int32(len(idxes))
+	}
+
+	return metaOffset
 }
 
 func ReplayDeletes(
@@ -476,7 +569,8 @@ func ReplayDeletes(
 	cc *catalog.Catalog,
 	ts types.TS,
 	newDataFS, oldDataFS fileservice.FileService,
-	srcBat, srcTxnBat, destBat *containers.Batch,
+	srcBat, srcTxnBat *containers.Batch,
+	destBat *containers.Batch,
 ) (aliveObjectList map[types.Objectid]struct{}, tombstoneFiles []string) {
 
 	var (
@@ -493,28 +587,14 @@ func ReplayDeletes(
 	}
 
 	var (
-		bat      *batch.Batch
-		release  func()
-		ctx      = context.Background()
-		dbEntry  *catalog.DBEntry
-		tblEntry *catalog.TableEntry
+		bat     *batch.Batch
+		release func()
+		ctx     = context.Background()
 	)
 
 	getPKType := func(dbId, tblId uint64) *types.Type {
-		dbEntry, err = cc.GetDatabaseByID(dbId)
-		if err != nil {
-			panic(err)
-		}
-
-		tblEntry, err = dbEntry.GetTableEntryByID(tblId)
-		if err != nil {
-			panic(err)
-		}
-
-		schema := tblEntry.GetLastestSchema(false)
-
+		schema := getTableSchemaFromCatalog(dbId, tblId, cc)
 		pkType := schema.GetPrimaryKey().Type
-
 		//fmt.Println(schema.Name, pkType.String(), schema.GetPrimaryKey().Name, schema.Attrs())
 		return &pkType
 	}
@@ -613,10 +693,10 @@ func ReplayDeletes(
 			destBat.GetVectorByName(txnbase.SnapshotAttr_StartTS).Append(ts, false)
 			destBat.GetVectorByName(txnbase.SnapshotAttr_PrepareTS).Append(ts, false)
 
-			fmt.Println("C", tblId[1], s.ObjectLocation().String())
+			fmt.Println("C", tblId[1], s.String())
 		}
 
-		ckpData.UpdateTombstoneObjectMeta(tblId[1], metaOffset, int32(len(ss)))
+		ckpData.UpdateTombstoneObjectMeta(tblId[1], metaOffset, metaOffset+int32(len(ss)))
 		metaOffset += int32(len(ss))
 
 		if err = sinker.Close(); err != nil {
