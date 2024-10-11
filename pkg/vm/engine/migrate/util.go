@@ -9,6 +9,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/containers"
 )
@@ -113,13 +114,17 @@ func BackupCkpDir(fs fileservice.FileService, dir string) {
 			panic("bad ckp dir")
 		}
 	}
-	for _, entry := range entries {
+	logutil.Infof("backup ckp dir %s to %s, %v entries", dir, bakdir, len(entries))
+	for i, entry := range entries {
 		data, err := ReadFile(fs, dir+"/"+entry.Name)
 		if err != nil {
 			panic(err)
 		}
 		if err := WriteFile(fs, bakdir+"/"+entry.Name, data); err != nil {
 			panic(err)
+		}
+		if i%5 == 0 {
+			logutil.Infof("backup %d/%d %s", i, len(entries), entry.Name)
 		}
 	}
 }

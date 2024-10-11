@@ -1,5 +1,13 @@
 package migrate
 
+import (
+	"context"
+	"testing"
+
+	"github.com/matrixorigin/matrixone/pkg/defines"
+	"github.com/matrixorigin/matrixone/pkg/fileservice"
+)
+
 //
 //func TestXxx(t *testing.T) {
 //	blockio.Start("")
@@ -80,3 +88,33 @@ package migrate
 //
 //	BackupCkpDir(fs, "ckp")
 //}
+
+func TestS3Fs(t *testing.T) {
+	ctx := context.Background()
+
+	// prod
+	// arg := fileservice.ObjectStorageArguments{
+	// 	Name:      defines.SharedFileServiceName,
+	// 	Endpoint:  "https://oss-cn-hangzhou-internal.aliyuncs.com",
+	// 	Bucket:    "mo-bucket-1008",
+	// 	KeyPrefix: "mo-20231112/data",
+	// }
+
+	// ci
+	arg := fileservice.ObjectStorageArguments{
+		Name:      defines.SharedFileServiceName,
+		Endpoint:  "https://cos.ap-guangzhou.myqcloud.com",
+		Bucket:    "mo-nightly-gz-1308875761",
+		KeyPrefix: "mo-benchmark-11276243006/data",
+	}
+	fs, err := fileservice.NewS3FS(ctx, arg, fileservice.DisabledCacheConfig, nil, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := fs.List(ctx, "ckp")
+	// BackupCkpDir(fs, "ckp")
+	t.Log(err)
+	for _, entry := range entries {
+		t.Log(entry.Name, entry.IsDir, entry.Size)
+	}
+}
