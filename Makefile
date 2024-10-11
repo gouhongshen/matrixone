@@ -143,6 +143,12 @@ mo-tool: config cgo
 	$(info [Build mo-tool tool])
 	$(CGO_OPTS) go build -o mo-tool ./cmd/mo-tool
 
+# build mo-migrate
+.PHONY: mo-migrate
+mo-migrate: config cgo
+	$(info [Build mo-migrate tool])
+	$(CGO_OPTS) go build -o mo-migrate ./pkg/vm/engine/migrate/cmd/
+
 # build mo-service binary for debugging with go's race detector enabled
 # produced executable is 10x slower and consumes much more memory
 .PHONY: debug
