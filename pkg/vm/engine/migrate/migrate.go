@@ -3,8 +3,6 @@ package migrate
 import (
 	"context"
 	"fmt"
-	"go.uber.org/zap"
-	"path"
 	"path/filepath"
 
 	pkgcatalog "github.com/matrixorigin/matrixone/pkg/catalog"
@@ -26,10 +24,10 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/txn/txnimpl"
 )
 
-var (
-	rootDir    = "/home/ghs/codes/MOWorkspace/matrixone-2/mo-data/"
-	newDataDir = path.Join(rootDir, "rewritten")
-)
+//var (
+//	rootDir    = "/Users/ghs-mo/MOWorkSpace/matrixone-debug/mo-data/"
+//	newDataDir = path.Join(rootDir, "rewritten")
+//)
 
 func NewFileFs(path string) fileservice.FileService {
 	fs := objectio.TmpNewFileservice(context.Background(), path)
@@ -45,6 +43,21 @@ func ListCkpFiles(fs fileservice.FileService) (res []string) {
 		res = append(res, filepath.Join("ckp", entry.Name))
 	}
 	return
+}
+
+func GetCkpFiles(ctx context.Context, oldFs, newFs fileservice.FileService) (res []objectio.ObjectStats) {
+	entries := ListCkpFiles(oldFs)
+	sinker := NewSinker(ObjectListSchema, newFs)
+	defer sinker.Close()
+	for _, entry := range entries {
+		DumpCkpFiles(ctx, oldFs, entry, sinker)
+	}
+	err := sinker.Sync(ctx)
+	if err != nil {
+		panic(err)
+	}
+	objlist, _ := sinker.GetResult()
+	return objlist
 }
 
 func DumpCkpFiles(ctx context.Context, fs fileservice.FileService, filepath string, sinker *engine_util.Sinker) {
@@ -299,7 +312,7 @@ func ReadCkp11File(fs fileservice.FileService, filepath string) (*checkpoint.Che
 		panic(err)
 	}
 	metaBat := metaBats[0]
-	println(baseEntry.GetTNLocation().Name().String(), len(metaBats), metaBat.Length())
+	//println(baseEntry.GetTNLocation().Name().String(), len(metaBats), metaBat.Length())
 	ckpData[MetaIDX] = metaBat
 
 	locations := make(map[string]objectio.Location)
@@ -524,7 +537,7 @@ func SinkBatch(schema *catalog.Schema, bat *containers.Batch, fs fileservice.Fil
 
 func RewriteCkp(
 	cc *catalog.Catalog,
-	oldDataFS, newDataFS fileservice.FileService,
+	oldDataFS, newDataFS, newObjFS fileservice.FileService,
 	oldCkpEntry *checkpoint.CheckpointEntry,
 	oldCkpBats []*containers.Batch,
 	txnMVCCNode *txnbase.TxnMVCCNode,
@@ -535,8 +548,12 @@ func RewriteCkp(
 	dataObjectBatch := ckpData.GetObjectBatchs()
 	tombstoneObjectBatch := ckpData.GetTombstoneObjectBatchs()
 
+	sinker := NewSinker(ObjectListSchema, newObjFS)
+	defer sinker.Close()
+
 	metaOffset := int32(0)
 	fillObjStats := func(objs []objectio.ObjectStats, tid uint64) {
+		bat := makeBasicRespBatchFromSchema(ObjectListSchema, common.CheckpointAllocator, nil)
 		for _, obj := range objs {
 			// padding rowid + committs
 			dataObjectBatch.GetVectorByName(catalog.PhyAddrColumnName).Append(objectio.HackObjid2Rowid(objectio.NewObjectid()), false)
@@ -546,8 +563,17 @@ func RewriteCkp(
 			entryMVCCNode.AppendObjectTuple(dataObjectBatch, true)
 			dataObjectBatch.GetVectorByName(SnapshotAttr_DBID).Append(uint64(pkgcatalog.MO_CATALOG_ID), false)
 			dataObjectBatch.GetVectorByName(SnapshotAttr_TID).Append(tid, false)
-			fmt.Println("A", tid, obj.String())
+
+			objid := obj.ObjectLocation().ObjectId()
+			bat.Vecs[0].Append(objid[:], false)
+
+			//fmt.Println("A", tid, obj.String())
 		}
+
+		if err := sinker.Write(context.Background(), containers.ToCNBatch(bat)); err != nil {
+			panic(err)
+		}
+
 		ckpData.UpdateDataObjectMeta(tid, metaOffset, metaOffset+int32(len(objs)))
 		metaOffset += int32(len(objs))
 	}
@@ -564,12 +590,16 @@ func RewriteCkp(
 		oldCkpEntry.GetEnd(),
 		metaOffset, ckpData,
 		oldCkpBats[ObjectInfoIDX], oldCkpBats[TNObjectInfoIDX],
-		dataObjectBatch, cc, oldDataFS, newDataFS)
+		dataObjectBatch, cc, oldDataFS, newDataFS, sinker)
+
+	if err := sinker.Sync(context.Background()); err != nil {
+		panic(err)
+	}
 
 	fmt.Println("data object len B", dataObjectBatch.Length())
 
 	// write delta location
-	_, newTombstoneObjectFiles := ReplayDeletes(
+	_, _ = ReplayDeletes(
 		ckpData,
 		cc,
 		oldCkpEntry.GetEnd(),
@@ -580,8 +610,8 @@ func RewriteCkp(
 
 	fmt.Println("data object len C", tombstoneObjectBatch.Length())
 
-	logutil.Info("written new tombstone object files",
-		zap.Strings("file names", newTombstoneObjectFiles))
+	//logutil.Info("written new tombstone object files",
+	//	zap.Strings("file names", newTombstoneObjectFiles))
 
 	cnLocation, tnLocation, files, err := ckpData.WriteTo(newDataFS, logtail.DefaultCheckpointBlockRows, logtail.DefaultCheckpointSize)
 	if err != nil {
@@ -648,7 +678,9 @@ func getTableSchemaFromCatalog(dbId, tblId uint64, cc *catalog.Catalog) *catalog
 
 func replayObjectBatchHelper(
 	ts types.TS,
-	src, dest *containers.Batch, indexes []int) {
+	src, dest *containers.Batch, indexes []int,
+	sinker *engine_util.Sinker,
+) {
 
 	objectStats := src.GetVectorByName(ObjectAttr_ObjectStats)
 	sortedVec := src.GetVectorByName(ObjectAttr_Sorted)
@@ -660,6 +692,8 @@ func replayObjectBatchHelper(
 	startTSVec := src.GetVectorByName(txnbase.SnapshotAttr_StartTS)
 	prepareTSVec := src.GetVectorByName(txnbase.SnapshotAttr_PrepareTS)
 	commitTSVec := src.GetVectorByName(txnbase.SnapshotAttr_CommitTS)
+
+	bat := makeBasicRespBatchFromSchema(ObjectListSchema, common.CheckpointAllocator, nil)
 
 	for _, idx := range indexes {
 		oldStatsBytes := objectStats.Get(idx).([]byte)
@@ -689,7 +723,14 @@ func replayObjectBatchHelper(
 		dest.GetVectorByName(txnbase.SnapshotAttr_PrepareTS).Append(prepareTSVec.Get(idx), false)
 		dest.GetVectorByName(txnbase.SnapshotAttr_CommitTS).Append(commitTSVec.Get(idx), false)
 
-		fmt.Println("B", tidVec.Get(idx), obj.String())
+		objid := obj.ObjectLocation().ObjectId()
+		bat.Vecs[0].Append(objid[:], false)
+
+		//fmt.Println("B", tidVec.Get(idx), obj.String())
+	}
+
+	if err := sinker.Write(context.Background(), containers.ToCNBatch(bat)); err != nil {
+		panic(err)
 	}
 }
 
@@ -701,6 +742,7 @@ func ReplayObjectBatch(
 	dest *containers.Batch,
 	cc *catalog.Catalog,
 	oldDataFS, newDataFS fileservice.FileService,
+	sinker *engine_util.Sinker,
 ) int32 {
 
 	gatherTablId := func(mm *map[[2]uint64][]int, bat *containers.Batch) {
@@ -728,12 +770,12 @@ func ReplayObjectBatch(
 	gatherTablId(&tblIdx2, srcTNObjInfoBat)
 
 	for id, idxes2 := range tblIdx2 {
-		replayObjectBatchHelper(ts, srcTNObjInfoBat, dest, idxes2)
+		replayObjectBatchHelper(ts, srcTNObjInfoBat, dest, idxes2, sinker)
 		ckpData.UpdateDataObjectMeta(id[1], metaOffset, metaOffset+int32(len(idxes2)))
 		metaOffset += int32(len(idxes2))
 
 		if idxes1 := tblIdx1[id]; len(idxes1) != 0 {
-			replayObjectBatchHelper(ts, srcObjInfoBat, dest, idxes1)
+			replayObjectBatchHelper(ts, srcObjInfoBat, dest, idxes1, sinker)
 			ckpData.UpdateDataObjectMeta(id[1], metaOffset, metaOffset+int32(len(idxes1)))
 			metaOffset += int32(len(idxes1))
 
@@ -742,7 +784,7 @@ func ReplayObjectBatch(
 	}
 
 	for id, idxes := range tblIdx1 {
-		replayObjectBatchHelper(ts, srcObjInfoBat, dest, idxes)
+		replayObjectBatchHelper(ts, srcObjInfoBat, dest, idxes, sinker)
 		ckpData.UpdateDataObjectMeta(id[1], metaOffset, metaOffset+int32(len(idxes)))
 		metaOffset += int32(len(idxes))
 	}
@@ -799,7 +841,7 @@ func ReplayDeletes(
 		loc := objectio.Location(srcCNBat.Vecs[locColIdx].GetBytesAt(i))
 		cts := srcTxnBat.GetVectorByName(txnbase.SnapshotAttr_CommitTS).Get(i).(types.TS)
 
-		fmt.Println("Update DeltaLoc", tid, cts.ToString(), blkIdCol[i].String(), loc.String())
+		//fmt.Println("Update DeltaLoc", tid, cts.ToString(), blkIdCol[i].String(), loc.String())
 
 		if cur, ok := blkDeltaCts[blkIdCol[i]]; !ok {
 			blkDeltaLocs[blkIdCol[i]] = loc
@@ -812,11 +854,11 @@ func ReplayDeletes(
 		tblBlks[[2]uint64{dbid, tid}] = append(tblBlks[[2]uint64{dbid, tid}], blkIdCol[i])
 	}
 
-	for id, blkId := range tblBlks {
-		for _, blk := range blkId {
-			fmt.Println("Final DeltaLoc", id[1], blkDeltaLocs[blk].String())
-		}
-	}
+	//for id, blkId := range tblBlks {
+	//	for _, blk := range blkId {
+	//		fmt.Println("Final DeltaLoc", id[1], blkDeltaLocs[blk].String())
+	//	}
+	//}
 
 	aliveObjectList = make(map[types.Objectid]struct{})
 
@@ -887,7 +929,7 @@ func ReplayDeletes(
 			destBat.GetVectorByName(txnbase.SnapshotAttr_StartTS).Append(ts, false)
 			destBat.GetVectorByName(txnbase.SnapshotAttr_PrepareTS).Append(ts, false)
 
-			fmt.Println("C", tblId[1], s.String())
+			//fmt.Println("C", tblId[1], s.String())
 		}
 
 		ckpData.UpdateTombstoneObjectMeta(tblId[1], metaOffset, metaOffset+int32(len(ss)))
