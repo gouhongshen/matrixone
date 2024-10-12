@@ -2,7 +2,6 @@ package migrate
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"runtime"
 
@@ -25,11 +24,6 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/txn/txnimpl"
 	"github.com/panjf2000/ants/v2"
 )
-
-//var (
-//	rootDir    = "/Users/ghs-mo/MOWorkSpace/matrixone-debug/mo-data/"
-//	newDataDir = path.Join(rootDir, "rewritten")
-//)
 
 func NewFileFs(path string) fileservice.FileService {
 	fs := objectio.TmpNewFileservice(context.Background(), path)
@@ -568,8 +562,6 @@ func RewriteCkp(
 
 			objid := obj.ObjectLocation().ObjectId()
 			bat.Vecs[0].Append(objid[:], false)
-
-			//fmt.Println("A", tid, obj.String())
 		}
 
 		if err := sinker.Write(context.Background(), containers.ToCNBatch(bat)); err != nil {
@@ -585,8 +577,6 @@ func RewriteCkp(
 	fillObjStats(tbls, pkgcatalog.MO_TABLES_ID)
 	fillObjStats(cols, pkgcatalog.MO_COLUMNS_ID)
 
-	fmt.Println("data object len A", dataObjectBatch.Length())
-
 	// write object stats
 	metaOffset = ReplayObjectBatch(
 		oldCkpEntry.GetEnd(),
@@ -598,8 +588,6 @@ func RewriteCkp(
 		panic(err)
 	}
 
-	fmt.Println("data object len B", dataObjectBatch.Length())
-
 	// write delta location
 	ReplayDeletes(
 		ckpData,
@@ -609,8 +597,6 @@ func RewriteCkp(
 		oldCkpBats[BLKMetaInsertIDX],
 		oldCkpBats[BLKMetaInsertTxnIDX],
 		tombstoneObjectBatch)
-
-	fmt.Println("data object len C", tombstoneObjectBatch.Length())
 
 	cnLocation, tnLocation, files, err := ckpData.WriteTo(newDataFS, logtail.DefaultCheckpointBlockRows, logtail.DefaultCheckpointSize)
 	if err != nil {
@@ -710,9 +696,9 @@ func replayObjectBatchHelper(
 			objectio.WithSorted()(&obj)
 		}
 
-		dest.GetVectorByName(catalog.PhyAddrColumnName).Append(
-			objectio.HackObjid2Rowid(obj.ObjectName().ObjectId()), false)
+		dest.GetVectorByName(catalog.PhyAddrColumnName).Append(objectio.HackObjid2Rowid(obj.ObjectName().ObjectId()), false)
 		dest.GetVectorByName(objectio.DefaultCommitTS_Attr).Append(ts, false)
+
 		dest.GetVectorByName(ObjectAttr_ObjectStats).Append(obj[:], false)
 		dest.GetVectorByName(SnapshotAttr_DBID).Append(dbidVec.Get(idx), false)
 		dest.GetVectorByName(SnapshotAttr_TID).Append(tidVec.Get(idx), false)
@@ -724,8 +710,6 @@ func replayObjectBatchHelper(
 
 		objid := obj.ObjectLocation().ObjectId()
 		bat.Vecs[0].Append(objid[:], false)
-
-		//fmt.Println("B", tidVec.Get(idx), obj.String())
 	}
 
 	if err := sinker.Write(context.Background(), containers.ToCNBatch(bat)); err != nil {
@@ -762,7 +746,7 @@ func ReplayObjectBatch(
 	tblIdx1 := make(map[[2]uint64][]int)
 	tblIdx2 := make(map[[2]uint64][]int)
 
-	// gather all index than belongs to the same table
+	// gather all index that belongs to the same table
 	gatherTablId(&tblIdx1, srcObjInfoBat)
 	gatherTablId(&tblIdx2, srcTNObjInfoBat)
 
