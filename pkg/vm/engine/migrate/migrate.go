@@ -27,9 +27,6 @@ import (
 )
 
 const (
-	//rootDir    = "/Users/ghs-mo/MOWorkSpace/matrixone-debug/mo-data/"
-	//newDataDir = path.Join(rootDir, "rewritten")
-
 	ckpDir     = "ckp"
 	ckpBackDir = "ckp-bak"
 )
@@ -571,8 +568,6 @@ func RewriteCkp(
 
 			objid := obj.ObjectLocation().ObjectId()
 			bat.Vecs[0].Append(objid[:], false)
-
-			//fmt.Println("A", tid, obj.String())
 		}
 
 		if err := sinker.Write(context.Background(), containers.ToCNBatch(bat)); err != nil {
@@ -588,8 +583,6 @@ func RewriteCkp(
 	fillObjStats(tbls, pkgcatalog.MO_TABLES_ID)
 	fillObjStats(cols, pkgcatalog.MO_COLUMNS_ID)
 
-	fmt.Println("data object len A", dataObjectBatch.Length())
-
 	// write object stats
 	metaOffset = ReplayObjectBatch(
 		oldCkpEntry.GetEnd(),
@@ -601,8 +594,6 @@ func RewriteCkp(
 		panic(err)
 	}
 
-	fmt.Println("data object len B", dataObjectBatch.Length())
-
 	// write delta location
 	ReplayDeletes(
 		ckpData,
@@ -613,6 +604,7 @@ func RewriteCkp(
 		oldCkpBats[BLKMetaInsertTxnIDX],
 		tombstoneObjectBatch)
 
+	cnLocation, tnLocation, files, err := ckpData.WriteTo(newDataFS, logtail.DefaultCheckpointBlockRows, logtail.DefaultCheckpointSize)
 	fmt.Println("data object len C", tombstoneObjectBatch.Length())
 
 	cnLocation, tnLocation, files, err := ckpData.WriteTo(dataFS, logtail.DefaultCheckpointBlockRows, logtail.DefaultCheckpointSize)
