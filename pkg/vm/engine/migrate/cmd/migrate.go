@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"path"
+	"path/filepath"
+
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/migrate"
@@ -9,8 +12,6 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/txn/txnbase"
 	"github.com/spf13/cobra"
-	"path"
-	"path/filepath"
 )
 
 type migrateArg struct {

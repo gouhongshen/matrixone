@@ -3,7 +3,6 @@ package migrate
 import (
 	"context"
 	"fmt"
-	"path"
 	"path/filepath"
 	"runtime"
 
@@ -27,10 +26,10 @@ import (
 	"github.com/panjf2000/ants/v2"
 )
 
-var (
-	rootDir    = "/Users/ghs-mo/MOWorkSpace/matrixone-debug/mo-data/"
-	newDataDir = path.Join(rootDir, "rewritten")
-)
+//var (
+//	rootDir    = "/Users/ghs-mo/MOWorkSpace/matrixone-debug/mo-data/"
+//	newDataDir = path.Join(rootDir, "rewritten")
+//)
 
 func NewFileFs(path string) fileservice.FileService {
 	fs := objectio.TmpNewFileservice(context.Background(), path)
@@ -602,7 +601,7 @@ func RewriteCkp(
 	fmt.Println("data object len B", dataObjectBatch.Length())
 
 	// write delta location
-	Rem	playDeletes(
+	ReplayDeletes(
 		ckpData,
 		cc,
 		oldCkpEntry.GetEnd(),
