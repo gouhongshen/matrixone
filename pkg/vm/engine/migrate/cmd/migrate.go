@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"os"
 	"path"
 	"path/filepath"
 
+	jsoniter "github.com/json-iterator/go"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
+	"github.com/matrixorigin/matrixone/pkg/fileservice"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/migrate"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/blockio"
@@ -27,9 +30,6 @@ func (c *migrateArg) PrepareCommand() *cobra.Command {
 	replay := replayArg{}
 	migrateCmd.AddCommand(replay.PrepareCommand())
 
-	backup := backupArg{}
-	migrateCmd.AddCommand(backup.PrepareCommand())
-
 	gc := gcArg{}
 	migrateCmd.AddCommand(gc.PrepareCommand())
 
@@ -48,44 +48,27 @@ func (c *migrateArg) Run() error {
 	return nil
 }
 
-type backupArg struct {
-	dir string
+type fsArg struct {
+	Name      string `json:"name"`
+	Endpoint  string `json:"endpoint"`
+	Bucket    string `json:"bucket"`
+	KeyPrefix string `json:"key_prefix"`
 }
 
-func (c *backupArg) PrepareCommand() *cobra.Command {
-	backupCmd := &cobra.Command{
-		Use:   "backup",
-		Short: "backup data",
-		Run:   RunFactory(c),
+func getFsArg(input string) (arg fsArg, err error) {
+	var data []byte
+	if data, err = os.ReadFile(input); err != nil {
+		return
 	}
-
-	backupCmd.Flags().StringP("dir", "d", "", "dir")
-
-	return backupCmd
-}
-
-func (c *backupArg) FromCommand(cmd *cobra.Command) (err error) {
-	c.dir = cmd.Flag("dir").Value.String()
-	return nil
-}
-
-func (c *backupArg) String() string {
-	return ""
-}
-
-func (c *backupArg) Run() error {
-	blockio.Start("")
-	defer blockio.Stop("")
-
-	ctx := context.Background()
-	fs := objectio.TmpNewFileservice(ctx, c.dir)
-	migrate.BackupCkpDir(fs, "ckp")
-
-	return nil
+	if err = jsoniter.Unmarshal(data, &arg); err != nil {
+		return
+	}
+	return
 }
 
 type replayArg struct {
-	dir, meta string
+	arg       fsArg
+	cfg, meta string
 
 	objectList []objectio.ObjectStats
 }
@@ -97,14 +80,18 @@ func (c *replayArg) PrepareCommand() *cobra.Command {
 		Run:   RunFactory(c),
 	}
 
-	replayCmd.Flags().StringP("dir", "d", "", "dir")
+	replayCmd.Flags().StringP("cfg", "c", "", "config")
 	replayCmd.Flags().StringP("meta", "m", "", "meta")
 
 	return replayCmd
 }
 
 func (c *replayArg) FromCommand(cmd *cobra.Command) (err error) {
-	c.dir = cmd.Flag("dir").Value.String()
+	cfg := cmd.Flag("cfg").Value.String()
+	c.arg, err = getFsArg(cfg)
+	if err != nil {
+		panic(err)
+	}
 	c.meta = cmd.Flag("meta").Value.String()
 	return nil
 }
@@ -113,23 +100,52 @@ func (c *replayArg) String() string {
 	return ""
 }
 
+const (
+	dataDir   = ""
+	ckpDir    = "ckp"
+	ckpBakDir = "ckp-bak"
+	gcDir     = "gc"
+
+	oldObjDir = "rewritten/old"
+	newObjDir = "rewritten/new"
+)
+
+func cleanDir(fs fileservice.FileService, dir string) {
+	ctx := context.Background()
+	entries, _ := fs.List(ctx, dir)
+	for _, entry := range entries {
+		err := fs.Delete(ctx, dir+"/"+entry.Name)
+		if err != nil {
+			println("delete", dir+"/"+entry.Name, "failed")
+		} else {
+			println("delete", dir+"/"+entry.Name, "succeed")
+		}
+	}
+}
+
 func (c *replayArg) Run() error {
 	blockio.Start("")
 	defer blockio.Stop("")
 
 	ctx := context.Background()
-	oldDataFS := objectio.TmpNewFileservice(ctx, path.Join(c.dir, "shared"))
-	newDataFS := objectio.TmpNewFileservice(ctx, path.Join(c.dir, "rewritten"))
-	oldObjFS := objectio.TmpNewFileservice(ctx, path.Join(c.dir, "rewritten/old"))
-	newObjFS := objectio.TmpNewFileservice(ctx, path.Join(c.dir, "rewritten/new"))
+	dataFs := migrate.NewS3Fs(ctx, c.arg.Name, c.arg.Endpoint, c.arg.Bucket, path.Join(c.arg.KeyPrefix, dataDir))
+	oldObjFS := migrate.NewS3Fs(ctx, c.arg.Name, c.arg.Endpoint, c.arg.Bucket, path.Join(c.arg.KeyPrefix, oldObjDir))
+	newObjFS := migrate.NewS3Fs(ctx, c.arg.Name, c.arg.Endpoint, c.arg.Bucket, path.Join(c.arg.KeyPrefix, newObjDir))
 
-	// 0. ListCkpFiles
-	c.objectList = migrate.GetCkpFiles(ctx, oldDataFS, oldObjFS)
+	// 1. Backup ckp meta files
+	migrate.BackupCkpDir(dataFs, ckpDir)
 
-	// 1. ReadCkp11File
-	fromEntry, ckpbats := migrate.ReadCkp11File(oldDataFS, filepath.Join("ckp", c.meta))
+	// 2. Clean ckp and gc dir
+	cleanDir(dataFs, ckpDir)
+	cleanDir(dataFs, gcDir)
 
-	// 2. Replay To 1.3 catalog
+	// 3. ListCkpFiles
+	c.objectList = migrate.GetCkpFiles(ctx, dataFs, oldObjFS)
+
+	// 4. ReadCkp11File
+	fromEntry, ckpbats := migrate.ReadCkp11File(dataFs, filepath.Join(ckpBakDir, c.meta))
+
+	// 5. Replay To 1.3 catalog
 	cata := migrate.ReplayCatalogFromCkpData11(ckpbats)
 
 	//dbIt := cata.MakeDBIt(false)
@@ -142,15 +158,15 @@ func (c *replayArg) Run() error {
 	//	}
 	//}
 
-	// 3. Dump catalog to 3 tables batch
+	// 6. Dump catalog to 3 tables batch
 	bDb, bTbl, bCol := migrate.DumpCatalogToBatches(cata)
 
-	// 4. Sink and get object stats
-	objDB := migrate.SinkBatch(catalog.SystemDBSchema, bDb, newDataFS)
-	objTbl := migrate.SinkBatch(catalog.SystemTableSchema, bTbl, newDataFS)
-	objCol := migrate.SinkBatch(catalog.SystemColumnSchema, bCol, newDataFS)
+	// 7. Sink and get object stats
+	objDB := migrate.SinkBatch(catalog.SystemDBSchema, bDb, dataFs)
+	objTbl := migrate.SinkBatch(catalog.SystemTableSchema, bTbl, dataFs)
+	objCol := migrate.SinkBatch(catalog.SystemColumnSchema, bCol, dataFs)
 
-	//5. Write 1.3 Global Ckp
+	// 8. Write 1.3 Global Ckp
 	txnNode := &txnbase.TxnMVCCNode{
 		Start:   types.BuildTS(42424242, 0),
 		Prepare: types.BuildTS(42424243, 0),
@@ -160,7 +176,7 @@ func (c *replayArg) Run() error {
 		CreatedAt: types.BuildTS(42424243, 0),
 	}
 
-	migrate.RewriteCkp(cata, oldDataFS, newDataFS, newObjFS, fromEntry, ckpbats, txnNode, entryNode, objDB, objTbl, objCol)
+	migrate.RewriteCkp(cata, dataFs, newObjFS, fromEntry, ckpbats, txnNode, entryNode, objDB, objTbl, objCol)
 
 	for _, v := range objDB {
 		println(v.String())
