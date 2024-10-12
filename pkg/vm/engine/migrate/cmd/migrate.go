@@ -70,6 +70,7 @@ func getFsArg(input string) (arg fsArg, err error) {
 type replayArg struct {
 	arg       fsArg
 	cfg, meta string
+	local     bool
 
 	objectList []objectio.ObjectStats
 }
@@ -83,6 +84,7 @@ func (c *replayArg) PrepareCommand() *cobra.Command {
 
 	replayCmd.Flags().StringP("cfg", "c", "", "config")
 	replayCmd.Flags().StringP("meta", "m", "", "meta")
+	replayCmd.Flags().BoolP("local", "l", false, "local")
 
 	return replayCmd
 }
@@ -94,6 +96,7 @@ func (c *replayArg) FromCommand(cmd *cobra.Command) (err error) {
 		panic(err)
 	}
 	c.meta = cmd.Flag("meta").Value.String()
+	c.local, err = cmd.Flags().GetBool("local")
 	return nil
 }
 
@@ -102,7 +105,7 @@ func (c *replayArg) String() string {
 }
 
 const (
-	dataDir   = ""
+	dataDir   = "shared"
 	ckpDir    = "ckp"
 	ckpBakDir = "ckp-bak"
 	gcDir     = "gc"
@@ -122,14 +125,26 @@ func cleanDir(fs fileservice.FileService, dir string) {
 	}
 }
 
+const (
+	rootDir = "/home/v/mo/matrixone/mo-data"
+)
+
 func (c *replayArg) Run() error {
 	blockio.Start("")
 	defer blockio.Stop("")
 
+	var dataFs, oldObjFS, newObjFS fileservice.FileService
+
 	ctx := context.Background()
-	dataFs := migrate.NewS3Fs(ctx, c.arg.Name, c.arg.Endpoint, c.arg.Bucket, path.Join(c.arg.KeyPrefix, dataDir))
-	oldObjFS := migrate.NewS3Fs(ctx, c.arg.Name, c.arg.Endpoint, c.arg.Bucket, path.Join(c.arg.KeyPrefix, oldObjDir))
-	newObjFS := migrate.NewS3Fs(ctx, c.arg.Name, c.arg.Endpoint, c.arg.Bucket, path.Join(c.arg.KeyPrefix, newObjDir))
+	if c.local {
+		dataFs = migrate.NewFileFs(path.Join(rootDir, dataDir))
+		oldObjFS = migrate.NewFileFs(path.Join(rootDir, oldObjDir))
+		newObjFS = migrate.NewFileFs(path.Join(rootDir, newObjDir))
+	} else {
+		dataFs = migrate.NewS3Fs(ctx, c.arg.Name, c.arg.Endpoint, c.arg.Bucket, c.arg.KeyPrefix)
+		oldObjFS = migrate.NewS3Fs(ctx, c.arg.Name, c.arg.Endpoint, c.arg.Bucket, path.Join(c.arg.KeyPrefix, oldObjDir))
+		newObjFS = migrate.NewS3Fs(ctx, c.arg.Name, c.arg.Endpoint, c.arg.Bucket, path.Join(c.arg.KeyPrefix, newObjDir))
+	}
 
 	// 1. Backup ckp meta files
 	cleanDir(dataFs, ckpBakDir)
