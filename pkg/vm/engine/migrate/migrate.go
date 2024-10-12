@@ -27,9 +27,6 @@ import (
 )
 
 const (
-	//rootDir    = "/Users/ghs-mo/MOWorkSpace/matrixone-debug/mo-data/"
-	//newDataDir = path.Join(rootDir, "rewritten")
-
 	ckpDir     = "ckp"
 	ckpBackDir = "ckp-bak"
 )
@@ -713,9 +710,9 @@ func replayObjectBatchHelper(
 			objectio.WithSorted()(&obj)
 		}
 
-		dest.GetVectorByName(catalog.PhyAddrColumnName).Append(
-			objectio.HackObjid2Rowid(obj.ObjectName().ObjectId()), false)
+		dest.GetVectorByName(catalog.PhyAddrColumnName).Append(objectio.HackObjid2Rowid(obj.ObjectName().ObjectId()), false)
 		dest.GetVectorByName(objectio.DefaultCommitTS_Attr).Append(ts, false)
+
 		dest.GetVectorByName(ObjectAttr_ObjectStats).Append(obj[:], false)
 		dest.GetVectorByName(SnapshotAttr_DBID).Append(dbidVec.Get(idx), false)
 		dest.GetVectorByName(SnapshotAttr_TID).Append(tidVec.Get(idx), false)
@@ -765,7 +762,7 @@ func ReplayObjectBatch(
 	tblIdx1 := make(map[[2]uint64][]int)
 	tblIdx2 := make(map[[2]uint64][]int)
 
-	// gather all index than belongs to the same table
+	// gather all index that belongs to the same table
 	gatherTablId(&tblIdx1, srcObjInfoBat)
 	gatherTablId(&tblIdx2, srcTNObjInfoBat)
 
