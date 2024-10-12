@@ -126,7 +126,7 @@ func cleanDir(fs fileservice.FileService, dir string) {
 }
 
 const (
-	rootDir = "/home/v/mo/matrixone/mo-data"
+	rootDir = "/home/mo/wenbin/matrixone/mo-data"
 )
 
 func (c *replayArg) Run() error {
