@@ -26,10 +26,13 @@ import (
 	"github.com/panjf2000/ants/v2"
 )
 
-//var (
-//	rootDir    = "/Users/ghs-mo/MOWorkSpace/matrixone-debug/mo-data/"
-//	newDataDir = path.Join(rootDir, "rewritten")
-//)
+const (
+	//rootDir    = "/Users/ghs-mo/MOWorkSpace/matrixone-debug/mo-data/"
+	//newDataDir = path.Join(rootDir, "rewritten")
+
+	ckpDir     = "ckp"
+	ckpBackDir = "ckp-bak"
+)
 
 func NewFileFs(path string) fileservice.FileService {
 	fs := objectio.TmpNewFileservice(context.Background(), path)
@@ -37,12 +40,12 @@ func NewFileFs(path string) fileservice.FileService {
 }
 
 func ListCkpFiles(fs fileservice.FileService) (res []string) {
-	entires, err := fs.List(context.Background(), "ckp/")
+	entires, err := fs.List(context.Background(), ckpBackDir)
 	if err != nil {
 		panic(err)
 	}
 	for _, entry := range entires {
-		res = append(res, filepath.Join("ckp", entry.Name))
+		res = append(res, filepath.Join(ckpBackDir, entry.Name))
 	}
 	return
 }
@@ -539,7 +542,7 @@ func SinkBatch(schema *catalog.Schema, bat *containers.Batch, fs fileservice.Fil
 
 func RewriteCkp(
 	cc *catalog.Catalog,
-	oldDataFS, newDataFS, newObjFS fileservice.FileService,
+	dataFS, objFS fileservice.FileService,
 	oldCkpEntry *checkpoint.CheckpointEntry,
 	oldCkpBats []*containers.Batch,
 	txnMVCCNode *txnbase.TxnMVCCNode,
@@ -550,7 +553,7 @@ func RewriteCkp(
 	dataObjectBatch := ckpData.GetObjectBatchs()
 	tombstoneObjectBatch := ckpData.GetTombstoneObjectBatchs()
 
-	sinker := NewSinker(ObjectListSchema, newObjFS)
+	sinker := NewSinker(ObjectListSchema, objFS)
 	defer sinker.Close()
 
 	metaOffset := int32(0)
@@ -605,14 +608,14 @@ func RewriteCkp(
 		ckpData,
 		cc,
 		oldCkpEntry.GetEnd(),
-		newDataFS, oldDataFS,
+		dataFS,
 		oldCkpBats[BLKMetaInsertIDX],
 		oldCkpBats[BLKMetaInsertTxnIDX],
 		tombstoneObjectBatch)
 
 	fmt.Println("data object len C", tombstoneObjectBatch.Length())
 
-	cnLocation, tnLocation, files, err := ckpData.WriteTo(newDataFS, logtail.DefaultCheckpointBlockRows, logtail.DefaultCheckpointSize)
+	cnLocation, tnLocation, files, err := ckpData.WriteTo(dataFS, logtail.DefaultCheckpointBlockRows, logtail.DefaultCheckpointSize)
 	if err != nil {
 		panic(err)
 	}
@@ -633,7 +636,7 @@ func RewriteCkp(
 	newCkpMetaBat.GetVectorByName(checkpoint.CheckpointAttr_Type).Append(int8(checkpoint.ET_Global), false)
 
 	name := blockio.EncodeCheckpointMetadataFileName(checkpoint.CheckpointDir, checkpoint.PrefixMetadata, oldCkpEntry.GetStart(), oldCkpEntry.GetEnd())
-	writer, err := objectio.NewObjectWriterSpecial(objectio.WriterCheckpoint, name, newDataFS)
+	writer, err := objectio.NewObjectWriterSpecial(objectio.WriterCheckpoint, name, dataFS)
 	if err != nil {
 		panic(err)
 	}
@@ -797,7 +800,7 @@ type tableDeletes struct {
 func replayDeletesHelper(
 	ctx context.Context,
 	cc *catalog.Catalog,
-	oldDataFS, newDataFS fileservice.FileService,
+	fs fileservice.FileService,
 	result chan tableDeletes,
 	dbId, tblId uint64,
 	blkIds []types.Blockid,
@@ -816,7 +819,7 @@ func replayDeletesHelper(
 		loc := blkDeltaLocs[blk]
 
 		bat, release, err := blockio.LoadTombstoneColumnsOldVersion(
-			ctx, nil, oldDataFS, loc, common.CheckpointAllocator, 0)
+			ctx, nil, fs, loc, common.CheckpointAllocator, 0)
 		if err != nil {
 			panic(err)
 		}
@@ -833,7 +836,7 @@ func replayDeletesHelper(
 			sinker = engine_util.NewTombstoneSinker(
 				objectio.HiddenColumnSelection_None,
 				*pkType,
-				common.CheckpointAllocator, newDataFS,
+				common.CheckpointAllocator, fs,
 				engine_util.WithTailSizeCap(0),
 				engine_util.WithMemorySizeThreshold(mpool.MB*512),
 				engine_util.WithDedupAll())
@@ -868,7 +871,7 @@ func ReplayDeletes(
 	ckpData *logtail.CheckpointData,
 	cc *catalog.Catalog,
 	ts types.TS,
-	newDataFS, oldDataFS fileservice.FileService,
+	fs fileservice.FileService,
 	srcBat, srcTxnBat *containers.Batch,
 	destBat *containers.Batch) {
 
@@ -921,7 +924,7 @@ func ReplayDeletes(
 	for tblId, blks := range tblBlks {
 
 		pool.Submit(func() {
-			replayDeletesHelper(ctx, cc, oldDataFS, newDataFS, result, tblId[0], tblId[1], blks, blkDeltaLocs)
+			replayDeletesHelper(ctx, cc, fs, result, tblId[0], tblId[1], blks, blkDeltaLocs)
 		})
 
 	}

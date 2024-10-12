@@ -105,15 +105,15 @@ func TestS3Fs(t *testing.T) {
 		Name:      defines.SharedFileServiceName,
 		Endpoint:  "https://cos.ap-guangzhou.myqcloud.com",
 		Bucket:    "mo-nightly-gz-1308875761",
-		KeyPrefix: "mo-benchmark-11276243006/data",
+		KeyPrefix: "mo-benchmark-11303890162/data",
 	}
 	fs, err := fileservice.NewS3FS(ctx, arg, fileservice.DisabledCacheConfig, nil, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := fs.List(ctx, "ckp")
+	entries, err := fs.List(ctx, ckpDir)
 	// BackupCkpDir(fs, "ckp")
-	t.Log(err)
+	t.Log(entries)
 	for _, entry := range entries {
 		t.Log(entry.Name, entry.IsDir, entry.Size)
 	}

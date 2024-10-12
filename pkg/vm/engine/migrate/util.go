@@ -128,3 +128,17 @@ func BackupCkpDir(fs fileservice.FileService, dir string) {
 		}
 	}
 }
+
+func NewS3Fs(ctx context.Context, name, endpoint, bucket, keyPrefix string) fileservice.FileService {
+	arg := fileservice.ObjectStorageArguments{
+		Name:      name,
+		Endpoint:  endpoint,
+		Bucket:    bucket,
+		KeyPrefix: keyPrefix,
+	}
+	fs, err := fileservice.NewS3FS(ctx, arg, fileservice.DisabledCacheConfig, nil, false, false)
+	if err != nil {
+		panic(err)
+	}
+	return fs
+}
