@@ -22,17 +22,16 @@ func TestXxx(t *testing.T) {
 		rootDir = "/Users/ghs-mo/MOWorkSpace/matrixone-debug/mo-data/"
 	)
 
-	oldDataFS := NewFileFs(path.Join(rootDir, "shared"))
-	newDataFS := NewFileFs(path.Join(rootDir, "rewritten"))
+	dataFS := NewFileFs(path.Join(rootDir, "shared"))
 	newObjFS := NewFileFs(path.Join(rootDir, "rewritten/obj"))
 
 	// 0. ListCkpFiles
 	ctx := context.Background()
-	entries := ListCkpFiles(oldDataFS)
-	sinker := NewSinker(ObjectListSchema, newDataFS)
+	entries := ListCkpFiles(dataFS)
+	sinker := NewSinker(ObjectListSchema, dataFS)
 	defer sinker.Close()
 	for _, entry := range entries {
-		DumpCkpFiles(ctx, oldDataFS, entry, sinker)
+		DumpCkpFiles(ctx, dataFS, entry, sinker)
 	}
 	err := sinker.Sync(ctx)
 	if err != nil {
@@ -41,7 +40,7 @@ func TestXxx(t *testing.T) {
 	objlist, _ := sinker.GetResult()
 
 	// 1. ReadCkp11File
-	fromEntry, ckpbats := ReadCkp11File(oldDataFS, "ckp/meta_0-0_1728644453045593000-1.ckp")
+	fromEntry, ckpbats := ReadCkp11File(dataFS, "ckp/meta_0-0_1728644453045593000-1.ckp")
 	t.Log(fromEntry.String())
 
 	// 2. Replay To 1.3 catalog
@@ -61,9 +60,9 @@ func TestXxx(t *testing.T) {
 	bDb, bTbl, bCol := DumpCatalogToBatches(cata)
 
 	// 4. Sink and get object stats
-	objDB := SinkBatch(catalog.SystemDBSchema, bDb, newDataFS)
-	objTbl := SinkBatch(catalog.SystemTableSchema, bTbl, newDataFS)
-	objCol := SinkBatch(catalog.SystemColumnSchema, bCol, newDataFS)
+	objDB := SinkBatch(catalog.SystemDBSchema, bDb, dataFS)
+	objTbl := SinkBatch(catalog.SystemTableSchema, bTbl, dataFS)
+	objCol := SinkBatch(catalog.SystemColumnSchema, bCol, dataFS)
 
 	//5. Write 1.3 Global Ckp
 	txnNode := &txnbase.TxnMVCCNode{
@@ -75,7 +74,7 @@ func TestXxx(t *testing.T) {
 		CreatedAt: types.BuildTS(42424243, 0),
 	}
 
-	RewriteCkp(cata, oldDataFS, newDataFS, newObjFS, fromEntry, ckpbats, txnNode, entryNode, objDB, objTbl, objCol)
+	RewriteCkp(cata, dataFS, newObjFS, fromEntry, ckpbats, txnNode, entryNode, objDB, objTbl, objCol)
 
 	for _, v := range objDB {
 		t.Log(v.String())

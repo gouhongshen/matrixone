@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -116,9 +117,7 @@ func cleanDir(fs fileservice.FileService, dir string) {
 	for _, entry := range entries {
 		err := fs.Delete(ctx, dir+"/"+entry.Name)
 		if err != nil {
-			println("delete", dir+"/"+entry.Name, "failed")
-		} else {
-			println("delete", dir+"/"+entry.Name, "succeed")
+			logutil.Infof("delete %s/%s failed", dir, entry.Name)
 		}
 	}
 }
@@ -133,6 +132,7 @@ func (c *replayArg) Run() error {
 	newObjFS := migrate.NewS3Fs(ctx, c.arg.Name, c.arg.Endpoint, c.arg.Bucket, path.Join(c.arg.KeyPrefix, newObjDir))
 
 	// 1. Backup ckp meta files
+	cleanDir(dataFs, ckpBakDir)
 	migrate.BackupCkpDir(dataFs, ckpDir)
 
 	// 2. Clean ckp and gc dir

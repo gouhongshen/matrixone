@@ -583,6 +583,8 @@ func RewriteCkp(
 	fillObjStats(tbls, pkgcatalog.MO_TABLES_ID)
 	fillObjStats(cols, pkgcatalog.MO_COLUMNS_ID)
 
+	fmt.Println("data object len A", dataObjectBatch.Length())
+
 	// write object stats
 	metaOffset = ReplayObjectBatch(
 		oldCkpEntry.GetEnd(),
@@ -594,6 +596,8 @@ func RewriteCkp(
 		panic(err)
 	}
 
+	fmt.Println("data object len B", dataObjectBatch.Length())
+
 	// write delta location
 	ReplayDeletes(
 		ckpData,
@@ -604,7 +608,6 @@ func RewriteCkp(
 		oldCkpBats[BLKMetaInsertTxnIDX],
 		tombstoneObjectBatch)
 
-	cnLocation, tnLocation, files, err := ckpData.WriteTo(newDataFS, logtail.DefaultCheckpointBlockRows, logtail.DefaultCheckpointSize)
 	fmt.Println("data object len C", tombstoneObjectBatch.Length())
 
 	cnLocation, tnLocation, files, err := ckpData.WriteTo(dataFS, logtail.DefaultCheckpointBlockRows, logtail.DefaultCheckpointSize)
