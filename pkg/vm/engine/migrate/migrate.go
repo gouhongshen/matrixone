@@ -3,7 +3,9 @@ package migrate
 import (
 	"context"
 	"fmt"
+	"path"
 	"path/filepath"
+	"runtime"
 
 	pkgcatalog "github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
@@ -22,12 +24,13 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logtail"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/txn/txnbase"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/txn/txnimpl"
+	"github.com/panjf2000/ants/v2"
 )
 
-//var (
-//	rootDir    = "/Users/ghs-mo/MOWorkSpace/matrixone-debug/mo-data/"
-//	newDataDir = path.Join(rootDir, "rewritten")
-//)
+var (
+	rootDir    = "/Users/ghs-mo/MOWorkSpace/matrixone-debug/mo-data/"
+	newDataDir = path.Join(rootDir, "rewritten")
+)
 
 func NewFileFs(path string) fileservice.FileService {
 	fs := objectio.TmpNewFileservice(context.Background(), path)
@@ -590,7 +593,7 @@ func RewriteCkp(
 		oldCkpEntry.GetEnd(),
 		metaOffset, ckpData,
 		oldCkpBats[ObjectInfoIDX], oldCkpBats[TNObjectInfoIDX],
-		dataObjectBatch, cc, oldDataFS, newDataFS, sinker)
+		dataObjectBatch, sinker)
 
 	if err := sinker.Sync(context.Background()); err != nil {
 		panic(err)
@@ -599,7 +602,7 @@ func RewriteCkp(
 	fmt.Println("data object len B", dataObjectBatch.Length())
 
 	// write delta location
-	_, _ = ReplayDeletes(
+	Rem	playDeletes(
 		ckpData,
 		cc,
 		oldCkpEntry.GetEnd(),
@@ -609,9 +612,6 @@ func RewriteCkp(
 		tombstoneObjectBatch)
 
 	fmt.Println("data object len C", tombstoneObjectBatch.Length())
-
-	//logutil.Info("written new tombstone object files",
-	//	zap.Strings("file names", newTombstoneObjectFiles))
 
 	cnLocation, tnLocation, files, err := ckpData.WriteTo(newDataFS, logtail.DefaultCheckpointBlockRows, logtail.DefaultCheckpointSize)
 	if err != nil {
@@ -740,8 +740,6 @@ func ReplayObjectBatch(
 	ckpData *logtail.CheckpointData,
 	srcObjInfoBat, srcTNObjInfoBat *containers.Batch,
 	dest *containers.Batch,
-	cc *catalog.Catalog,
-	oldDataFS, newDataFS fileservice.FileService,
 	sinker *engine_util.Sinker,
 ) int32 {
 
@@ -792,14 +790,88 @@ func ReplayObjectBatch(
 	return metaOffset
 }
 
+type tableDeletes struct {
+	dbId, tblId uint64
+	statsList   []objectio.ObjectStats
+}
+
+func replayDeletesHelper(
+	ctx context.Context,
+	cc *catalog.Catalog,
+	oldDataFS, newDataFS fileservice.FileService,
+	result chan tableDeletes,
+	dbId, tblId uint64,
+	blkIds []types.Blockid,
+	blkDeltaLocs map[types.Blockid]objectio.Location) {
+
+	getPKType := func(dbId, tblId uint64) *types.Type {
+		schema := getTableSchemaFromCatalog(dbId, tblId, cc)
+		pkType := schema.GetPrimaryKey().Type
+		return &pkType
+	}
+
+	pkType := getPKType(dbId, tblId)
+	var sinker *engine_util.Sinker
+
+	for _, blk := range blkIds {
+		loc := blkDeltaLocs[blk]
+
+		bat, release, err := blockio.LoadTombstoneColumnsOldVersion(
+			ctx, nil, oldDataFS, loc, common.CheckpointAllocator, 0)
+		if err != nil {
+			panic(err)
+		}
+
+		// dedup bat
+		if err = containers.DedupSortedBatches(
+			objectio.TombstonePrimaryKeyIdx,
+			[]*batch.Batch{bat},
+		); err != nil {
+			panic(err)
+		}
+
+		if sinker == nil {
+			sinker = engine_util.NewTombstoneSinker(
+				objectio.HiddenColumnSelection_None,
+				*pkType,
+				common.CheckpointAllocator, newDataFS,
+				engine_util.WithTailSizeCap(0),
+				engine_util.WithMemorySizeThreshold(mpool.MB*512),
+				engine_util.WithDedupAll())
+		}
+
+		if err = sinker.Write(ctx, bat); err != nil {
+			panic(err)
+		}
+
+		release()
+	}
+
+	if sinker == nil {
+		return
+	}
+
+	if err := sinker.Sync(ctx); err != nil {
+		panic(err)
+	}
+
+	ss, _ := sinker.GetResult()
+	sinker.Close()
+
+	result <- tableDeletes{
+		dbId:      dbId,
+		tblId:     tblId,
+		statsList: ss,
+	}
+}
+
 func ReplayDeletes(
 	ckpData *logtail.CheckpointData,
 	cc *catalog.Catalog,
 	ts types.TS,
 	newDataFS, oldDataFS fileservice.FileService,
 	srcBat, srcTxnBat *containers.Batch,
-	destBat *containers.Batch,
-) (aliveObjectList map[types.Objectid]struct{}, tombstoneFiles []string) {
+	destBat *containers.Batch) {
 
 	var (
 		err         error
@@ -810,22 +882,9 @@ func ReplayDeletes(
 	srcCNBat := containers.ToCNBatch(srcBat)
 	blkIdCol := vector.MustFixedColWithTypeCheck[types.Blockid](srcCNBat.Vecs[blkIdColIdx])
 
-	if srcCNBat.RowCount() != srcTxnBat.Length() {
-		panic("insBat.len != insTxnBat.len")
-	}
-
 	var (
-		bat     *batch.Batch
-		release func()
-		ctx     = context.Background()
+		ctx = context.Background()
 	)
-
-	getPKType := func(dbId, tblId uint64) *types.Type {
-		schema := getTableSchemaFromCatalog(dbId, tblId, cc)
-		pkType := schema.GetPrimaryKey().Type
-		//fmt.Println(schema.Name, pkType.String(), schema.GetPrimaryKey().Name, schema.Attrs())
-		return &pkType
-	}
 
 	//  BLKMetaInsertIDX
 	//  BLKMetaInsertTxnIDX
@@ -841,8 +900,6 @@ func ReplayDeletes(
 		loc := objectio.Location(srcCNBat.Vecs[locColIdx].GetBytesAt(i))
 		cts := srcTxnBat.GetVectorByName(txnbase.SnapshotAttr_CommitTS).Get(i).(types.TS)
 
-		//fmt.Println("Update DeltaLoc", tid, cts.ToString(), blkIdCol[i].String(), loc.String())
-
 		if cur, ok := blkDeltaCts[blkIdCol[i]]; !ok {
 			blkDeltaLocs[blkIdCol[i]] = loc
 			blkDeltaCts[blkIdCol[i]] = cts
@@ -854,91 +911,45 @@ func ReplayDeletes(
 		tblBlks[[2]uint64{dbid, tid}] = append(tblBlks[[2]uint64{dbid, tid}], blkIdCol[i])
 	}
 
-	//for id, blkId := range tblBlks {
-	//	for _, blk := range blkId {
-	//		fmt.Println("Final DeltaLoc", id[1], blkDeltaLocs[blk].String())
-	//	}
-	//}
+	pool, err := ants.NewPool(runtime.NumCPU())
+	if err != nil {
+		panic(err)
+	}
 
-	aliveObjectList = make(map[types.Objectid]struct{})
+	result := make(chan tableDeletes, 100)
 
 	metaOffset := int32(0)
 	for tblId, blks := range tblBlks {
-		pkType := getPKType(tblId[0], tblId[1])
 
-		var sinker *engine_util.Sinker
+		pool.Submit(func() {
+			replayDeletesHelper(ctx, cc, oldDataFS, newDataFS, result, tblId[0], tblId[1], blks, blkDeltaLocs)
+		})
 
-		for _, blk := range blks {
-			objId := blk.Object()
-			aliveObjectList[*objId] = struct{}{}
+	}
 
-			loc := blkDeltaLocs[blk]
-			aliveObjectList[loc.ObjectId()] = struct{}{}
+	for i := 0; i < len(tblBlks); i++ {
+		dd := <-result
 
-			//bat.CleanOnlyData()
-			bat, release, err = blockio.LoadTombstoneColumnsOldVersion(
-				ctx, nil, oldDataFS, loc, common.CheckpointAllocator, 0)
-			if err != nil {
-				panic(err)
-			}
-
-			// dedup bat
-			if err = containers.DedupSortedBatches(
-				objectio.TombstonePrimaryKeyIdx,
-				[]*batch.Batch{bat},
-			); err != nil {
-				panic(err)
-			}
-
-			if sinker == nil {
-				sinker = engine_util.NewTombstoneSinker(
-					objectio.HiddenColumnSelection_None,
-					*pkType,
-					common.CheckpointAllocator, newDataFS,
-					engine_util.WithTailSizeCap(0),
-					engine_util.WithDedupAll())
-			}
-
-			if err = sinker.Write(ctx, bat); err != nil {
-				panic(err)
-			}
-
-			release()
-		}
-
-		if sinker == nil {
-			continue
-		}
-
-		if err = sinker.Sync(ctx); err != nil {
-			panic(err)
-		}
-
-		ss, _ := sinker.GetResult()
-		for _, s := range ss {
-			tombstoneFiles = append(tombstoneFiles, s.ObjectName().String())
-			destBat.GetVectorByName(catalog.PhyAddrColumnName).Append(
-				objectio.HackObjid2Rowid(s.ObjectName().ObjectId()), false)
+		for _, s := range dd.statsList {
+			destBat.GetVectorByName(catalog.PhyAddrColumnName).Append(objectio.HackObjid2Rowid(s.ObjectName().ObjectId()), false)
 			destBat.GetVectorByName(objectio.DefaultCommitTS_Attr).Append(ts, false)
+
 			destBat.GetVectorByName(ObjectAttr_ObjectStats).Append(s[:], false)
-			destBat.GetVectorByName(SnapshotAttr_DBID).Append(tblId[0], false)
-			destBat.GetVectorByName(SnapshotAttr_TID).Append(tblId[1], false)
+			destBat.GetVectorByName(SnapshotAttr_DBID).Append(dd.dbId, false)
+			destBat.GetVectorByName(SnapshotAttr_TID).Append(dd.tblId, false)
 			destBat.GetVectorByName(EntryNode_CreateAt).Append(ts, false)
 			destBat.GetVectorByName(EntryNode_DeleteAt).Append(types.TS{}, false)
 			destBat.GetVectorByName(txnbase.SnapshotAttr_CommitTS).Append(ts, false)
 			destBat.GetVectorByName(txnbase.SnapshotAttr_StartTS).Append(ts, false)
 			destBat.GetVectorByName(txnbase.SnapshotAttr_PrepareTS).Append(ts, false)
-
-			//fmt.Println("C", tblId[1], s.String())
 		}
 
-		ckpData.UpdateTombstoneObjectMeta(tblId[1], metaOffset, metaOffset+int32(len(ss)))
-		metaOffset += int32(len(ss))
-
-		if err = sinker.Close(); err != nil {
-			panic(err)
-		}
+		ckpData.UpdateTombstoneObjectMeta(dd.tblId, metaOffset, metaOffset+int32(len(dd.statsList)))
+		metaOffset += int32(len(dd.statsList))
 	}
+
+	close(result)
+	pool.Free()
 
 	return
 }
