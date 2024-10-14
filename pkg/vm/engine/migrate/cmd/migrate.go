@@ -228,7 +228,7 @@ func (c *replayArg) Run() error {
 		fromEntry.GetStart(),
 		fromEntry.GetEnd(),
 	)
-	_, err := snapshotMeta.SaveTableInfo(gc.GCMetaDir+name, newObjFS)
+	_, err := snapshotMeta.SaveTableInfo(gc.GCMetaDir+name, dataFs)
 	if err != nil {
 		println(err.Error())
 		return err

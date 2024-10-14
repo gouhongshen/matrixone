@@ -94,7 +94,7 @@ func TestXxx(t *testing.T) {
 		fromEntry.GetStart(),
 		fromEntry.GetEnd(),
 	)
-	_, err = snapshotMeta.SaveTableInfo(gc.GCMetaDir+name, newObjFS)
+	_, err = snapshotMeta.SaveTableInfo(gc.GCMetaDir+name, dataFs)
 	if err != nil {
 		println(err.Error())
 	}
