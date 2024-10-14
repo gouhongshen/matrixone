@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/db/gc/v3"
 	"os"
 	"path"
 	"path/filepath"
@@ -174,7 +175,7 @@ func (c *replayArg) Run() error {
 	//}
 
 	// 6. Dump catalog to 3 tables batch
-	bDb, bTbl, bCol := migrate.DumpCatalogToBatches(cata)
+	bDb, bTbl, bCol, snapshotMeta := migrate.DumpCatalogToBatches(cata)
 
 	// 7. Sink and get object stats
 	objDB := migrate.SinkBatch(catalog.SystemDBSchema, bDb, dataFs)
@@ -205,7 +206,16 @@ func (c *replayArg) Run() error {
 	for _, v := range c.objectList {
 		println(v.String())
 	}
-
+	name := blockio.EncodeTableMetadataFileName(
+		gc.PrefixAcctMeta,
+		fromEntry.GetStart(),
+		fromEntry.GetEnd(),
+	)
+	_, err := snapshotMeta.SaveTableInfo(gc.GCMetaDir+name, newObjFS)
+	if err != nil {
+		println(err.Error())
+		return err
+	}
 	return nil
 }
 
