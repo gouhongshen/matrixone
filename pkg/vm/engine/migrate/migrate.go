@@ -483,14 +483,14 @@ func DumpCatalogToBatches(cata *catalog.Catalog) (bDbs, bTables, bCols *containe
 				continue
 			}
 			txnimpl.FillTableRow(table, node.BaseNode.Schema, def.Name, bTables.Vecs[def.Idx])
-			createAt := types.BuildTS(node.BaseNode.Schema.AcInfo.CreateAt.Unix(), 0)
-			err := snapshotMeta.InsertTableInfo(node.BaseNode.Schema.AcInfo.TenantID,
-				table.GetDB().GetID(), table.GetID(),
-				table.GetDB().GetName(), node.BaseNode.Schema.Name,
-				&createAt)
-			if err != nil {
-				panic(err)
-			}
+		}
+		createAt := types.BuildTS(node.BaseNode.Schema.AcInfo.CreateAt.Unix(), 0)
+		err := snapshotMeta.InsertTableInfo(node.BaseNode.Schema.AcInfo.TenantID,
+			table.GetDB().GetID(), table.GetID(),
+			table.GetDB().GetName(), node.BaseNode.Schema.Name,
+			&createAt)
+		if err != nil {
+			panic(err)
 		}
 
 		for _, def := range catalog.SystemColumnSchema.ColDefs {
