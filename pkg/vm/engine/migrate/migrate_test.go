@@ -41,7 +41,7 @@ func TestXxx(t *testing.T) {
 	objlist, _ := sinker.GetResult()
 
 	// 1. ReadCkp11File
-	fromEntry, ckpbats := ReadCkp11File(dataFS, "ckp/meta_0-0_1728644453045593000-1.ckp")
+	fromEntry, ckpbats := ReadCkp11File(dataFS, "ckp/meta_0-0_1728882342106913000-1.ckp")
 	t.Log(fromEntry.String())
 
 	// 2. Replay To 1.3 catalog

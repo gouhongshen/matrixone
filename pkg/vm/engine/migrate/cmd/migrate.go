@@ -71,7 +71,7 @@ func getFsArg(input string) (arg fsArg, err error) {
 type replayArg struct {
 	arg       fsArg
 	cfg, meta string
-	local     bool
+	rootDir   string
 
 	objectList []objectio.ObjectStats
 }
@@ -84,20 +84,20 @@ func (c *replayArg) PrepareCommand() *cobra.Command {
 	}
 
 	replayCmd.Flags().StringP("cfg", "c", "", "config")
-	replayCmd.Flags().StringP("meta", "m", "", "meta")
-	replayCmd.Flags().BoolP("local", "l", false, "local")
+	replayCmd.Flags().StringP("root", "r", "", "root")
 
 	return replayCmd
 }
 
 func (c *replayArg) FromCommand(cmd *cobra.Command) (err error) {
+	c.rootDir = cmd.Flag("root").Value.String()
 	cfg := cmd.Flag("cfg").Value.String()
-	c.arg, err = getFsArg(cfg)
-	if err != nil {
-		panic(err)
+	if c.rootDir == "" {
+		c.arg, err = getFsArg(cfg)
+		if err != nil {
+			panic(err)
+		}
 	}
-	c.meta = cmd.Flag("meta").Value.String()
-	c.local, err = cmd.Flags().GetBool("local")
 	return nil
 }
 
@@ -130,6 +130,21 @@ const (
 	rootDir = "/home/mo/wenbin/matrixone/mo-data"
 )
 
+func getLatestCkpMeta(fs fileservice.FileService, dir string) (res string) {
+	dirs, _ := fs.List(context.Background(), dir)
+	var name string
+	maxTs := types.BuildTS(0, 0)
+	minTs := types.BuildTS(0, 0)
+	for _, dir := range dirs {
+		start, end, _ := blockio.DecodeCheckpointMetadataFileName(dir.Name)
+		if start.EQ(&minTs) && end.GT(&maxTs) {
+			maxTs = end
+			name = dir.Name
+		}
+	}
+	return name
+}
+
 func (c *replayArg) Run() error {
 	blockio.Start("")
 	defer blockio.Stop("")
@@ -137,15 +152,17 @@ func (c *replayArg) Run() error {
 	var dataFs, oldObjFS, newObjFS fileservice.FileService
 
 	ctx := context.Background()
-	if c.local {
-		dataFs = migrate.NewFileFs(path.Join(rootDir, dataDir))
-		oldObjFS = migrate.NewFileFs(path.Join(rootDir, oldObjDir))
-		newObjFS = migrate.NewFileFs(path.Join(rootDir, newObjDir))
+	if c.rootDir != "" {
+		dataFs = migrate.NewFileFs(path.Join(c.rootDir, dataDir))
+		oldObjFS = migrate.NewFileFs(path.Join(c.rootDir, oldObjDir))
+		newObjFS = migrate.NewFileFs(path.Join(c.rootDir, newObjDir))
 	} else {
 		dataFs = migrate.NewS3Fs(ctx, c.arg.Name, c.arg.Endpoint, c.arg.Bucket, c.arg.KeyPrefix)
 		oldObjFS = migrate.NewS3Fs(ctx, c.arg.Name, c.arg.Endpoint, c.arg.Bucket, path.Join(c.arg.KeyPrefix, oldObjDir))
 		newObjFS = migrate.NewS3Fs(ctx, c.arg.Name, c.arg.Endpoint, c.arg.Bucket, path.Join(c.arg.KeyPrefix, newObjDir))
 	}
+
+	c.meta = getLatestCkpMeta(dataFs, ckpDir)
 
 	// 1. Backup ckp meta files
 	cleanDir(dataFs, ckpBakDir)
