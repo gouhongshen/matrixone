@@ -6,6 +6,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/blockio"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/db/gc/v3"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/txn/txnbase"
 	"path"
 	"testing"
@@ -57,7 +58,7 @@ func TestXxx(t *testing.T) {
 	}
 
 	// 3. Dump catalog to 3 tables batch
-	bDb, bTbl, bCol := DumpCatalogToBatches(cata)
+	bDb, bTbl, bCol, snapshotMeta := DumpCatalogToBatches(cata)
 
 	// 4. Sink and get object stats
 	objDB := SinkBatch(catalog.SystemDBSchema, bDb, dataFS)
@@ -87,6 +88,15 @@ func TestXxx(t *testing.T) {
 	}
 	for _, v := range objlist {
 		t.Log(v.String())
+	}
+	name := blockio.EncodeTableMetadataFileName(
+		gc.PrefixAcctMeta,
+		fromEntry.GetStart(),
+		fromEntry.GetEnd(),
+	)
+	_, err = snapshotMeta.SaveTableInfo(gc.GCMetaDir+name, dataFs)
+	if err != nil {
+		println(err.Error())
 	}
 }
 

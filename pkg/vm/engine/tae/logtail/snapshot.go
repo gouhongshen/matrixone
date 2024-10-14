@@ -1441,6 +1441,50 @@ func (sm *SnapshotMeta) MergeTableInfo(
 	return nil
 }
 
+func (sm *SnapshotMeta) InsertTableInfo(account uint32, db, tid uint64, dbName, tableName string, createAt *types.TS) error {
+	if tableName == catalog2.MO_SNAPSHOTS {
+		sm.snapshotTableIDs[tid] = struct{}{}
+		logutil.Info("[UpdateSnapTable]",
+			zap.Uint64("tid", tid),
+			zap.Uint32("account id", account),
+			zap.String("create at", createAt.ToString()))
+	}
+	if tableName == catalog2.MO_PITR {
+		if sm.pitr.tid > 0 && sm.pitr.tid != tid {
+			panic(fmt.Sprintf("pitr table %v is not unique", tid))
+		}
+		sm.pitr.tid = tid
+	}
+	if sm.tables[account] == nil {
+		sm.tables[account] = make(map[uint64]*tableInfo)
+	}
+	table := sm.tables[account][tid]
+	if table != nil {
+		panic(fmt.Sprintf("table %d-%d, %v:%v already exists", account, tid, dbName, tableName))
+	}
+	packer := types.NewPacker()
+	packer.EncodeUint32(account)
+	packer.EncodeStringType([]byte(dbName))
+	packer.EncodeStringType([]byte(tableName))
+	tuple, _, _, err := types.DecodeTuple(packer.Bytes())
+	if err != nil {
+		return err
+	}
+	pk := tuple.ErrString(nil)
+	packer.Close()
+	packer.Bytes()
+	table = &tableInfo{
+		accountID: account,
+		dbID:      db,
+		tid:       tid,
+		createAt:  *createAt,
+		pk:        pk,
+	}
+	sm.tables[account][tid] = table
+	sm.tableIDIndex[tid] = table
+	return nil
+}
+
 func (sm *SnapshotMeta) String() string {
 	sm.RLock()
 	defer sm.RUnlock()
