@@ -3,9 +3,6 @@ package migrate
 import (
 	"context"
 	"fmt"
-	"path/filepath"
-	"runtime"
-
 	pkgcatalog "github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -24,6 +21,11 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/txn/txnbase"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/txn/txnimpl"
 	"github.com/panjf2000/ants/v2"
+	"go.uber.org/zap"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
 )
 
 const (
@@ -546,6 +548,8 @@ func RewriteCkp(
 	entryMVCCNode *catalog.EntryMVCCNode,
 	dbs, tbls, cols []objectio.ObjectStats,
 ) {
+	start := time.Now()
+
 	ckpData := logtail.NewCheckpointData("", common.CheckpointAllocator)
 	dataObjectBatch := ckpData.GetObjectBatchs()
 	tombstoneObjectBatch := ckpData.GetTombstoneObjectBatchs()
@@ -585,8 +589,6 @@ func RewriteCkp(
 	fillObjStats(tbls, pkgcatalog.MO_TABLES_ID)
 	fillObjStats(cols, pkgcatalog.MO_COLUMNS_ID)
 
-	fmt.Println("data object len A", dataObjectBatch.Length())
-
 	// write object stats
 	metaOffset = ReplayObjectBatch(
 		oldCkpEntry.GetEnd(),
@@ -598,8 +600,6 @@ func RewriteCkp(
 		panic(err)
 	}
 
-	fmt.Println("data object len B", dataObjectBatch.Length())
-
 	// write delta location
 	ReplayDeletes(
 		ckpData,
@@ -610,14 +610,11 @@ func RewriteCkp(
 		oldCkpBats[BLKMetaInsertTxnIDX],
 		tombstoneObjectBatch)
 
-	fmt.Println("data object len C", tombstoneObjectBatch.Length())
-
 	cnLocation, tnLocation, files, err := ckpData.WriteTo(dataFS, logtail.DefaultCheckpointBlockRows, logtail.DefaultCheckpointSize)
 	if err != nil {
 		panic(err)
 	}
-	files = append(files, cnLocation.Name().String())
-	logutil.Infof("write files %v", files)
+
 	oldCkpEntry.SetLocation(cnLocation, tnLocation) // update location
 	oldCkpEntry.SetVersion(logtail.CheckpointCurrentVersion)
 
@@ -645,6 +642,14 @@ func RewriteCkp(
 	if err != nil {
 		panic(err)
 	}
+
+	logutil.Info("rewrite ckp",
+		zap.Int("data object cnt", dataObjectBatch.Length()),
+		zap.Int("tombstone object cnt", tombstoneObjectBatch.Length()),
+		zap.String("cn location", cnLocation.Name().String()),
+		zap.String("tn location", tnLocation.Name().String()),
+		zap.String("files", strings.Join(files, ",")),
+		zap.Duration("total took", time.Since(start)))
 
 }
 
@@ -803,17 +808,23 @@ func replayDeletesHelper(
 	blkIds []types.Blockid,
 	blkDeltaLocs map[types.Blockid]objectio.Location) {
 
-	getPKType := func(dbId, tblId uint64) *types.Type {
-		schema := getTableSchemaFromCatalog(dbId, tblId, cc)
-		pkType := schema.GetPrimaryKey().Type
-		return &pkType
-	}
+	start := time.Now()
 
-	pkType := getPKType(dbId, tblId)
+	schema := getTableSchemaFromCatalog(dbId, tblId, cc)
+	pkType := schema.GetPrimaryKey().Type
+
 	var sinker *engine_util.Sinker
+
+	locMap := make(map[[79]byte]struct{})
 
 	for _, blk := range blkIds {
 		loc := blkDeltaLocs[blk]
+
+		if _, ok := locMap[[79]byte(loc)]; ok {
+			continue
+		}
+
+		locMap[[79]byte(loc)] = struct{}{}
 
 		bat, release, err := blockio.LoadTombstoneColumnsOldVersion(
 			ctx, nil, fs, loc, common.CheckpointAllocator, 0)
@@ -832,10 +843,10 @@ func replayDeletesHelper(
 		if sinker == nil {
 			sinker = engine_util.NewTombstoneSinker(
 				objectio.HiddenColumnSelection_None,
-				*pkType,
+				pkType,
 				common.CheckpointAllocator, fs,
 				engine_util.WithTailSizeCap(0),
-				engine_util.WithMemorySizeThreshold(mpool.MB*512),
+				engine_util.WithMemorySizeThreshold(mpool.MB*128),
 				engine_util.WithDedupAll())
 		}
 
@@ -857,11 +868,30 @@ func replayDeletesHelper(
 	ss, _ := sinker.GetResult()
 	sinker.Close()
 
+	objNames := make([]string, 0)
+	avgSizeMB := float64(0)
+	totalBlkCnt := 0
+	totalRowCnt := 0
+
+	for _, s := range ss {
+		avgSizeMB += float64(s.Size()) / 1024.0 / 1024.0
+		totalRowCnt += int(s.Rows())
+		totalBlkCnt += int(s.BlkCnt())
+		objNames = append(objNames, s.ObjectName().ObjectId().ShortStringEx())
+	}
+
 	result <- tableDeletes{
 		dbId:      dbId,
 		tblId:     tblId,
 		statsList: ss,
 	}
+
+	logutil.Info("replay deletes",
+		zap.String("tbl", fmt.Sprintf("%d-%d-%s", dbId, tblId, schema.Name)),
+		zap.String("deltaLoc info", fmt.Sprintf("%d-%d", len(blkIds), len(locMap))),
+		zap.String("obj summary", fmt.Sprintf("cnt(%d)-row(%d)-blk(%d)-size(%.6f)", len(ss), totalRowCnt, totalBlkCnt, avgSizeMB)),
+		zap.Duration("total took", time.Since(start)),
+		zap.String("obj names", strings.Join(objNames, ",")))
 }
 
 func ReplayDeletes(
@@ -915,7 +945,7 @@ func ReplayDeletes(
 		panic(err)
 	}
 
-	result := make(chan tableDeletes, 100)
+	result := make(chan tableDeletes, 1000)
 
 	metaOffset := int32(0)
 	for tblId, blks := range tblBlks {
