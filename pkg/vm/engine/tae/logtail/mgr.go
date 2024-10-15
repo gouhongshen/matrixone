@@ -87,16 +87,22 @@ type Manager struct {
 	eventOnce           sync.Once
 
 	nextCompactTS types.TS
+
+	tblStatsBox *TblStatsBox
 }
 
-func NewManager(rt *dbutils.Runtime, blockSize int, nowClock func() types.TS) *Manager {
+func NewManager(
+	rt *dbutils.Runtime, blockSize int,
+	nowClock func() types.TS,
+	tblStatsBox *TblStatsBox) *Manager {
 	mgr := &Manager{
 		rt: rt,
 		table: NewTxnTable(
 			blockSize,
 			nowClock,
 		),
-		nowClock: nowClock,
+		nowClock:    nowClock,
+		tblStatsBox: tblStatsBox,
 	}
 	mgr.collectLogtailQueue = sm.NewSafeQueue(10000, 100, mgr.onCollectTxnLogtails)
 	mgr.waitCommitQueue = sm.NewSafeQueue(10000, 100, mgr.onWaitTxnCommit)
@@ -137,6 +143,8 @@ func (mgr *Manager) onWaitTxnCommit(items ...any) {
 			}
 			continue
 		}
+
+		mgr.tblStatsBox.UpdateByLogtail(txn.tails)
 		mgr.generateLogtailWithTxn(txn)
 	}
 }

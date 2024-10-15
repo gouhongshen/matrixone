@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logtail"
 	"math"
 	"runtime/trace"
 	"sync/atomic"
@@ -87,9 +88,9 @@ func (p *PartitionState) HandleLogtailEntry(
 	txnTrace.GetService(p.service).ApplyLogtail(entry, 1)
 	switch entry.EntryType {
 	case api.Entry_Insert:
-		if IsDataObjectList(entry.TableName) {
+		if logtail.IsDataObjectList(entry.TableName) {
 			p.HandleDataObjectList(ctx, entry, fs, pool)
-		} else if IsTombstoneObjectList(entry.TableName) {
+		} else if logtail.IsTombstoneObjectList(entry.TableName) {
 			p.HandleTombstoneObjectList(ctx, entry, fs, pool)
 		} else {
 			p.HandleRowsInsert(ctx, entry.Bat, primarySeqnum, packer, pool)
@@ -111,22 +112,22 @@ func (p *PartitionState) HandleDataObjectList(
 
 	var numDeleted, blockDeleted int64
 
-	statsVec := mustVectorFromProto(ee.Bat.Vecs[2])
+	statsVec := logtail.MustVectorFromProto(ee.Bat.Vecs[2])
 	defer statsVec.Free(pool)
 
-	vec := mustVectorFromProto(ee.Bat.Vecs[5])
+	vec := logtail.MustVectorFromProto(ee.Bat.Vecs[5])
 	defer vec.Free(pool)
 	createTSCol := vector.MustFixedColWithTypeCheck[types.TS](vec)
 
-	vec = mustVectorFromProto(ee.Bat.Vecs[6])
+	vec = logtail.MustVectorFromProto(ee.Bat.Vecs[6])
 	defer vec.Free(pool)
 	deleteTSCol := vector.MustFixedColWithTypeCheck[types.TS](vec)
 
-	vec = mustVectorFromProto(ee.Bat.Vecs[7])
+	vec = logtail.MustVectorFromProto(ee.Bat.Vecs[7])
 	defer vec.Free(pool)
 	startTSCol := vector.MustFixedColWithTypeCheck[types.TS](vec)
 
-	vec = mustVectorFromProto(ee.Bat.Vecs[9])
+	vec = logtail.MustVectorFromProto(ee.Bat.Vecs[9])
 	defer vec.Free(pool)
 	commitTSCol := vector.MustFixedColWithTypeCheck[types.TS](vec)
 
@@ -260,22 +261,22 @@ func (p *PartitionState) HandleTombstoneObjectList(
 	pool *mpool.MPool) {
 
 	var numDeleted int64
-	statsVec := mustVectorFromProto(ee.Bat.Vecs[2])
+	statsVec := logtail.MustVectorFromProto(ee.Bat.Vecs[2])
 	defer statsVec.Free(pool)
 
-	vec := mustVectorFromProto(ee.Bat.Vecs[5])
+	vec := logtail.MustVectorFromProto(ee.Bat.Vecs[5])
 	defer vec.Free(pool)
 	createTSCol := vector.MustFixedColWithTypeCheck[types.TS](vec)
 
-	vec = mustVectorFromProto(ee.Bat.Vecs[6])
+	vec = logtail.MustVectorFromProto(ee.Bat.Vecs[6])
 	defer vec.Free(pool)
 	deleteTSCol := vector.MustFixedColWithTypeCheck[types.TS](vec)
 
-	vec = mustVectorFromProto(ee.Bat.Vecs[7])
+	vec = logtail.MustVectorFromProto(ee.Bat.Vecs[7])
 	defer vec.Free(pool)
 	startTSCol := vector.MustFixedColWithTypeCheck[types.TS](vec)
 
-	vec = mustVectorFromProto(ee.Bat.Vecs[9])
+	vec = logtail.MustVectorFromProto(ee.Bat.Vecs[9])
 	defer vec.Free(pool)
 	commitTSCol := vector.MustFixedColWithTypeCheck[types.TS](vec)
 
@@ -377,15 +378,15 @@ func (p *PartitionState) HandleRowsDelete(
 	ctx, task := trace.NewTask(ctx, "PartitionState.HandleRowsDelete")
 	defer task.End()
 
-	vec := mustVectorFromProto(input.Vecs[0])
+	vec := logtail.MustVectorFromProto(input.Vecs[0])
 	defer vec.Free(pool)
 	rowIDVector := vector.MustFixedColWithTypeCheck[types.Rowid](vec)
 
-	vec = mustVectorFromProto(input.Vecs[1])
+	vec = logtail.MustVectorFromProto(input.Vecs[1])
 	defer vec.Free(pool)
 	timeVector := vector.MustFixedColWithTypeCheck[types.TS](vec)
 
-	vec = mustVectorFromProto(input.Vecs[3])
+	vec = logtail.MustVectorFromProto(input.Vecs[3])
 	defer vec.Free(pool)
 	tbRowIdVector := vector.MustFixedColWithTypeCheck[types.Rowid](vec)
 
@@ -474,11 +475,11 @@ func (p *PartitionState) HandleRowsInsert(
 	ctx, task := trace.NewTask(ctx, "PartitionState.HandleRowsInsert")
 	defer task.End()
 
-	vec := mustVectorFromProto(input.Vecs[0])
+	vec := logtail.MustVectorFromProto(input.Vecs[0])
 	defer vec.Free(pool)
 	rowIDVector := vector.MustFixedColWithTypeCheck[types.Rowid](vec)
 
-	vec = mustVectorFromProto(input.Vecs[1])
+	vec = logtail.MustVectorFromProto(input.Vecs[1])
 	defer vec.Free(pool)
 	timeVector := vector.MustFixedColWithTypeCheck[types.TS](vec)
 

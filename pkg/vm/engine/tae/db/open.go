@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/cmd_util"
 	"path"
 	"sync/atomic"
 	"time"
@@ -28,6 +27,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/cmd_util"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/common"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/containers"
@@ -116,6 +116,7 @@ func Open(ctx context.Context, dirname string, opts *options.Options) (db *DB, e
 		Dir:          dirname,
 		Opts:         opts,
 		Closed:       new(atomic.Value),
+		tblStatsBox:  logtail.NewTableStatsBox(),
 		usageMemo:    logtail.NewTNUsageMemo(nil),
 		CNMergeSched: merge.NewTaskServiceGetter(opts.TaskServiceGetter),
 	}
@@ -151,6 +152,7 @@ func Open(ctx context.Context, dirname string, opts *options.Options) (db *DB, e
 		return
 	}
 	db.usageMemo.C = db.Catalog
+	db.tblStatsBox.CC = db.Catalog
 
 	// Init and start txn manager
 	txnStoreFactory := txnimpl.TxnStoreFactory(
@@ -167,6 +169,7 @@ func Open(ctx context.Context, dirname string, opts *options.Options) (db *DB, e
 		db.Runtime,
 		int(db.Opts.LogtailCfg.PageSize),
 		db.TxnMgr.Now,
+		db.tblStatsBox,
 	)
 	db.Runtime.Now = db.TxnMgr.Now
 	db.TxnMgr.CommitListener.AddTxnCommitListener(db.LogtailMgr)

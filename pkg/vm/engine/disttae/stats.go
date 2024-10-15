@@ -37,6 +37,7 @@ import (
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/index"
+	logtail2 "github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logtail"
 )
 
 var (
@@ -343,7 +344,7 @@ func (gs *GlobalStats) consumeLogtail(tail *logtail.TableLogtail) {
 	} else if tail.Table != nil {
 		var triggered bool
 		for _, cmd := range tail.Commands {
-			if logtailreplay.IsMetaEntry(cmd.TableName) {
+			if logtail2.IsMetaEntry(cmd.TableName) {
 				triggered = true
 				if gs.shouldTrigger(key) {
 					gs.triggerUpdate(key, false)

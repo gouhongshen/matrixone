@@ -298,6 +298,11 @@ func (entry *TableEntry) GetColDefs() []*ColDef {
 	return entry.GetLastestSchemaLocked(false).ColDefs
 }
 
+func (entry *TableEntry) GetName() string {
+	schema := entry.GetLastestSchemaLocked(false)
+	return schema.Name
+}
+
 func (entry *TableEntry) GetFullName() string {
 	if len(entry.fullName) == 0 {
 		schema := entry.GetLastestSchemaLocked(false)

@@ -17,6 +17,7 @@ package logtail
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"time"
 
@@ -71,6 +72,39 @@ const (
 	Checkpoint_Meta_Usage_Ins_LOC_IDX        = 7
 	Checkpoint_Meta_Usage_Del_LOC_IDX        = 8
 )
+
+var (
+	dataObjectListPattern      = regexp.MustCompile(`_\d+_data_meta`)
+	tombstoneObjectListPattern = regexp.MustCompile(`_\d+_tombstone_meta`)
+)
+
+func IsMetaEntry(tblName string) bool {
+	return IsDataObjectList(tblName) || IsTombstoneObjectList(tblName)
+}
+
+func IsDataObjectList(tblName string) bool {
+	return dataObjectListPattern.MatchString(tblName)
+}
+
+func IsTombstoneObjectList(tblName string) bool {
+	return tombstoneObjectListPattern.MatchString(tblName)
+}
+
+func MustVectorFromProto(v api.Vector) *vector.Vector {
+	ret, err := vector.ProtoVectorToVector(v)
+	if err != nil {
+		panic(err)
+	}
+	return ret
+}
+
+func MustVectorToProto(v *vector.Vector) api.Vector {
+	ret, err := vector.VectorToProtoVector(v)
+	if err != nil {
+		panic(err)
+	}
+	return ret
+}
 
 type checkpointDataItem struct {
 	schema *catalog.Schema

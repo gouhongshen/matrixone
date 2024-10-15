@@ -18,14 +18,14 @@ import (
 	"context"
 	"time"
 
-	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/cache"
-
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/pb/api"
+	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/cache"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/logtailreplay"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logtail"
 )
 
 func consumeEntry(
@@ -53,7 +53,7 @@ func consumeEntry(
 	}
 
 	// Try to handle the memory records of the three tables
-	if !catalog.IsSystemTable(e.TableId) || logtailreplay.IsMetaEntry(e.TableName) {
+	if !catalog.IsSystemTable(e.TableId) || logtail.IsMetaEntry(e.TableName) {
 		return nil
 	}
 

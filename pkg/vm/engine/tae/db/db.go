@@ -21,18 +21,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/matrixorigin/matrixone/pkg/util/fault"
-
+	"github.com/matrixorigin/matrixone/pkg/common/moerr"
+	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
+	"github.com/matrixorigin/matrixone/pkg/util/fault"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/db/checkpoint"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/db/dbutils"
 	gc2 "github.com/matrixorigin/matrixone/pkg/vm/engine/tae/db/gc/v3"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/db/merge"
-
-	"github.com/matrixorigin/matrixone/pkg/container/types"
-
-	"github.com/matrixorigin/matrixone/pkg/common/moerr"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/catalog"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/db/checkpoint"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/gc"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/iface/txnif"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logtail"
@@ -51,8 +48,9 @@ type DB struct {
 	Dir  string
 	Opts *options.Options
 
-	usageMemo *logtail.TNUsageMemo
-	Catalog   *catalog.Catalog
+	tblStatsBox *logtail.TblStatsBox
+	usageMemo   *logtail.TNUsageMemo
+	Catalog     *catalog.Catalog
 
 	TxnMgr *txnbase.TxnManager
 
