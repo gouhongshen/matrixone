@@ -635,7 +635,7 @@ func RewriteCkp(
 	newCkpMetaBat.GetVectorByName(checkpoint.CheckpointAttr_AllLocations).Append([]byte(oldCkpEntry.GetTNLocation()), false)
 	newCkpMetaBat.GetVectorByName(checkpoint.CheckpointAttr_CheckpointLSN).Append(oldCkpEntry.LSN(), false)
 	newCkpMetaBat.GetVectorByName(checkpoint.CheckpointAttr_TruncateLSN).Append(oldCkpEntry.TrunateLSN(), false)
-	newCkpMetaBat.GetVectorByName(checkpoint.CheckpointAttr_Type).Append(int8(checkpoint.ET_Global), false)
+	newCkpMetaBat.GetVectorByName(checkpoint.CheckpointAttr_Type).Append(int8(checkpoint.ET_Incremental), false)
 
 	name := blockio.EncodeCheckpointMetadataFileName(checkpoint.CheckpointDir, checkpoint.PrefixMetadata, oldCkpEntry.GetStart(), oldCkpEntry.GetEnd())
 	writer, err := objectio.NewObjectWriterSpecial(objectio.WriterCheckpoint, name, dataFS)
