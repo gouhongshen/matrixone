@@ -19,6 +19,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"strings"
+
 	// "strings"
 	"sync"
 	"time"
@@ -1215,9 +1217,9 @@ func (txn *Transaction) Commit(ctx context.Context) ([]txn.TxnRequest, error) {
 	}
 
 	// TODO ghs fixme
-	// if err := txn.transferTombstoneObjects(ctx); err != nil {
-	// 	return nil, err
-	// }
+	if err := txn.transferTombstoneObjects(ctx); err != nil {
+		return nil, err
+	}
 
 	if err := txn.mergeTxnWorkspaceLocked(); err != nil {
 		return nil, err
@@ -1314,81 +1316,82 @@ func (txn *Transaction) GetSnapshotWriteOffset() int {
 
 type UT_ForceTransCheck struct{}
 
-// func (txn *Transaction) transferTombstoneObjects(
-// 	ctx context.Context,
-// ) (err error) {
+func (txn *Transaction) transferTombstoneObjects(
+	ctx context.Context,
+) (err error) {
 
-// 	var start types.TS
-// 	if txn.statementID == 1 {
-// 		start = types.TimestampToTS(txn.timestamps[0])
-// 	} else {
-// 		//statementID > 1
-// 		start = types.TimestampToTS(txn.timestamps[txn.statementID-2])
-// 	}
+	var start types.TS
+	if txn.statementID == 1 {
+		start = types.TimestampToTS(txn.timestamps[0])
+	} else {
+		//statementID > 1
+		start = types.TimestampToTS(txn.timestamps[txn.statementID-2])
+	}
 
-// 	end := types.TimestampToTS(txn.op.SnapshotTS())
+	end := types.TimestampToTS(txn.op.SnapshotTS())
 
-// 	var flow *TransferFlow
-// 	return txn.forEachTableHasDeletesLocked(
-// 		true,
-// 		func(tbl *txnTable) error {
-// 			now := time.Now()
-// 			if flow, err = ConstructCNTombstoneObjectsTransferFlow(
-// 				start, end, tbl, txn, txn.proc.Mp(), txn.proc.GetFileService()); err != nil {
-// 				return err
-// 			} else if flow == nil {
-// 				return nil
-// 			}
+	var flow *TransferFlow
+	return txn.forEachTableHasDeletesLocked(
+		true,
+		func(tbl *txnTable) error {
+			now := time.Now()
+			if flow, err = ConstructCNTombstoneObjectsTransferFlow(
+				start, end, tbl, txn, txn.proc.Mp(), txn.proc.GetFileService()); err != nil {
+				return err
+			} else if flow == nil {
+				return nil
+			}
 
-// 			defer func() {
-// 				err = flow.Close()
-// 			}()
+			defer func() {
+				err = flow.Close()
+			}()
 
-// if err = flow.Process(ctx); err != nil {
-// 	return err
-// }
+			if err = flow.Process(ctx); err != nil {
+				return err
+			}
 
-// statsList, tail := flow.GetResult()
-// if len(tail) > 0 {
-// 	logutil.Fatal("tombstone sinker tail size is not zero",
-// 		zap.Int("tail", len(tail)))
-// }
+			statsList, tail := flow.GetResult()
+			if len(tail) > 0 {
+				logutil.Fatal("tombstone sinker tail size is not zero",
+					zap.Int("tail", len(tail)))
+			}
 
-// obj := make([]string, 0, len(statsList))
-// for i := range statsList {
-// 	fileName := statsList[i].ObjectLocation().String()
-// 	obj = append(obj, statsList[i].String())
-// 	bat := batch.New(false, []string{catalog.ObjectMeta_ObjectStats})
-// 	bat.SetVector(0, vector.NewVec(types.T_text.ToType()))
-// 	if err = vector.AppendBytes(
-// 		bat.GetVector(0), statsList[i].Marshal(), false, tbl.proc.Load().GetMPool()); err != nil {
-// 		return err
-// 	}
+			obj := make([]string, 0, len(statsList))
+			for i := range statsList {
+				fileName := statsList[i].ObjectLocation().String()
+				obj = append(obj, statsList[i].ObjectName().ObjectId().ShortStringEx())
 
-// 	bat.SetRowCount(bat.Vecs[0].Length())
+				bat := batch.New([]string{catalog.ObjectMeta_ObjectStats})
+				bat.SetVector(0, vector.NewVec(types.T_text.ToType()))
+				if err = vector.AppendBytes(
+					bat.GetVector(0), statsList[i].Marshal(), false, tbl.proc.Load().GetMPool()); err != nil {
+					return err
+				}
 
-// 	if err = txn.WriteFile(
-// 		DELETE,
-// 		tbl.accountId, tbl.db.databaseId, tbl.tableId,
-// 		tbl.db.databaseName, tbl.tableName, fileName,
-// 		bat, txn.tnStores[0],
-// 	); err != nil {
-// 		return err
-// 	}
-// 			}
+				bat.SetRowCount(bat.Vecs[0].Length())
 
-// 			logutil.Info("CN-TRANSFER-TOMBSTONE-OBJ",
-// 				zap.String("txn-id", txn.op.Txn().DebugString()),
-// 				zap.String("table",
-// 					fmt.Sprintf("%s(%d)-%s(%d)",
-// 						tbl.db.databaseName, tbl.db.databaseId, tbl.tableName, tbl.tableId)),
-// 				zap.Duration("time-spent", time.Since(now)),
-// 				zap.Int("transferred-row-cnt", flow.transferred),
-// 				zap.String("new-files", strings.Join(obj, "; ")))
+				if err = txn.WriteFile(
+					DELETE,
+					tbl.accountId, tbl.db.databaseId, tbl.tableId,
+					tbl.db.databaseName, tbl.tableName, fileName,
+					bat, txn.tnStores[0],
+				); err != nil {
+					return err
+				}
+			}
 
-// 			return nil
-// 		})
-// }
+			logutil.Info("CN-TRANSFER-TOMBSTONE-OBJ",
+				zap.String("txn-id", txn.op.Txn().DebugString()),
+				zap.String("table",
+					fmt.Sprintf("%s(%d)-%s(%d)",
+						tbl.db.databaseName, tbl.db.databaseId, tbl.tableName, tbl.tableId)),
+				zap.Duration("time-spent", time.Since(now)),
+				zap.Int("transferred-row-cnt", flow.transferred),
+				zap.String("new-files", strings.Join(obj, "; ")))
+
+			return nil
+		})
+}
 
 func (txn *Transaction) transferInmemTombstoneLocked(ctx context.Context, commit bool) error {
 	var latestTs timestamp.Timestamp
