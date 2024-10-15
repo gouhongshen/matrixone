@@ -484,7 +484,7 @@ func DumpCatalogToBatches(cata *catalog.Catalog) (bDbs, bTables, bCols *containe
 			}
 			txnimpl.FillTableRow(table, node.BaseNode.Schema, def.Name, bTables.Vecs[def.Idx])
 		}
-		createAt := types.BuildTS(node.BaseNode.Schema.AcInfo.CreateAt.Unix(), 0)
+		createAt := node.GetCreatedAt()
 		err := snapshotMeta.InsertTableInfo(node.BaseNode.Schema.AcInfo.TenantID,
 			table.GetDB().GetID(), table.GetID(),
 			table.GetDB().GetName(), node.BaseNode.Schema.Name,
