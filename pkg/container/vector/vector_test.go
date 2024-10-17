@@ -16,16 +16,15 @@ package vector
 
 import (
 	"fmt"
-	"math/rand"
-	"slices"
-	"strings"
-	"testing"
-
 	"github.com/matrixorigin/matrixone/pkg/common/bitmap"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/container/nulls"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/stretchr/testify/require"
+	"math/rand"
+	"slices"
+	"strings"
+	"testing"
 )
 
 func TestLength(t *testing.T) {
@@ -2999,10 +2998,10 @@ func TestIntersection2VectorOrdered(t *testing.T) {
 
 	mp := mpool.MustNewZero()
 
-	lenA := rand.Intn(ll) + ll/5
-	lenB := rand.Intn(ll) + ll/5
-
 	for range cnt {
+		lenA := rand.Intn(ll) + ll/5
+		lenB := rand.Intn(ll) + ll/5
+
 		var a []int32 = make([]int32, lenA)
 		var b []int32 = make([]int32, lenB)
 
@@ -3051,10 +3050,10 @@ func TestIntersection2VectorVarlen(t *testing.T) {
 
 	mp := mpool.MustNewZero()
 
-	lenA := rand.Intn(ll) + ll/5
-	lenB := rand.Intn(ll) + ll/5
-
 	for range cnt {
+		lenA := rand.Intn(ll) + ll/5
+		lenB := rand.Intn(ll) + ll/5
+
 		var a = make([]string, lenA)
 		var b = make([]string, lenB)
 
@@ -3087,7 +3086,7 @@ func TestIntersection2VectorVarlen(t *testing.T) {
 		}
 
 		ret := NewVec(types.T_text.ToType())
-		Intersection2VectorVarlen(va, vb, ret, mp)
+		Intersection2VectorVarlen2(va, vb, ret, mp)
 
 		mm := make(map[string]struct{})
 
@@ -3116,10 +3115,10 @@ func TestUnion2VectorOrdered(t *testing.T) {
 
 	mp := mpool.MustNewZero()
 
-	lenA := rand.Intn(ll) + ll/5
-	lenB := rand.Intn(ll) + ll/5
-
 	for range cnt {
+		lenA := rand.Intn(ll) + ll/5
+		lenB := rand.Intn(ll) + ll/5
+
 		var a []int32 = make([]int32, lenA)
 		var b []int32 = make([]int32, lenB)
 
@@ -3168,10 +3167,10 @@ func TestUnion2VectorVarlen(t *testing.T) {
 
 	mp := mpool.MustNewZero()
 
-	lenA := rand.Intn(ll) + ll/5
-	lenB := rand.Intn(ll) + ll/5
-
 	for range cnt {
+		lenA := rand.Intn(ll) + ll/5
+		lenB := rand.Intn(ll) + ll/5
+
 		var a = make([]string, lenA)
 		var b = make([]string, lenB)
 

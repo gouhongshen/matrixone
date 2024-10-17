@@ -4366,52 +4366,36 @@ func Intersection2VectorOrdered[T types.OrderedT | types.Decimal128](
 	mp *mpool.MPool,
 	cmp func(x, y T) int) (err error) {
 
-	var long, short []T
-	if len(a) < len(b) {
-		long = b
-		short = a
-	} else {
-		long = a
-		short = b
-	}
-	var lenLong, lenShort = len(long), len(short)
+	var preVal T
+	var idxA, idxB int
 
-	if err = ret.PreExtend(lenLong+lenShort, mp); err != nil {
+	if err = ret.PreExtend(len(a)+len(b), mp); err != nil {
 		return err
 	}
 
-	for i := range short {
-		idx := sort.Search(lenLong, func(j int) bool {
-			return cmp(long[j], short[i]) >= 0
-		})
+	for idxA < len(a) && idxB < len(b) {
+		var cmpRet int
 
-		if idx >= lenLong {
-			break
+		if cmpRet = cmp(a[idxA], b[idxB]); cmpRet == 0 {
+			if ret.Length() == 0 || cmp(preVal, a[idxA]) != 0 {
+				if err = AppendFixed(ret, a[idxA], false, mp); err != nil {
+					return err
+				}
+
+				preVal = a[idxA]
+			}
+
+			idxA++
+			idxB++
+
+		} else if cmpRet < 0 {
+			idxA++
+
+		} else {
+			idxB++
 		}
-
-		j := idx
-		if cmp(short[i], long[idx]) == 0 {
-			if err = AppendFixed(ret, short[i], false, mp); err != nil {
-				return err
-			}
-
-			j++
-
-			// skip the same item
-			for j < lenLong && cmp(long[j], long[j-1]) == 0 {
-				j++
-			}
-
-			if j >= lenLong {
-				break
-			}
-		}
-
-		idx = j
-
-		long = long[idx:]
-		lenLong = len(long)
 	}
+
 	return nil
 }
 
@@ -4468,6 +4452,50 @@ func Union2VectorOrdered[T types.OrderedT | types.Decimal128](
 			}
 		}
 	}
+	return nil
+}
+
+func Intersection2VectorVarlen2(
+	va, vb *Vector,
+	ret *Vector,
+	mp *mpool.MPool) (err error) {
+
+	var preVal []byte
+	var idxA, idxB int
+
+	cola, areaa := MustVarlenaRawData(va)
+	colb, areab := MustVarlenaRawData(vb)
+
+	if err = ret.PreExtend(len(cola)+len(colb), mp); err != nil {
+		return err
+	}
+
+	for idxA < len(cola) && idxB < len(colb) {
+		var cmpRet int
+
+		bytesA := cola[idxA].GetByteSlice(areaa)
+		bytesB := colb[idxB].GetByteSlice(areab)
+
+		if cmpRet = bytes.Compare(bytesA, bytesB); cmpRet == 0 {
+			if ret.Length() == 0 || !bytes.Equal(preVal, bytesA) {
+				if err = AppendBytes(ret, bytesA, false, mp); err != nil {
+					return err
+				}
+
+				preVal = bytesA
+			}
+
+			idxA++
+			idxB++
+
+		} else if cmpRet < 0 {
+			idxA++
+
+		} else {
+			idxB++
+		}
+	}
+
 	return nil
 }
 
