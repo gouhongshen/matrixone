@@ -4455,7 +4455,9 @@ func Union2VectorOrdered[T types.OrderedT | types.Decimal128](
 	return nil
 }
 
-func Intersection2VectorVarlen2(
+// Intersection2VectorVarlen does a ∩ b ==> ret, keeps all item unique and sorted
+// it assumes that va and vb all sorted already
+func Intersection2VectorVarlen(
 	va, vb *Vector,
 	ret *Vector,
 	mp *mpool.MPool) (err error) {
@@ -4496,73 +4498,6 @@ func Intersection2VectorVarlen2(
 		}
 	}
 
-	return nil
-}
-
-// Intersection2VectorVarlen does a ∩ b ==> ret, keeps all item unique and sorted
-// it assumes that va and vb all sorted already
-func Intersection2VectorVarlen(
-	va, vb *Vector,
-	ret *Vector,
-	mp *mpool.MPool) (err error) {
-
-	var shortCol, longCol []types.Varlena
-	var shortArea, longArea []byte
-
-	cola, areaa := MustVarlenaRawData(va)
-	colb, areab := MustVarlenaRawData(vb)
-
-	if len(cola) <= len(colb) {
-		shortCol = cola
-		shortArea = areaa
-		longCol = colb
-		longArea = areab
-	} else {
-		shortCol = colb
-		shortArea = areab
-		longCol = cola
-		longArea = areaa
-	}
-
-	var lenLong, lenShort = len(longCol), len(shortCol)
-
-	if err = ret.PreExtend(lenLong+lenShort, mp); err != nil {
-		return err
-	}
-
-	for i := range shortCol {
-		shortBytes := shortCol[i].GetByteSlice(shortArea)
-		idx := sort.Search(lenLong, func(j int) bool {
-			return bytes.Compare(longCol[j].GetByteSlice(longArea), shortBytes) >= 0
-		})
-
-		if idx >= lenLong {
-			break
-		}
-
-		j := idx
-		if bytes.Equal(shortBytes, longCol[idx].GetByteSlice(longArea)) {
-			if err = AppendBytes(ret, shortBytes, false, mp); err != nil {
-				return err
-			}
-
-			// skip the same item
-			j++
-			for j < lenLong && bytes.Equal(
-				longCol[j].GetByteSlice(longArea), longCol[j-1].GetByteSlice(longArea)) {
-				j++
-			}
-
-			if j >= lenLong {
-				break
-			}
-		}
-
-		idx = j
-
-		longCol = longCol[idx:]
-		lenLong = len(longCol)
-	}
 	return nil
 }
 

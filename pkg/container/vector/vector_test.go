@@ -3086,7 +3086,7 @@ func TestIntersection2VectorVarlen(t *testing.T) {
 		}
 
 		ret := NewVec(types.T_text.ToType())
-		Intersection2VectorVarlen2(va, vb, ret, mp)
+		Intersection2VectorVarlen(va, vb, ret, mp)
 
 		mm := make(map[string]struct{})
 
