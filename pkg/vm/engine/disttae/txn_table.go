@@ -195,9 +195,9 @@ func (tbl *txnTable) Size(ctx context.Context, columnName string) (uint64, error
 			continue
 		}
 
-		for i, s := range entry.Batch.Attrs {
+		for i, s := range entry.RawData.Attrs {
 			if _, ok := neededCols[s]; ok {
-				szInPart += uint64(entry.Batch.Vecs[i].Size() / entry.Batch.Vecs[i].Length())
+				szInPart += uint64(entry.RawData.Vecs[i].Size() / entry.RawData.Vecs[i].Length())
 			}
 		}
 	}

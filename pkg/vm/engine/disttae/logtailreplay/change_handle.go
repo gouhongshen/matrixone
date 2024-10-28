@@ -651,7 +651,11 @@ func (p *baseHandle) QuickNext(ctx context.Context, bat **batch.Batch, mp *mpool
 	err = p.cnObjectHandle.QuickNext(ctx, bat, mp)
 	return
 }
-func (p *baseHandle) newBatchHandleWithRowIterator(ctx context.Context, iter btree.IterG[RowEntry], start, end types.TS, tombstone bool, mp *mpool.MPool) (h *BatchHandle) {
+func (p *baseHandle) newBatchHandleWithRowIterator(
+	ctx context.Context, iter btree.IterG[PrimaryIndexEntry],
+	start, end types.TS,
+	tombstone bool, mp *mpool.MPool,
+) (h *BatchHandle) {
 	bat := p.getBatchesFromRowIterator(iter, start, end, tombstone, mp)
 	if bat == nil {
 		return nil
@@ -659,7 +663,11 @@ func (p *baseHandle) newBatchHandleWithRowIterator(ctx context.Context, iter btr
 	h = NewRowHandle(bat, mp, p, ctx)
 	return
 }
-func (p *baseHandle) getBatchesFromRowIterator(iter btree.IterG[RowEntry], start, end types.TS, tombstone bool, mp *mpool.MPool) (bat *batch.Batch) {
+func (p *baseHandle) getBatchesFromRowIterator(
+	iter btree.IterG[PrimaryIndexEntry],
+	start, end types.TS,
+	tombstone bool, mp *mpool.MPool,
+) (bat *batch.Batch) {
 	for iter.Next() {
 		entry := iter.Item()
 		if checkTS(start, end, entry.Time) {
@@ -1032,21 +1040,21 @@ func appendFromEntry(src, vec *vector.Vector, offset int, mp *mpool.MPool) {
 
 }
 
-func fillInInsertBatch(bat **batch.Batch, entry *RowEntry, mp *mpool.MPool) {
+func fillInInsertBatch(bat **batch.Batch, entry *PrimaryIndexEntry, mp *mpool.MPool) {
 	if *bat == nil {
-		(*bat) = newDataBatchWithBatch(entry.Batch)
+		(*bat) = newDataBatchWithBatch(entry.RawData)
 	}
-	for i, vec := range entry.Batch.Vecs {
+	for i, vec := range entry.RawData.Vecs {
 		if vec.GetType().Oid == types.T_Rowid || vec.GetType().Oid == types.T_TS {
 			continue
 		}
 		appendFromEntry(vec, (*bat).Vecs[i-2], int(entry.Offset), mp)
 	}
-	appendFromEntry(entry.Batch.Vecs[1], (*bat).Vecs[len((*bat).Vecs)-1], int(entry.Offset), mp)
+	appendFromEntry(entry.RawData.Vecs[1], (*bat).Vecs[len((*bat).Vecs)-1], int(entry.Offset), mp)
 
 }
-func fillInDeleteBatch(bat **batch.Batch, entry *RowEntry, mp *mpool.MPool) {
-	pkVec := entry.Batch.Vecs[2]
+func fillInDeleteBatch(bat **batch.Batch, entry *PrimaryIndexEntry, mp *mpool.MPool) {
+	pkVec := entry.RawData.Vecs[2]
 	if *bat == nil {
 		(*bat) = batch.NewWithSize(2)
 		(*bat).SetAttributes([]string{

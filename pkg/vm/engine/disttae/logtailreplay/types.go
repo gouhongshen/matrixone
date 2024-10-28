@@ -99,62 +99,52 @@ type sharedStates struct {
 	lastFlushTimestamp types.TS
 }
 
-// RowEntry represents a version of a row
-type RowEntry struct {
-	BlockID objectio.Blockid // we need to iter by block id, so put it first to allow faster iteration
+type BaseEntry struct {
+	EntryID int64
 	RowID   objectio.Rowid
 	Time    types.TS
-
-	ID                int64 // a unique version id, for primary index building and validating
-	Deleted           bool
-	Batch             *batch.Batch
-	Offset            int64
-	PrimaryIndexBytes []byte
+	Deleted bool
+	Offset  int64 // row offset in raw data of this entry
+	RawData *batch.Batch
 }
 
-func (r RowEntry) Less(than RowEntry) bool {
+func (be BaseEntry) Less(other BaseEntry) bool {
 	// asc
-	cmp := r.BlockID.Compare(&than.BlockID)
-	if cmp < 0 {
-		return true
+	if ret := be.RowID.Compare(&other.RowID); ret != 0 {
+		return ret < 0
 	}
-	if cmp > 0 {
-		return false
-	}
-	// asc
-	if r.RowID.LT(&than.RowID) {
-		return true
-	}
-	if than.RowID.LT(&r.RowID) {
-		return false
-	}
+
 	// desc
-	if than.Time.LT(&r.Time) {
-		return true
-	}
-	if r.Time.LT(&than.Time) {
-		return false
-	}
-	return false
+	return be.Time.Compare(&other.Time) > 0
+}
+
+func (pie PrimaryIndexEntry) RowEntryLess(than PrimaryIndexEntry) bool {
+	return pie.BaseEntry.Less(than.BaseEntry)
 }
 
 type PrimaryIndexEntry struct {
-	Bytes      []byte
-	RowEntryID int64
-
-	// fields for validating
-	BlockID objectio.Blockid
-	RowID   objectio.Rowid
-	Time    types.TS
+	BaseEntry
+	PrimaryKeyBytes []byte
 }
 
-func (p *PrimaryIndexEntry) Less(than *PrimaryIndexEntry) bool {
-	if res := bytes.Compare(p.Bytes, than.Bytes); res < 0 {
+func (pie PrimaryIndexEntry) String() string {
+	pk, _ := types.Unpack(pie.PrimaryKeyBytes)
+	return fmt.Sprintf("RID(%s)-EID(%d)-TS(%s)-DEL(%v)-PK(%s)\n",
+		pie.RowID.String(),
+		pie.EntryID,
+		pie.Time.ToString(),
+		pie.Deleted,
+		pk.SQLStrings(nil),
+	)
+}
+
+func (pie PrimaryIndexEntry) Less(than PrimaryIndexEntry) bool {
+	if res := bytes.Compare(pie.PrimaryKeyBytes, than.PrimaryKeyBytes); res < 0 {
 		return true
 	} else if res > 0 {
 		return false
 	}
-	return p.RowEntryID < than.RowEntryID
+	return pie.EntryID < than.EntryID
 }
 
 type ObjectIndexByTSEntry struct {

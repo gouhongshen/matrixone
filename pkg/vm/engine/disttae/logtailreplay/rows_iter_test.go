@@ -531,13 +531,13 @@ func TestPrimaryKeyModifiedWithDeleteOnly(t *testing.T) {
 }
 
 func TestPrefixIn(t *testing.T) {
-	pkTree := btree.NewBTreeGOptions((*PrimaryIndexEntry).Less, btree.Options{
+	pkTree := btree.NewBTreeGOptions((PrimaryIndexEntry).Less, btree.Options{
 		Degree: 64,
 	})
 
 	for i := 0; i < 10; i++ {
-		pkTree.Set(&PrimaryIndexEntry{
-			Bytes: []byte{byte(i)},
+		pkTree.Set(PrimaryIndexEntry{
+			PrimaryKeyBytes: []byte{byte(i)},
 		})
 	}
 
@@ -556,9 +556,9 @@ func TestPrefixIn(t *testing.T) {
 	}
 
 	spec.Move(pkIter)
-	require.Equal(t, []byte{0}, pkIter.iter.Item().Bytes)
+	require.Equal(t, []byte{0}, pkIter.iter.Item().PrimaryKeyBytes)
 	spec.Move(pkIter)
-	require.Equal(t, []byte{2}, pkIter.iter.Item().Bytes)
+	require.Equal(t, []byte{2}, pkIter.iter.Item().PrimaryKeyBytes)
 	spec.Move(pkIter)
-	require.Equal(t, []byte{4}, pkIter.iter.Item().Bytes)
+	require.Equal(t, []byte{4}, pkIter.iter.Item().PrimaryKeyBytes)
 }

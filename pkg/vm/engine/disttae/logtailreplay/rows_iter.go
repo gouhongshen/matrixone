@@ -16,7 +16,6 @@ package logtailreplay
 
 import (
 	"bytes"
-
 	"github.com/tidwall/btree"
 
 	"github.com/matrixorigin/matrixone/pkg/container/types"
@@ -27,28 +26,32 @@ import (
 type RowsIter interface {
 	Next() bool
 	Close() error
-	Entry() RowEntry
+	Entry() PrimaryIndexEntry
 }
 
 type rowsIter struct {
 	ts           types.TS
-	iter         btree.IterG[RowEntry]
+	iter         btree.IterG[PrimaryIndexEntry]
 	firstCalled  bool
 	lastRowID    types.Rowid
 	checkBlockID bool
 	blockID      types.Blockid
 	iterDeleted  bool
+
+	Debug bool
 }
 
 var _ RowsIter = new(rowsIter)
 
 func (p *rowsIter) Next() bool {
 	for {
-
 		if !p.firstCalled {
 			if p.checkBlockID {
-				if !p.iter.Seek(RowEntry{
-					BlockID: p.blockID,
+				if !p.iter.Seek(PrimaryIndexEntry{
+					BaseEntry: BaseEntry{
+						Time:  types.MaxTs(),
+						RowID: *types.NewRowid(&p.blockID, 0),
+					},
 				}) {
 					return false
 				}
@@ -66,7 +69,7 @@ func (p *rowsIter) Next() bool {
 
 		entry := p.iter.Item()
 
-		if p.checkBlockID && entry.BlockID != p.blockID {
+		if p.checkBlockID && !entry.RowID.BorrowBlockID().EQ(&p.blockID) {
 			// no more
 			return false
 		}
@@ -89,7 +92,7 @@ func (p *rowsIter) Next() bool {
 	}
 }
 
-func (p *rowsIter) Entry() RowEntry {
+func (p *rowsIter) Entry() PrimaryIndexEntry {
 	return p.iter.Item()
 }
 
@@ -101,10 +104,14 @@ func (p *rowsIter) Close() error {
 type primaryKeyIter struct {
 	ts           types.TS
 	spec         PrimaryKeyMatchSpec
-	iter         btree.IterG[*PrimaryIndexEntry]
-	rows         *btree.BTreeG[RowEntry]
-	primaryIndex *btree.BTreeG[*PrimaryIndexEntry]
-	curRow       RowEntry
+	iter         btree.IterG[PrimaryIndexEntry]
+	rows         *btree.BTreeG[PrimaryIndexEntry]
+	primaryIndex *btree.BTreeG[PrimaryIndexEntry]
+	curRow       PrimaryIndexEntry
+
+	specHint struct {
+		isDelIter bool
+	}
 }
 
 type PrimaryKeyMatchSpec struct {
@@ -121,8 +128,8 @@ func Exact(key []byte) PrimaryKeyMatchSpec {
 			var ok bool
 			if first {
 				first = false
-				ok = p.iter.Seek(&PrimaryIndexEntry{
-					Bytes: key,
+				ok = p.iter.Seek(PrimaryIndexEntry{
+					PrimaryKeyBytes: key,
 				})
 			} else {
 				ok = p.iter.Next()
@@ -133,7 +140,7 @@ func Exact(key []byte) PrimaryKeyMatchSpec {
 			}
 
 			item := p.iter.Item()
-			return bytes.Equal(item.Bytes, key)
+			return bytes.Equal(item.PrimaryKeyBytes, key)
 		},
 	}
 }
@@ -146,8 +153,8 @@ func Prefix(prefix []byte) PrimaryKeyMatchSpec {
 			var ok bool
 			if first {
 				first = false
-				ok = p.iter.Seek(&PrimaryIndexEntry{
-					Bytes: prefix,
+				ok = p.iter.Seek(PrimaryIndexEntry{
+					PrimaryKeyBytes: prefix,
 				})
 			} else {
 				ok = p.iter.Next()
@@ -158,7 +165,7 @@ func Prefix(prefix []byte) PrimaryKeyMatchSpec {
 			}
 
 			item := p.iter.Item()
-			return bytes.HasPrefix(item.Bytes, prefix)
+			return bytes.HasPrefix(item.PrimaryKeyBytes, prefix)
 		},
 	}
 }
@@ -174,17 +181,17 @@ func BetweenKind(lb, ub []byte, kind int) PrimaryKeyMatchSpec {
 	// 3: (,)
 	// 4: prefix between
 	var validCheck func(bb []byte) bool
-	var seek2First func(iter *btree.IterG[*PrimaryIndexEntry]) bool
+	var seek2First func(iter *btree.IterG[PrimaryIndexEntry]) bool
 	switch kind {
 	case 0:
 		validCheck = func(bb []byte) bool {
 			return bytes.Compare(bb, ub) <= 0
 		}
-		seek2First = func(iter *btree.IterG[*PrimaryIndexEntry]) bool { return true }
+		seek2First = func(iter *btree.IterG[PrimaryIndexEntry]) bool { return true }
 	case 1:
 		validCheck = func(bb []byte) bool { return bytes.Compare(bb, ub) <= 0 }
-		seek2First = func(iter *btree.IterG[*PrimaryIndexEntry]) bool {
-			for bytes.Equal(iter.Item().Bytes, lb) {
+		seek2First = func(iter *btree.IterG[PrimaryIndexEntry]) bool {
+			for bytes.Equal(iter.Item().PrimaryKeyBytes, lb) {
 				if ok := iter.Next(); !ok {
 					return false
 				}
@@ -193,11 +200,11 @@ func BetweenKind(lb, ub []byte, kind int) PrimaryKeyMatchSpec {
 		}
 	case 2:
 		validCheck = func(bb []byte) bool { return bytes.Compare(bb, ub) < 0 }
-		seek2First = func(iter *btree.IterG[*PrimaryIndexEntry]) bool { return true }
+		seek2First = func(iter *btree.IterG[PrimaryIndexEntry]) bool { return true }
 	case 3:
 		validCheck = func(bb []byte) bool { return bytes.Compare(bb, ub) < 0 }
-		seek2First = func(iter *btree.IterG[*PrimaryIndexEntry]) bool {
-			for bytes.Equal(iter.Item().Bytes, lb) {
+		seek2First = func(iter *btree.IterG[PrimaryIndexEntry]) bool {
+			for bytes.Equal(iter.Item().PrimaryKeyBytes, lb) {
 				if ok := iter.Next(); !ok {
 					return false
 				}
@@ -206,11 +213,11 @@ func BetweenKind(lb, ub []byte, kind int) PrimaryKeyMatchSpec {
 		}
 	case 4:
 		validCheck = func(bb []byte) bool { return types.PrefixCompare(bb, ub) <= 0 }
-		seek2First = func(iter *btree.IterG[*PrimaryIndexEntry]) bool { return true }
+		seek2First = func(iter *btree.IterG[PrimaryIndexEntry]) bool { return true }
 	default:
 		logutil.Infof("between kind missed: kind: %d, lb=%v, ub=%v\n", kind, lb, ub)
 		validCheck = func(bb []byte) bool { return true }
-		seek2First = func(iter *btree.IterG[*PrimaryIndexEntry]) bool { return true }
+		seek2First = func(iter *btree.IterG[PrimaryIndexEntry]) bool { return true }
 	}
 
 	first := true
@@ -220,7 +227,9 @@ func BetweenKind(lb, ub []byte, kind int) PrimaryKeyMatchSpec {
 			var ok bool
 			if first {
 				first = false
-				if ok = p.iter.Seek(&PrimaryIndexEntry{Bytes: lb}); ok {
+				if ok = p.iter.Seek(PrimaryIndexEntry{
+					PrimaryKeyBytes: lb,
+				}); ok {
 					ok = seek2First(&p.iter)
 				}
 			} else {
@@ -232,7 +241,7 @@ func BetweenKind(lb, ub []byte, kind int) PrimaryKeyMatchSpec {
 			}
 
 			item := p.iter.Item()
-			return validCheck(item.Bytes)
+			return validCheck(item.PrimaryKeyBytes)
 		},
 	}
 }
@@ -262,10 +271,10 @@ func LessKind(ub []byte, closed bool) PrimaryKeyMatchSpec {
 			}
 
 			if closed {
-				return bytes.Compare(p.iter.Item().Bytes, ub) <= 0
+				return bytes.Compare(p.iter.Item().PrimaryKeyBytes, ub) <= 0
 			}
 
-			return bytes.Compare(p.iter.Item().Bytes, ub) < 0
+			return bytes.Compare(p.iter.Item().PrimaryKeyBytes, ub) < 0
 		},
 	}
 }
@@ -279,9 +288,11 @@ func GreatKind(lb []byte, closed bool) PrimaryKeyMatchSpec {
 			var ok bool
 			if first {
 				first = false
-				ok = p.iter.Seek(&PrimaryIndexEntry{Bytes: lb})
+				ok = p.iter.Seek(PrimaryIndexEntry{
+					PrimaryKeyBytes: lb,
+				})
 
-				for ok && !closed && bytes.Equal(p.iter.Item().Bytes, lb) {
+				for ok && !closed && bytes.Equal(p.iter.Item().PrimaryKeyBytes, lb) {
 					ok = p.iter.Next()
 				}
 				return ok
@@ -341,10 +352,12 @@ func InKind(encodes [][]byte, kind int) PrimaryKeyMatchSpec {
 						// out of vec
 						return false
 					}
-					if !p.iter.Seek(&PrimaryIndexEntry{Bytes: encoded}) {
+					if !p.iter.Seek(PrimaryIndexEntry{
+						PrimaryKeyBytes: encoded,
+					}) {
 						return false
 					}
-					if match(p.iter.Item().Bytes, encoded) {
+					if match(p.iter.Item().PrimaryKeyBytes, encoded) {
 						currentPhase = scan
 						return true
 					}
@@ -353,7 +366,7 @@ func InKind(encodes [][]byte, kind int) PrimaryKeyMatchSpec {
 					if !p.iter.Next() {
 						return false
 					}
-					if match(p.iter.Item().Bytes, encoded) {
+					if match(p.iter.Item().PrimaryKeyBytes, encoded) {
 						return true
 					}
 					p.iter.Prev()
@@ -377,16 +390,17 @@ func (p *primaryKeyIter) Next() bool {
 		// validate
 		valid := false
 		rowsIter := p.rows.Iter()
-		for ok := rowsIter.Seek(RowEntry{
-			BlockID: entry.BlockID,
-			RowID:   entry.RowID,
-			Time:    p.ts,
+		for ok := rowsIter.Seek(PrimaryIndexEntry{
+			BaseEntry: BaseEntry{
+				Time:  types.MaxTs(),
+				RowID: entry.RowID,
+			},
 		}); ok; ok = rowsIter.Next() {
 			row := rowsIter.Item()
-			if row.BlockID != entry.BlockID {
-				// no more
-				break
-			}
+			//if row.BlockID != entry.BlockID {
+			//	// no more
+			//	break
+			//}
 			if row.RowID != entry.RowID {
 				// no more
 				break
@@ -399,7 +413,7 @@ func (p *primaryKeyIter) Next() bool {
 				// visible and deleted, no longer valid
 				break
 			}
-			valid = row.ID == entry.RowEntryID
+			valid = row.EntryID == entry.EntryID
 			if valid {
 				p.curRow = row
 			}
@@ -415,7 +429,7 @@ func (p *primaryKeyIter) Next() bool {
 	}
 }
 
-func (p *primaryKeyIter) Entry() RowEntry {
+func (p *primaryKeyIter) Entry() PrimaryIndexEntry {
 	return p.curRow
 }
 
@@ -439,23 +453,27 @@ func (p *primaryKeyDelIter) Next() bool {
 
 		entry := p.iter.Item()
 
-		if entry.BlockID.Compare(&p.bid) != 0 {
+		//if entry.BlockID.Compare(&p.bid) != 0 {
+		//	continue
+		//}
+		if !entry.RowID.BorrowBlockID().EQ(&p.bid) {
 			continue
 		}
 
 		// validate
 		valid := false
 		rowsIter := p.rows.Iter()
-		for ok := rowsIter.Seek(RowEntry{
-			BlockID: entry.BlockID,
-			RowID:   entry.RowID,
-			Time:    p.ts,
+		for ok := rowsIter.Seek(PrimaryIndexEntry{
+			BaseEntry: BaseEntry{
+				Time:  types.MaxTs(),
+				RowID: entry.RowID,
+			},
 		}); ok; ok = rowsIter.Next() {
 			row := rowsIter.Item()
-			if row.BlockID != entry.BlockID {
-				// no more
-				break
-			}
+			//if row.BlockID != entry.BlockID {
+			//	// no more
+			//	break
+			//}
 			if row.RowID != entry.RowID {
 				// no more
 				break
@@ -468,7 +486,7 @@ func (p *primaryKeyDelIter) Next() bool {
 				// skip not deleted
 				continue
 			}
-			valid = row.ID == entry.RowEntryID
+			valid = row.EntryID == entry.EntryID
 			if valid {
 				p.curRow = row
 			}

@@ -38,7 +38,6 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/common"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/containers"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/index"
-
 	"go.uber.org/zap"
 )
 
@@ -608,8 +607,8 @@ func (ls *LocalDisttaeDataSource) filterInMemCommittedInserts(
 					continue
 				}
 				idx := 2 /*rowid and commits*/ + seqNums[i]
-				if int(idx) >= len(entry.Batch.Vecs) /*add column*/ ||
-					entry.Batch.Attrs[idx] == "" /*drop column*/ {
+				if int(idx) >= len(entry.RawData.Vecs) /*add column*/ ||
+					entry.RawData.Attrs[idx] == "" /*drop column*/ {
 					err = vector.AppendAny(
 						outBatch.Vecs[i],
 						nil,
@@ -617,7 +616,7 @@ func (ls *LocalDisttaeDataSource) filterInMemCommittedInserts(
 						mp)
 				} else {
 					err = outBatch.Vecs[i].UnionOne(
-						entry.Batch.Vecs[int(2+seqNums[i])],
+						entry.RawData.Vecs[int(2+seqNums[i])],
 						entry.Offset,
 						mp,
 					)

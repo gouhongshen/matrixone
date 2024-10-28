@@ -75,6 +75,17 @@ func (p *PartitionState) ApproxTombstoneObjectsNum() int {
 	return p.tombstoneObjectsNameIndex.Len()
 }
 
+func (p *PartitionState) LogAllRowEntry() string {
+	var buf bytes.Buffer
+	p.rows.Scan(func(item PrimaryIndexEntry) bool {
+		buf.WriteString(item.String())
+		buf.WriteString("\n")
+		return true
+	})
+
+	return buf.String()
+}
+
 func (p *PartitionState) newTombstoneObjectsIter(
 	snapshot types.TS,
 	onlyVisible bool) (ObjectsIter, error) {
