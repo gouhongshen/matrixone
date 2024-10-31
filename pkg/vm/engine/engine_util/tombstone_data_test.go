@@ -17,6 +17,7 @@ package engine_util
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -228,4 +229,15 @@ func TestTombstoneData1(t *testing.T) {
 	require.True(t, deleted.Contains(2))
 	require.True(t, deleted.Contains(4))
 	require.Equal(t, 4, deleted.Count())
+}
+
+func TestX(t *testing.T) {
+	x := []uint32{1, 2, 3, 4, 5, 2 << 20}
+	y := []uint32{1, 2, 3, 4, 5, 6 << 10}
+
+	rr := ObjectListRelData{}
+	rr.offset = uint64(1 << 32)
+	for i := range x {
+		fmt.Println(rr.encodeIdx(x[i], y[i]) / 8 / 1024 / 1024)
+	}
 }

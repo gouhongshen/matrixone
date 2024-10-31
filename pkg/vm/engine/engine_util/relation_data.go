@@ -17,7 +17,6 @@ package engine_util
 import (
 	"bytes"
 	"fmt"
-
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
@@ -234,4 +233,188 @@ func (relData *BlockListRelData) GroupByPartitionNum() map[int16]engine.RelData 
 
 func (relData *BlockListRelData) DataCnt() int {
 	return relData.blklist.Len()
+}
+
+///////////////////// ObjectListRelData ///////////////////
+
+var _ engine.RelData = new(ObjectListRelData)
+
+type ObjectListRelData struct {
+	// In most cases, objectListRelData is a Sparse Matrix,
+	// in order to save space, the matrix need to be compressed.
+	objects objectio.ObjectStatsSlice
+
+	// objIdxes[x] indicates that which object stats the x-th blk belongs to.
+	objIdxes []uint32
+	// blkIdxes[x] indicates the offset of the x-th blk in the stats.
+	blkIdxes []uint32
+}
+
+func (o ObjectListRelData) GetType() engine.RelDataType {
+	return engine.RelDataObjectList
+}
+
+func (o ObjectListRelData) String() string {
+	var buf bytes.Buffer
+	o.Scan(func(blk objectio.BlockInfo) bool {
+		buf.WriteString(blk.String())
+		buf.WriteString("; ")
+		return true
+	})
+	return buf.String()
+}
+
+// Scan traverses blks util the `onItem` returns false
+func (o ObjectListRelData) Scan(onItem func(blk objectio.BlockInfo) bool) {
+	var (
+		blkInfo objectio.BlockInfo
+	)
+
+	for i := range o.objIdxes {
+		obj := o.objects.Get(int(o.objIdxes[i]))
+		blkIdx := o.blkIdxes[i]
+
+		obj.ConstructBlockInfoTo(uint16(blkIdx), &blkInfo)
+
+		if !onItem(blkInfo) {
+			break
+		}
+	}
+}
+
+func (o ObjectListRelData) MarshalBinary() ([]byte, error) {
+	var buf bytes.Buffer
+
+	size := uint32(len(o.objects))
+	buf.Write(types.EncodeUint32(&size))
+	buf.Write(o.objects)
+
+	for _, idx := range o.objIdxes {
+		buf.Write(types.EncodeUint32(&idx))
+	}
+
+	for _, idx := range o.blkIdxes {
+		buf.Write(types.EncodeUint32(&idx))
+	}
+
+	return buf.Bytes(), nil
+}
+
+func (o ObjectListRelData) UnmarshalBinary(buf []byte) error {
+	objSliceLen := types.DecodeUint32(buf[0:4])
+	buf = buf[4:]
+
+	o.objects.Append(buf[0:objSliceLen])
+	buf = buf[objSliceLen:]
+
+	split := len(buf) / 2
+	if split*2 != len(buf) {
+		panic(fmt.Sprintf("decode blk matrix err, buf has length: %d", len(buf)))
+	}
+
+	o.objIdxes = make([]uint32, 0, split/4)
+	o.blkIdxes = make([]uint32, 0, split/4)
+	for i := 0; i < split; i += 4 {
+		o.objIdxes = append(o.objIdxes, types.DecodeUint32(buf[i:i+4]))
+	}
+
+	for i := split; i < len(buf); i += 4 {
+		o.blkIdxes = append(o.blkIdxes, types.DecodeUint32(buf[i:i+4]))
+	}
+
+	return nil
+}
+
+func (o ObjectListRelData) AttachTombstones(tombstones engine.Tombstoner) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (o ObjectListRelData) GetTombstones() engine.Tombstoner {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (o ObjectListRelData) DataSlice(begin, end int) engine.RelData {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (o ObjectListRelData) GroupByPartitionNum() map[int16]engine.RelData {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (o ObjectListRelData) BuildEmptyRelData(preAllocSize int) engine.RelData {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (o ObjectListRelData) DataCnt() int {
+	return len(o.blkIdxes)
+}
+
+func (o ObjectListRelData) GetShardIDList() []uint64 {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (o ObjectListRelData) GetShardID(i int) uint64 {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (o ObjectListRelData) SetShardID(i int, id uint64) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (o ObjectListRelData) AppendShardID(id uint64) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (o ObjectListRelData) GetBlockInfoSlice() objectio.BlockInfoSlice {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (o ObjectListRelData) GetBlockInfo(i int) objectio.BlockInfo {
+	var blkInfo objectio.BlockInfo
+
+	obj := o.objects.Get(int(o.objIdxes[i]))
+	obj.ConstructBlockInfoTo(uint16(i), &blkInfo)
+
+	return blkInfo
+}
+
+func (o ObjectListRelData) indexBlkInObjectList(
+	blk objectio.BlockInfo,
+) (exist bool, idx int) {
+	objName := blk.MetaLocation().Name().Short()
+
+	for idx = 0; idx < o.objects.Len(); idx++ {
+		if o.objects.Get(idx).ObjectName().Short().Equal(objName[:]) {
+			break
+		}
+	}
+
+	return idx < o.objects.Len(), idx
+}
+
+func (o ObjectListRelData) SetBlockInfo(i int, blk *objectio.BlockInfo) {
+	exist, idx := o.indexBlkInObjectList(*blk)
+	// want to add a new blkInfo? use the AppendBlockInfo instead.
+	if !exist {
+		panic(fmt.Sprintf("ObjectListRelData.SetBlockInfo out of range: %s, %d, %s",
+			o.String(), i, blk.String()))
+	}
+
+	o.objIdxes[i] = uint32(idx)
+	o.blkIdxes[i] = uint32(blk.BlockID.Sequence())
+}
+
+func (o ObjectListRelData) AppendBlockInfo(blk *objectio.BlockInfo) {
+	//TODO implement me
+	panic("implement me")
 }
