@@ -16,6 +16,7 @@ package disttae
 
 import (
 	"context"
+	"fmt"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
@@ -29,6 +30,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/containers"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/mergesort"
 	"go.uber.org/zap"
+	"strings"
 )
 
 type UT_ForceTransCheck struct{}
@@ -82,6 +84,7 @@ func ConstructCNTombstoneObjectsTransferFlow(
 		return id
 	}
 
+	tNames := make([]string, 0)
 	tombstoneObjects := make([]objectio.ObjectStats, 0)
 
 	for _, e := range txn.writes {
@@ -91,20 +94,31 @@ func ConstructCNTombstoneObjectsTransferFlow(
 
 		if e.fileName != "" && e.typ == DELETE {
 			stats := objectio.ObjectStats(e.bat.Vecs[0].GetBytesAt(0))
+			tNames = append(tNames, stats.ObjectName().ObjectId().ShortStringEx())
 			tombstoneObjects = append(tombstoneObjects, stats)
 		}
 	}
 
-	logs = append(logs, zap.Int("origin-tombstoneObjects", len(tombstoneObjects)))
+	logs = append(logs, zap.String("origin-tombstoneObjects", strings.Join(tNames, ",")))
 
 	if tombstoneObjects, err = blockio.CoarseFilterTombstoneObject(
 		ctx, deletedObjectsIter, tombstoneObjects, fs); err != nil {
 		return nil, logs, err
 	} else if len(tombstoneObjects) == 0 {
+		logs = append(logs, zap.String("coarse-tombstones", "all object filter out"))
 		return nil, logs, nil
 	}
 
-	logs = append(logs, zap.Int("coarse-tombstoneObjects", len(tombstoneObjects)))
+	// filter out some objects
+	if len(tombstoneObjects) != len(tNames) {
+		tNames = tNames[:0]
+		for i := 0; i < len(tombstoneObjects); i++ {
+			tNames = append(tNames, tombstoneObjects[i].ObjectName().ObjectId().ShortStringEx())
+		}
+		logs = append(logs, zap.String("coarse-tombstoneObjects", strings.Join(tNames, ",")))
+	} else {
+		logs = append(logs, zap.String("coarse-tombstoneObjects", "no objects filter out"))
+	}
 
 	pkColIdx := table.tableDef.Name2ColIndex[table.tableDef.Pkey.PkeyColName]
 	pkCol := table.tableDef.Cols[pkColIdx]
@@ -243,6 +257,11 @@ func (flow *TransferFlow) processOneBatch(ctx context.Context, buffer *batch.Bat
 		last    *objectio.ObjectId
 		deleted bool
 	)
+
+	nonDeletedMask := make(map[string]struct{})
+	defer func() {
+		fmt.Println("processOneBatch", nonDeletedMask)
+	}()
 	staged := flow.getStaged()
 	for i, rowid := range rowids {
 		objectid := rowid.BorrowObjectID()
@@ -251,6 +270,7 @@ func (flow *TransferFlow) processOneBatch(ctx context.Context, buffer *batch.Bat
 			last = objectid
 		}
 		if !deleted {
+			nonDeletedMask[objectid.ShortStringEx()] = struct{}{}
 			continue
 		}
 		if err := staged.UnionOne(buffer, int64(i), flow.mp); err != nil {

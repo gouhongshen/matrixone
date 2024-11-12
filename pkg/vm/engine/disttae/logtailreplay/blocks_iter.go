@@ -17,6 +17,7 @@ package logtailreplay
 import (
 	"bytes"
 	"fmt"
+	"go.uber.org/zap"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
@@ -195,9 +196,36 @@ func (p *PartitionState) BlockPersisted(blockID *types.Blockid) bool {
 	return false
 }
 
+func (p *PartitionState) LogAllTombstoneObjects(start, end types.TS) string {
+	var buf bytes.Buffer
+
+	iter, _ := p.NewObjectsIter(types.MaxTs(), false, false)
+	for iter.Next() {
+		obj := iter.Entry()
+		if obj.CreateTime.GE(&start) && obj.CreateTime.LE(&end) ||
+			obj.DeleteTime.GE(&start) && obj.DeleteTime.LE(&end) {
+
+			buf.WriteString(fmt.Sprintf("I(%s)-D(%s)-N(%s); ",
+				obj.CreateTime.ToString(),
+				obj.DeleteTime.ToString(),
+				obj.ObjectName().ObjectId().ShortStringEx()))
+		}
+	}
+
+	return buf.String()
+}
+
 func (p *PartitionState) CollectObjectsBetween(
 	start, end types.TS,
 ) (insertList, deletedList []objectio.ObjectStats) {
+	var buf1, buf2 bytes.Buffer
+	defer func() {
+		logutil.Info("CollectObjectsBetween",
+			zap.String("start", start.ToString()),
+			zap.String("end", end.ToString()),
+			zap.String("insert", buf1.String()),
+			zap.String("delete", buf2.String()))
+	}()
 
 	iter := p.dataObjectTSIndex.Copy().Iter()
 	defer iter.Release()
@@ -233,18 +261,21 @@ func (p *PartitionState) CollectObjectsBetween(
 		// case1: no soft delete
 		if val.DeleteTime.IsEmpty() {
 			insertList = append(insertList, val.ObjectStats)
+			buf1.WriteString(val.ObjectName().ObjectId().ShortStringEx() + "; ")
 		} else {
 			if val.CreateTime.LT(&start) {
 				// create --------- delete
 				//          start -------- end
 				if val.DeleteTime.LE(&end) {
 					deletedList = append(deletedList, val.ObjectStats)
+					buf2.WriteString(val.ObjectName().ObjectId().ShortStringEx() + "; ")
 				}
 			} else {
 				//        create ---------- delete
 				// start ------------ end
 				if val.DeleteTime.GT(&end) {
 					insertList = append(insertList, val.ObjectStats)
+					buf1.WriteString(val.ObjectName().ObjectId().ShortStringEx() + "; ")
 				}
 			}
 		}

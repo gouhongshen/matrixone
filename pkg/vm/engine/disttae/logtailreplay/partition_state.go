@@ -164,6 +164,13 @@ func (p *PartitionState) HandleDataObjectList(
 	defer vec.Free(pool)
 	commitTSCol := vector.MustFixedColWithTypeCheck[types.TS](vec)
 
+	var buf bytes.Buffer
+	defer func() {
+		if buf.Len() > 0 {
+			logutil.Info("HandleDataObjectList", zap.String("objs", buf.String()))
+		}
+	}()
+
 	for idx := 0; idx < statsVec.Length(); idx++ {
 		p.shared.Lock()
 		if t := commitTSCol[idx]; t.GT(&p.shared.lastFlushTimestamp) {
@@ -202,6 +209,13 @@ func (p *PartitionState) HandleDataObjectList(
 				IsAppendable: objEntry.GetAppendable(),
 			}
 			p.dataObjectTSIndex.Set(e)
+		}
+
+		if !objEntry.DeleteTime.IsEmpty() {
+			buf.WriteString(fmt.Sprintf("I(%s)-D(%s)-N(%s)",
+				objEntry.CreateTime.ToString(),
+				objEntry.DeleteTime.ToString(),
+				objEntry.ObjectName().ObjectId().ShortStringEx()))
 		}
 
 		p.dataObjectsNameIndex.Set(objEntry)

@@ -99,6 +99,7 @@ func transferTombstoneObjects(
 				tbl, txn, txn.proc.Mp(), txn.proc.GetFileService()); err != nil {
 				return err
 			} else if flow == nil {
+				logutil.Info("CN-TRANSFER-TOMBSTONE-OBJ", logs...)
 				return nil
 			}
 
@@ -146,7 +147,10 @@ func transferTombstoneObjects(
 						tbl.db.databaseName, tbl.db.databaseId, tbl.tableName, tbl.tableId)),
 				zap.Duration("time-spent", time.Since(now)),
 				zap.Int("transferred-row-cnt", flow.transferred),
-				zap.String("new-files", strings.Join(obj, "; ")))
+				zap.String("new-files", strings.Join(obj, "; ")),
+				zap.String("from", start.ToString()),
+				zap.String("to", end.ToString()),
+				zap.String("first", types.TimestampToTS(txn.transfer.timestamps[0]).ToString()))
 
 			logutil.Info("CN-TRANSFER-TOMBSTONE-OBJ", logs...)
 

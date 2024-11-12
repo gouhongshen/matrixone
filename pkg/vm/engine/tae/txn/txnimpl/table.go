@@ -380,6 +380,12 @@ func (tbl *txnTable) TransferDeletes(
 			if len(bats) != 0 {
 				panic(fmt.Sprintf("TN-TRANSFER-TOMBSTONE-FILES, batch is %d", len(bats)))
 			}
+
+			var buf bytes.Buffer
+			for _, obj := range softDeleteObjects {
+				buf.WriteString(obj.ObjectName().ObjectId().ShortStringEx() + "; ")
+			}
+
 			logutil.Info(
 				"TN-TRANSFER-TOMBSTONE-FILES",
 				zap.String("table", tbl.GetLocalSchema(false).Name),
@@ -388,6 +394,7 @@ func (tbl *txnTable) TransferDeletes(
 				zap.String("to", ts.ToString()),
 				zap.Int("s-cnt", len(softDeleteObjects)),
 				zap.String("txn", tbl.store.txn.String()),
+				zap.String("softDelete", buf.String()),
 			)
 		}
 		v2.TxnS3TombstoneTransferFindTombstonesHistogram.Observe(findTombstoneDuration.Seconds())
