@@ -72,6 +72,10 @@ func (o ObjectEntry) ObjectDTSIndexLess(than ObjectEntry) bool {
 		return x.LT(&y)
 	}
 
+	if ret := o.CreateTime.Compare(&than.CreateTime); ret != 0 {
+		return ret < 0
+	}
+
 	return bytes.Compare((*o.ObjectShortName())[:], (*than.ObjectShortName())[:]) < 0
 }
 
