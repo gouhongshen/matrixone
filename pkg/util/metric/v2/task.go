@@ -200,7 +200,7 @@ var (
 		Namespace: "mo",
 		Subsystem: "task",
 		Name:      "mo_table_stats_total",
-		Buckets:   prometheus.ExponentialBuckets(1, 2, 12),
+		Buckets:   prometheus.ExponentialBuckets(1, 2, 15),
 	}, []string{"type"})
 
 	AlphaTaskCountingHistogram        = moTableStatsCountingHistogram.WithLabelValues("alpha_task_counting")
