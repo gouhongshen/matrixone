@@ -207,7 +207,7 @@ const (
 const (
 	defaultAlphaCycleDur     = time.Minute
 	defaultGamaCycleDur      = time.Minute
-	defaultGetTableListLimit = options.DefaultBlockMaxRows / 10
+	defaultGetTableListLimit = options.DefaultBlockMaxRows
 
 	logHeader = "MO-TABLE-STATS-TASK"
 )
@@ -1916,7 +1916,7 @@ func (d *dynamicCtx) gamaTask(
 
 	d.Lock()
 	gamaDur := d.conf.CorrectionDuration
-	gamaLimit := max(d.conf.GetTableListLimit, 100)
+	gamaLimit := max(d.conf.GetTableListLimit, 8192)
 	d.Unlock()
 
 	randDuration := func(n int) time.Duration {
@@ -1924,7 +1924,7 @@ func (d *dynamicCtx) gamaTask(
 		return gamaDur + time.Duration(rnd.Intn(1*n))*time.Minute
 	}
 
-	const baseFactory = 30
+	const baseFactory = 60
 	tickerA := time.NewTicker(randDuration(baseFactory))
 	tickerB := time.NewTicker(randDuration(baseFactory))
 	tickerC := time.NewTicker(time.Millisecond)
@@ -2094,8 +2094,8 @@ func (d *dynamicCtx) getChangedTableList(
 			}
 
 			if dbs[i] == catalog.MO_CATALOG_ID {
-				// the account id will always be 0 if mo_catalog db is given,
-				// later causing account_id, db_id, tbl_id un match ==> catalogCache returns nil.
+				// the account id will always be 0 if mo_catalog db is given on tn side,
+				// later causing account_id, db_id, tbl_id un matched ==> catalogCache returns nil.
 				continue
 			}
 
