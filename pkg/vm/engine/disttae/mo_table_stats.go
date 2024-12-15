@@ -191,7 +191,7 @@ const (
 				where 
 				    table_stats = "{}" 
 				or
-				    update_time < %s
+				    update_time < '%s' 
 				limit
 					%d;`
 
@@ -1775,7 +1775,7 @@ func (d *dynamicCtx) gamaUpdateForgotten(
 			zap.Error(err))
 	}()
 
-	staleTS := types.BuildTS(time.Now().Add(-time.Hour).UnixNano(), 0).ToTimestamp()
+	staleTS := types.BuildTS(time.Now().Add(-5*time.Hour).UnixNano(), 0).ToTimestamp()
 
 	sql := fmt.Sprintf(getNullStatsSQL,
 		catalog.MO_CATALOG, catalog.MO_TABLE_STATS,
