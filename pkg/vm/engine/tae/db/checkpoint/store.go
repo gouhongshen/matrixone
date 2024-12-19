@@ -60,6 +60,8 @@ type runnerStore struct {
 
 	globalHistoryDuration time.Duration
 
+	incrementalIntent atomic.Pointer[CheckpointEntry]
+
 	incrementals *btree.BTreeG[*CheckpointEntry]
 	globals      *btree.BTreeG[*CheckpointEntry]
 	compacted    atomic.Pointer[CheckpointEntry]
@@ -69,6 +71,77 @@ type runnerStore struct {
 	gcCount     int
 	gcTime      time.Time
 	gcWatermark atomic.Value
+}
+
+func (s *runnerStore) UpdateICKPIntent(ts *types.TS) (updated bool) {
+	for {
+		old := s.incrementalIntent.Load()
+		if old != nil && (old.end.GE(ts) || !old.IsPendding()) {
+			return
+		}
+		var start types.TS
+		if old != nil {
+			start = old.start
+		} else {
+			s.RLock()
+			maxICKP, _ := s.incrementals.Max()
+			maxGCKP, _ := s.globals.Max()
+			if maxICKP == nil {
+				// no ickp and no gckp, it's the first ickp
+				if maxGCKP == nil {
+					start = types.TS{}
+				} else {
+					start = maxGCKP.end
+				}
+			} else {
+				start = maxICKP.end
+			}
+			s.RUnlock()
+		}
+		if start.GE(ts) {
+			return
+		}
+		newIntent := NewCheckpointEntry(s.sid, start, *ts, ET_Incremental)
+		if s.incrementalIntent.CompareAndSwap(old, newIntent) {
+			return true
+		}
+	}
+	return
+}
+
+func (s *runnerStore) TakeICKPIntent() (taken *CheckpointEntry) {
+	for {
+		old := s.incrementalIntent.Load()
+		if old == nil || !old.IsPendding() {
+			return
+		}
+		taken = NewCheckpointEntry(s.sid, old.start, old.end, ET_Incremental)
+		taken.SetState(ST_Running)
+		if s.incrementalIntent.CompareAndSwap(old, taken) {
+			return
+		}
+		taken = nil
+	}
+	return
+}
+
+// intent must be in Running state
+func (s *runnerStore) CommitICKPIntent() (committed bool) {
+	for {
+		old := s.incrementalIntent.Load()
+		if old == nil || old.IsFinished() {
+			return
+		}
+		s.Lock()
+		if s.incrementalIntent.CompareAndSwap(old, nil) {
+			s.incrementals.Set(old)
+			s.Unlock()
+			committed = true
+			break
+		}
+		s.Unlock()
+	}
+	return
 }
 
 func (s *runnerStore) ExportStatsLocked() []zap.Field {
