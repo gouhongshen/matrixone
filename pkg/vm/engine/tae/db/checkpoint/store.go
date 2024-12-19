@@ -73,10 +73,13 @@ type runnerStore struct {
 	gcWatermark atomic.Value
 }
 
-func (s *runnerStore) UpdateICKPIntent(ts *types.TS) (updated bool) {
+func (s *runnerStore) UpdateICKPIntent(
+	ts *types.TS,
+) (intent *CheckpointEntry, updated bool) {
 	for {
 		old := s.incrementalIntent.Load()
 		if old != nil && (old.end.GE(ts) || !old.IsPendding()) {
+			intent = old
 			return
 		}
 		var start types.TS
@@ -99,11 +102,14 @@ func (s *runnerStore) UpdateICKPIntent(ts *types.TS) (updated bool) {
 			s.RUnlock()
 		}
 		if start.GE(ts) {
+			intent = old
 			return
 		}
 		newIntent := NewCheckpointEntry(s.sid, start, *ts, ET_Incremental)
 		if s.incrementalIntent.CompareAndSwap(old, newIntent) {
-			return true
+			intent = newIntent
+			updated = true
+			return
 		}
 	}
 	return
