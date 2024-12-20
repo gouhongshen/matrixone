@@ -573,16 +573,6 @@ func (r *runner) onPostCheckpointEntries(entries ...any) {
 	}
 }
 
-func (r *runner) tryScheduleIncrementalCheckpoint(start, end types.TS) {
-	// ts := types.BuildTS(time.Now().UTC().UnixNano(), 0)
-	_, count := r.source.ScanInRange(start, end)
-	if count < r.options.minCount {
-		return
-	}
-	entry := NewCheckpointEntry(r.rt.SID(), start, end, ET_Incremental)
-	r.store.TryAddNewIncrementalCheckpointEntry(entry)
-}
-
 func (r *runner) TryScheduleCheckpoint(endts types.TS) {
 	if r.disabled.Load() {
 		return
