@@ -382,6 +382,9 @@ func (r *runner) onIncrementalCheckpointEntries(items ...any) {
 		lsnToTruncate = lsn - r.options.reservedWALEntryCount
 	}
 
+	entry.SetLSN(lsn, lsnToTruncate)
+	r.store.CommitICKPIntent(entry)
+
 	if file, err = r.saveCheckpoint(
 		entry.start, entry.end, lsn, lsnToTruncate,
 	); err != nil {
@@ -389,9 +392,6 @@ func (r *runner) onIncrementalCheckpointEntries(items ...any) {
 		rollback()
 		return
 	}
-
-	entry.SetLSN(lsn, lsnToTruncate)
-	r.store.CommitICKPIntent(entry)
 
 	files = append(files, file)
 
