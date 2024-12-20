@@ -48,6 +48,8 @@ type CheckpointEntry struct {
 	// only for new entry logic procedure
 	bornTime   time.Time
 	refreshCnt uint32
+
+	doneC chan struct{}
 }
 
 func NewCheckpointEntry(sid string, start, end types.TS, typ EntryType) *CheckpointEntry {
@@ -59,11 +61,11 @@ func NewCheckpointEntry(sid string, start, end types.TS, typ EntryType) *Checkpo
 		entryType: typ,
 		version:   logtail.CheckpointCurrentVersion,
 		bornTime:  time.Now(),
+		doneC:     make(chan struct{}),
 	}
 }
 
 func (e *CheckpointEntry) ExtendAsNew(end *types.TS) *CheckpointEntry {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	e.RLock()
 	defer e.RUnlock()
 	return &CheckpointEntry{
@@ -76,7 +78,16 @@ func (e *CheckpointEntry) ExtendAsNew(end *types.TS) *CheckpointEntry {
 		bornTime:   e.bornTime,
 		refreshCnt: e.refreshCnt,
 		checked:    e.checked,
+		doneC:      e.doneC,
 	}
+}
+
+func (e *CheckpointEntry) Wait() <-chan struct{} {
+	return e.doneC
+}
+
+func (e *CheckpointEntry) Done() {
+	close(e.doneC)
 }
 
 // e.start >= o.end

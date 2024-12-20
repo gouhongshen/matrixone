@@ -158,6 +158,7 @@ func (s *runnerStore) TakeICKPIntent() (taken *CheckpointEntry, rollback func())
 					bornTime:   taken.bornTime,
 					refreshCnt: taken.refreshCnt,
 					state:      ST_Pending,
+					doneC:      taken.doneC,
 				}
 				s.incrementalIntent.Store(e)
 			}
@@ -207,6 +208,7 @@ func (s *runnerStore) CommitICKPIntent(intent *CheckpointEntry) (committed bool)
 	intent.SetState(ST_Finished)
 	s.incrementals.Set(intent)
 	committed = true
+	intent.Done()
 	return
 }
 
