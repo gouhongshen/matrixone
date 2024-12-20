@@ -321,11 +321,8 @@ func (r *runner) onGCCheckpointEntries(items ...any) {
 
 func (r *runner) onIncrementalCheckpointEntries(items ...any) {
 	now := time.Now()
-	entry := r.MaxIncrementalCheckpoint()
-	// In some unit tests, ckp is managed manually, and ckp deletion (CleanPendingCheckpoint)
-	// can be called when the queue still has unexecuted task.
-	// Add `entry == nil` here as protective codes
-	if entry == nil || entry.GetState() != ST_Running {
+	entry, rollback := r.store.TakeICKPIntent()
+	if entry == nil {
 		return
 	}
 	var (
@@ -375,6 +372,7 @@ func (r *runner) onIncrementalCheckpointEntries(items ...any) {
 	var file string
 	if fields, files, err = r.doIncrementalCheckpoint(entry); err != nil {
 		errPhase = "do-ckp"
+		rollback()
 		return
 	}
 
@@ -382,17 +380,21 @@ func (r *runner) onIncrementalCheckpointEntries(items ...any) {
 	if lsn > r.options.reservedWALEntryCount {
 		lsnToTruncate = lsn - r.options.reservedWALEntryCount
 	}
-	entry.SetLSN(lsn, lsnToTruncate)
-	entry.SetState(ST_Finished)
 
 	if file, err = r.saveCheckpoint(
 		entry.start, entry.end, lsn, lsnToTruncate,
 	); err != nil {
 		errPhase = "save-ckp"
+		rollback()
 		return
 	}
+
+	entry.SetLSN(lsn, lsnToTruncate)
+	r.store.CommitICKPIntent(entry)
+
 	files = append(files, file)
 
+	// PXU TODO: if crash here, the checkpoint log entry will be lost
 	var logEntry wal.LogEntry
 	if logEntry, err = r.wal.RangeCheckpoint(1, lsnToTruncate, files...); err != nil {
 		errPhase = "wal-ckp"
@@ -585,56 +587,44 @@ func (r *runner) TryScheduleCheckpoint(endts types.TS) {
 	if r.disabled.Load() {
 		return
 	}
-	entry := r.MaxIncrementalCheckpoint()
-	global := r.MaxGlobalCheckpoint()
-
-	// no prev checkpoint found. try schedule the first
-	// checkpoint
-	if entry == nil {
-		if global == nil {
-			r.tryScheduleIncrementalCheckpoint(types.TS{}, endts)
-			return
-		} else {
-			maxTS := global.end.Prev()
-			if r.incrementalPolicy.Check(maxTS) {
-				r.tryScheduleIncrementalCheckpoint(maxTS.Next(), endts)
-			}
-			return
-		}
-	}
-
-	if entry.IsPendding() {
-		check := func() (done bool) {
-			if !r.source.IsCommitted(entry.GetStart(), entry.GetEnd()) {
-				return false
-			}
-			tree := r.source.ScanInRangePruned(entry.GetStart(), entry.GetEnd())
-			tree.GetTree().Compact()
-			if !tree.IsEmpty() && entry.TooOld() {
-				logutil.Infof("waiting for dirty tree %s", tree.String())
-				entry.DeferRetirement()
-			}
-			return tree.IsEmpty()
-		}
-
-		if !check() {
-			logutil.Debugf("%s is waiting", entry.String())
-			return
-		}
-		entry.SetState(ST_Running)
-		v2.TaskCkpEntryPendingDurationHistogram.Observe(entry.Age().Seconds())
-		r.incrementalCheckpointQueue.Enqueue(struct{}{})
+	intent, updated := r.store.UpdateICKPIntent(&endts)
+	if !updated || !intent.IsPendding() {
 		return
 	}
+	if !intent.IsChecked() {
+		if !r.incrementalPolicy.Check(intent.GetEnd()) {
+			return
+		}
+		_, count := r.source.ScanInRange(intent.start, intent.end)
+		if count < r.options.minCount {
+			return
+		}
+		intent.SetChecked()
+	}
 
-	if entry.IsRunning() {
-		r.incrementalCheckpointQueue.Enqueue(struct{}{})
+	check := func() (done bool) {
+		if !r.source.IsCommitted(intent.GetStart(), intent.GetEnd()) {
+			return false
+		}
+		tree := r.source.ScanInRangePruned(intent.GetStart(), intent.GetEnd())
+		tree.GetTree().Compact()
+		if !tree.IsEmpty() && intent.TooOld() {
+			logutil.Warn(
+				"CheckPoint-Wait-TooOld",
+				zap.String("entry", intent.String()),
+				zap.Duration("age", intent.Age()),
+			)
+			intent.DeferRetirement()
+		}
+		return tree.IsEmpty()
+	}
+
+	if !check() {
 		return
 	}
-
-	if r.incrementalPolicy.Check(entry.end) {
-		r.tryScheduleIncrementalCheckpoint(entry.end.Next(), endts)
-	}
+	v2.TaskCkpEntryPendingDurationHistogram.Observe(intent.Age().Seconds())
+	r.incrementalCheckpointQueue.Enqueue(struct{}{})
+	return
 }
 
 func (r *runner) fillDefaults() {

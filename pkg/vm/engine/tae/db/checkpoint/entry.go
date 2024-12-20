@@ -43,6 +43,8 @@ type CheckpointEntry struct {
 	ckpLSN      uint64
 	truncateLSN uint64
 
+	checked bool
+
 	// only for new entry logic procedure
 	bornTime   time.Time
 	refreshCnt uint32
@@ -60,9 +62,37 @@ func NewCheckpointEntry(sid string, start, end types.TS, typ EntryType) *Checkpo
 	}
 }
 
+func (e *CheckpointEntry) ExtendAsNew(end *types.TS) *CheckpointEntry {
+	e.RLock()
+	defer e.RUnlock()
+	return &CheckpointEntry{
+		sid:        e.sid,
+		start:      e.start,
+		end:        *end,
+		state:      ST_Pending,
+		entryType:  e.entryType,
+		version:    e.version,
+		bornTime:   e.bornTime,
+		refreshCnt: e.refreshCnt,
+		checked:    e.checked,
+	}
+}
+
 // e.start >= o.end
 func (e *CheckpointEntry) AllGE(o *CheckpointEntry) bool {
 	return e.start.GE(&o.end)
+}
+
+func (e *CheckpointEntry) SetChecked() {
+	e.Lock()
+	defer e.Unlock()
+	e.checked = true
+}
+
+func (e *CheckpointEntry) IsChecked() bool {
+	e.RLock()
+	defer e.RUnlock()
+	return e.checked
 }
 
 func (e *CheckpointEntry) SetVersion(version uint32) {

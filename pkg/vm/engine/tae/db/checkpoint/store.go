@@ -105,7 +105,7 @@ func (s *runnerStore) UpdateICKPIntent(
 			intent = old
 			return
 		}
-		newIntent := NewCheckpointEntry(s.sid, start, *ts, ET_Incremental)
+		newIntent := old.ExtendAsNew(ts)
 		if s.incrementalIntent.CompareAndSwap(old, newIntent) {
 			intent = newIntent
 			updated = true
@@ -115,7 +115,7 @@ func (s *runnerStore) UpdateICKPIntent(
 	return
 }
 
-func (s *runnerStore) TakeICKPIntent() (taken *CheckpointEntry) {
+func (s *runnerStore) TakeICKPIntent() (taken *CheckpointEntry, rollback func()) {
 	for {
 		old := s.incrementalIntent.Load()
 		if old == nil || !old.IsPendding() {
@@ -124,29 +124,43 @@ func (s *runnerStore) TakeICKPIntent() (taken *CheckpointEntry) {
 		taken = NewCheckpointEntry(s.sid, old.start, old.end, ET_Incremental)
 		taken.SetState(ST_Running)
 		if s.incrementalIntent.CompareAndSwap(old, taken) {
-			return
+			rollback = func() {
+				e := &CheckpointEntry{
+					sid:        s.sid,
+					start:      taken.start,
+					end:        taken.end,
+					checked:    taken.checked,
+					version:    taken.version,
+					entryType:  ET_Incremental,
+					bornTime:   taken.bornTime,
+					refreshCnt: taken.refreshCnt,
+				}
+				s.incrementalIntent.Store(e)
+			}
+			taken = nil
 		}
-		taken = nil
 	}
 	return
 }
 
 // intent must be in Running state
-func (s *runnerStore) CommitICKPIntent() (committed bool) {
-	for {
-		old := s.incrementalIntent.Load()
-		if old == nil || old.IsFinished() {
-			return
-		}
-		s.Lock()
-		if s.incrementalIntent.CompareAndSwap(old, nil) {
-			s.incrementals.Set(old)
-			s.Unlock()
-			committed = true
-			break
-		}
-		s.Unlock()
+func (s *runnerStore) CommitICKPIntent(intent *CheckpointEntry) (committed bool) {
+	old := s.incrementalIntent.Load()
+	// should not happen
+	if old != intent {
+		logutil.Error(
+			"CommitICKPIntent-Error",
+			zap.String("intent", intent.String()),
+			zap.String("expected", old.String()),
+		)
+		logutil.Fatal("CommitICKPIntent-Error")
+		return
 	}
+	s.Lock()
+	defer s.Unlock()
+	s.incrementalIntent.Store(nil)
+	s.incrementals.Set(intent)
+	committed = true
 	return
 }
 
