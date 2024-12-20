@@ -395,6 +395,10 @@ func Test_RunnerStore1(t *testing.T) {
 	intent4 := store.incrementalIntent.Load()
 	assert.Equal(t, intent3, intent4)
 
+	ii, updated := store.UpdateICKPIntent(&t1)
+	assert.False(t, updated)
+	assert.Equal(t, ii, intent4)
+
 	taken, rollback := store.TakeICKPIntent()
 	assert.NotNil(t, taken)
 	assert.NotNil(t, rollback)
@@ -406,6 +410,11 @@ func Test_RunnerStore1(t *testing.T) {
 	assert.Nil(t, taken2)
 	assert.Nil(t, rollback2)
 
+	t3 := types.NextGlobalTsForTest()
+	ii2, updated := store.UpdateICKPIntent(&t3)
+	assert.False(t, updated)
+	assert.Equal(t, ii2, intent5)
+
 	rollback()
 	intent6 := store.incrementalIntent.Load()
 	assert.True(t, intent6.IsPendding())
@@ -415,6 +424,12 @@ func Test_RunnerStore1(t *testing.T) {
 	assert.Equal(t, intent6.refreshCnt, intent5.refreshCnt)
 	assert.Equal(t, intent6.checked, intent5.checked)
 
+	ii2, updated = store.UpdateICKPIntent(&t3)
+	assert.True(t, updated)
+	assert.True(t, ii2.IsPendding())
+	assert.True(t, ii2.end.EQ(&t3))
+	assert.True(t, ii2.start.IsEmpty())
+
 	taken, rollback = store.TakeICKPIntent()
 	assert.NotNil(t, taken)
 	assert.NotNil(t, rollback)
@@ -422,7 +437,50 @@ func Test_RunnerStore1(t *testing.T) {
 	intent7 := store.incrementalIntent.Load()
 	assert.Equal(t, intent7, taken)
 
+	maxEntry := store.MaxIncrementalCheckpoint()
+	assert.Nil(t, maxEntry)
+
 	committed := store.CommitICKPIntent(taken)
 	assert.True(t, committed)
 	assert.True(t, taken.IsFinished())
+
+	maxEntry = store.MaxIncrementalCheckpoint()
+	assert.Equal(t, maxEntry, taken)
+
+	intent8 := store.incrementalIntent.Load()
+	assert.Nil(t, intent8)
+
+	// UpdateICKPIntent with a smaller ts than the finished one
+	intent9, updated := store.UpdateICKPIntent(&t3)
+	assert.False(t, updated)
+	assert.Nil(t, intent9)
+
+	t4 := types.NextGlobalTsForTest()
+	t4 = t4.Next()
+
+	// UpdateICKPIntent with a larger ts than the finished one
+	// check if the intent is updated
+	// check if the start ts is equal to the last end ts
+	intent10, updated := store.UpdateICKPIntent(&t4)
+	assert.True(t, updated)
+	assert.True(t, intent10.IsPendding())
+	assert.True(t, intent10.end.EQ(&t4))
+	assert.True(t, intent10.start.EQ(&t3))
+
+	taken2, rollback2 = store.TakeICKPIntent()
+	assert.NotNil(t, taken2)
+	assert.NotNil(t, rollback2)
+	assert.True(t, taken2.IsRunning())
+	intent11 := store.incrementalIntent.Load()
+	assert.Equal(t, intent11, taken2)
+
+	// cannot commit a different intent with the incremental intent
+	t5 := types.NextGlobalTsForTest()
+	taken2_1 := taken2.ExtendAsNew(&t5)
+	committed = store.CommitICKPIntent(taken2_1)
+	assert.False(t, committed)
+
+	taken.start = taken.start.Next()
+	committed = store.CommitICKPIntent(taken)
+	assert.False(t, committed)
 }

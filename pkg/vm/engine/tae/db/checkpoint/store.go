@@ -179,7 +179,6 @@ func (s *runnerStore) CommitICKPIntent(intent *CheckpointEntry) (committed bool)
 			zap.String("intent", intent.String()),
 			zap.String("expected", old.String()),
 		)
-		logutil.Fatal("CommitICKPIntent-Error")
 		return
 	}
 	s.Lock()
