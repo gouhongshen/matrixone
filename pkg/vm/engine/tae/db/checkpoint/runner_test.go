@@ -414,4 +414,15 @@ func Test_RunnerStore1(t *testing.T) {
 	assert.Equal(t, intent6.bornTime, intent5.bornTime)
 	assert.Equal(t, intent6.refreshCnt, intent5.refreshCnt)
 	assert.Equal(t, intent6.checked, intent5.checked)
+
+	taken, rollback = store.TakeICKPIntent()
+	assert.NotNil(t, taken)
+	assert.NotNil(t, rollback)
+	assert.True(t, taken.IsRunning())
+	intent7 := store.incrementalIntent.Load()
+	assert.Equal(t, intent7, taken)
+
+	committed := store.CommitICKPIntent(taken)
+	assert.True(t, committed)
+	assert.True(t, taken.IsFinished())
 }

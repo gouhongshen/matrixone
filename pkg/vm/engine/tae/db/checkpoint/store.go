@@ -185,6 +185,27 @@ func (s *runnerStore) CommitICKPIntent(intent *CheckpointEntry) (committed bool)
 	s.Lock()
 	defer s.Unlock()
 	s.incrementalIntent.Store(nil)
+	maxEntry, _ := s.incrementals.Max()
+	if maxEntry == nil && !intent.start.IsEmpty() {
+		// should not happen
+		logutil.Error(
+			"CommitICKPIntent-Error",
+			zap.String("intent", intent.String()),
+			zap.String("max-entry", "nil"),
+		)
+		return
+	}
+	if maxEntry != nil && !maxEntry.end.EQ(&intent.start) {
+		// should not happen
+		logutil.Error(
+			"CommitICKPIntent-Error",
+			zap.String("intent", intent.String()),
+			zap.String("max-entry", maxEntry.String()),
+		)
+		return
+	}
+
+	intent.SetState(ST_Finished)
 	s.incrementals.Set(intent)
 	committed = true
 	return
