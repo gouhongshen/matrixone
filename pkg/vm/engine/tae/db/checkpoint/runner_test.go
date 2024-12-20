@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
@@ -370,4 +371,47 @@ func TestICKPSeekLT(t *testing.T) {
 		t.Log(e.String())
 	}
 	assert.Equal(t, 0, len(ckps))
+}
+
+func Test_RunnerStore1(t *testing.T) {
+	store := newRunnerStore("", time.Second)
+
+	t1 := types.NextGlobalTsForTest()
+	intent, updated := store.UpdateICKPIntent(&t1)
+	assert.True(t, updated)
+	assert.True(t, intent.start.IsEmpty())
+	assert.True(t, intent.end.EQ(&t1))
+	assert.True(t, intent.IsPendding())
+
+	intent2 := store.incrementalIntent.Load()
+	assert.Equal(t, intent, intent2)
+
+	t2 := types.NextGlobalTsForTest()
+	intent3, updated := store.UpdateICKPIntent(&t2)
+	assert.True(t, updated)
+	assert.True(t, intent3.start.IsEmpty())
+	assert.True(t, intent3.end.EQ(&t2))
+	assert.True(t, intent3.IsPendding())
+	intent4 := store.incrementalIntent.Load()
+	assert.Equal(t, intent3, intent4)
+
+	taken, rollback := store.TakeICKPIntent()
+	assert.NotNil(t, taken)
+	assert.NotNil(t, rollback)
+	assert.True(t, taken.IsRunning())
+	intent5 := store.incrementalIntent.Load()
+	assert.Equal(t, intent5, taken)
+
+	taken2, rollback2 := store.TakeICKPIntent()
+	assert.Nil(t, taken2)
+	assert.Nil(t, rollback2)
+
+	rollback()
+	intent6 := store.incrementalIntent.Load()
+	assert.True(t, intent6.IsPendding())
+	assert.True(t, intent6.end.EQ(&t2))
+	assert.True(t, intent6.start.IsEmpty())
+	assert.Equal(t, intent6.bornTime, intent5.bornTime)
+	assert.Equal(t, intent6.refreshCnt, intent5.refreshCnt)
+	assert.Equal(t, intent6.checked, intent5.checked)
 }

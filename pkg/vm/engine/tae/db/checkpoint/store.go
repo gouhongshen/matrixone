@@ -157,11 +157,14 @@ func (s *runnerStore) TakeICKPIntent() (taken *CheckpointEntry, rollback func())
 					entryType:  ET_Incremental,
 					bornTime:   taken.bornTime,
 					refreshCnt: taken.refreshCnt,
+					state:      ST_Pending,
 				}
 				s.incrementalIntent.Store(e)
 			}
-			taken = nil
+			break
 		}
+		taken = nil
+		rollback = nil
 	}
 	return
 }
