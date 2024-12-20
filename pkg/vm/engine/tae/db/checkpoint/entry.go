@@ -63,6 +63,7 @@ func NewCheckpointEntry(sid string, start, end types.TS, typ EntryType) *Checkpo
 }
 
 func (e *CheckpointEntry) ExtendAsNew(end *types.TS) *CheckpointEntry {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	e.RLock()
 	defer e.RUnlock()
 	return &CheckpointEntry{
@@ -289,7 +290,9 @@ func (e *CheckpointEntry) ReadMetaIdx(
 	return data.ReadTNMetaBatch(ctx, e.version, e.tnLocation, reader)
 }
 
-func (e *CheckpointEntry) GetByTableID(ctx context.Context, fs *objectio.ObjectFS, tid uint64) (ins, del, dataObject, tombstoneObject *api.Batch, err error) {
+func (e *CheckpointEntry) GetTableByID(
+	ctx context.Context, fs *objectio.ObjectFS, tid uint64,
+) (ins, del, dataObject, tombstoneObject *api.Batch, err error) {
 	reader, err := blockio.NewObjectReader(e.sid, fs.Service, e.cnLocation)
 	if err != nil {
 		return
