@@ -36,6 +36,7 @@ type TestRunner interface {
 	ForceGlobalCheckpointSynchronously(ctx context.Context, end types.TS, versionInterval time.Duration) error
 	ForceCheckpointForBackup(end types.TS) (string, error)
 	ForceIncrementalCheckpoint(end types.TS, truncate bool) error
+	ForceIncrementalCheckpoint2(end types.TS) error
 	MaxLSNInRange(end types.TS) uint64
 
 	GCNeeded() bool
@@ -83,7 +84,7 @@ func (r *runner) ForceGlobalCheckpoint(end types.TS, interval time.Duration) err
 		case <-timeout:
 			return moerr.NewInternalError(r.ctx, "timeout")
 		default:
-			err = r.ForceIncrementalCheckpoint(end, false)
+			err = r.ForceIncrementalCheckpoint2(end)
 			if err != nil {
 				if dbutils.IsRetrieableCheckpoint(err) {
 					retryTime++
