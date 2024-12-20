@@ -73,19 +73,36 @@ type runnerStore struct {
 	gcWatermark atomic.Value
 }
 
+// updated:
+// true:  updated and intent must contain the updated ts
+// false: not updated and intent is the old intent
 func (s *runnerStore) UpdateICKPIntent(
 	ts *types.TS,
 ) (intent *CheckpointEntry, updated bool) {
 	for {
 		old := s.incrementalIntent.Load()
+		// Scenario 1:
+		// there is already an intent meets one of the following conditions:
+		// 1. the range of the old intent contains the ts, no need to update
+		// 2. the intent is not pendding: Running or Finished, cannot update
 		if old != nil && (old.end.GE(ts) || !old.IsPendding()) {
 			intent = old
 			return
 		}
 		var start types.TS
 		if old != nil {
+			// Scenario 2:
+			// there is an pendding intent with smaller end ts. we need to update
+			// the intent to extend the end ts to the given ts
 			start = old.start
 		} else {
+			// Scenario 3:
+			// there is no intent, we need to create a new intent
+			// start-ts:
+			// 1. if there is no ickp and no gckp, it's the first ickp, start ts is empty
+			// 2. if there is no ickp but has gckp, start ts is the end ts of the max gckp
+			// 3. if there is ickp, start ts is the end ts of the max ickp
+			// end-ts: the given ts
 			s.RLock()
 			maxICKP, _ := s.incrementals.Max()
 			maxGCKP, _ := s.globals.Max()
@@ -101,11 +118,17 @@ func (s *runnerStore) UpdateICKPIntent(
 			}
 			s.RUnlock()
 		}
+		// if the start ts is larger equal to the given ts, no need to update
 		if start.GE(ts) {
 			intent = old
 			return
 		}
-		newIntent := old.ExtendAsNew(ts)
+		var newIntent *CheckpointEntry
+		if old == nil {
+			newIntent = NewCheckpointEntry(s.sid, start, *ts, ET_Incremental)
+		} else {
+			newIntent = old.ExtendAsNew(ts)
+		}
 		if s.incrementalIntent.CompareAndSwap(old, newIntent) {
 			intent = newIntent
 			updated = true

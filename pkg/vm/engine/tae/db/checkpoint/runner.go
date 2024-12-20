@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logstore/store"
 
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
@@ -573,15 +574,58 @@ func (r *runner) onPostCheckpointEntries(entries ...any) {
 	}
 }
 
-func (r *runner) TryScheduleCheckpoint(endts types.TS) {
+// force: if true, not to check the validness of the checkpoint
+func (r *runner) TryScheduleCheckpoint(ts types.TS, force bool) (err error) {
 	if r.disabled.Load() {
 		return
 	}
-	intent, updated := r.store.UpdateICKPIntent(&endts)
-	if !updated || !intent.IsPendding() {
-		return
+	intent, updated := r.store.UpdateICKPIntent(&ts)
+
+	// [updated == false]
+	// 1. the given ts is too old
+	// 2. one intent is running
+	if !updated {
+		// too old, no need to do checkpoint
+		if intent == nil {
+			return
+		}
+		if !intent.IsPendding() {
+			if intent.end.GE(&ts) {
+				// one intent is non-pending and greater equal to the given ts
+				// here just trigger the execution of the intent
+				// maybe the execution is stopped by some reason
+				r.incrementalCheckpointQueue.Enqueue(struct{}{})
+				return
+			} else {
+				// one intent is non-pending and less than the given ts
+				err = moerr.NewPrevCheckpointNotFinished()
+				// here just trigger the execution of the intent
+				// maybe the execution is stopped by some reason
+				r.incrementalCheckpointQueue.Enqueue(struct{}{})
+				return
+			}
+		}
+
+		// pending, but not updated
+
+		// if the old intent contains the given ts, skip scheduling
+		if intent.end.GE(&ts) {
+			// here just trigger the execution of the intent
+			// maybe the execution is stopped by some reason
+			r.incrementalCheckpointQueue.Enqueue(struct{}{})
+			return
+		}
+
+		// the old intent is too old. should not happen. just handle it
+		r.incrementalCheckpointQueue.Enqueue(struct{}{})
+		return moerr.NewPrevCheckpointNotFinished()
 	}
-	if !intent.IsChecked() {
+
+	// [updated == true] goes here
+
+	// force == false and the intent is not checked:
+	// check the validness of the checkpoint
+	if !force && !intent.IsChecked() {
 		if !r.incrementalPolicy.Check(intent.GetEnd()) {
 			return
 		}
@@ -609,11 +653,14 @@ func (r *runner) TryScheduleCheckpoint(endts types.TS) {
 		return tree.IsEmpty()
 	}
 
-	if !check() {
+	// if force == false, it will check the validness of the checkpoint
+	if !force && !check() {
+		// TODO: should return ErrCheckpointNotReady here
 		return
 	}
+
 	v2.TaskCkpEntryPendingDurationHistogram.Observe(intent.Age().Seconds())
-	r.incrementalCheckpointQueue.Enqueue(struct{}{})
+	_, err = r.incrementalCheckpointQueue.Enqueue(struct{}{})
 	return
 }
 

@@ -131,6 +131,10 @@ func (r *runner) ForceGlobalCheckpointSynchronously(ctx context.Context, end typ
 	return nil
 }
 
+func (r *runner) ForceIncrementalCheckpoint2(ts types.TS) error {
+	return r.TryScheduleCheckpoint(ts, true)
+}
+
 func (r *runner) ForceIncrementalCheckpoint(end types.TS, truncate bool) error {
 	now := time.Now()
 	prev := r.MaxIncrementalCheckpoint()
