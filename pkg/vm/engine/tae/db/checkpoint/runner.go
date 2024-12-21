@@ -576,7 +576,14 @@ func (r *runner) onPostCheckpointEntries(entries ...any) {
 }
 
 func (r *runner) softScheduleCheckpoint(ts *types.TS) (ret *CheckpointEntry, err error) {
-	intent, _ := r.store.UpdateICKPIntent(ts, false, false)
+	intent, updated := r.store.UpdateICKPIntent(ts, false, false)
+	if updated {
+		logutil.Info(
+			"Checkpoint-Incremental-Updated",
+			zap.String("intent", intent.String()),
+			zap.String("ts", ts.ToString()),
+		)
+	}
 
 	check := func() (done bool) {
 		if !r.source.IsCommitted(intent.GetStart(), intent.GetEnd()) {
@@ -647,7 +654,15 @@ func (r *runner) softScheduleCheckpoint(ts *types.TS) (ret *CheckpointEntry, err
 
 	if policyChecked != intent.IsPolicyChecked() || flushedChecked != intent.IsFlushChecked() {
 		endTS := intent.GetEnd()
-		intent, _ = r.store.UpdateICKPIntent(&endTS, policyChecked, flushedChecked)
+		intent, updated = r.store.UpdateICKPIntent(&endTS, policyChecked, flushedChecked)
+
+		if updated {
+			logutil.Info(
+				"Checkpoint-Incremental-Updated",
+				zap.String("intent", intent.String()),
+				zap.String("ts", ts.ToString()),
+			)
+		}
 	}
 
 	// no need to do checkpoint
@@ -680,9 +695,17 @@ func (r *runner) TryScheduleCheckpoint(
 		return r.softScheduleCheckpoint(&ts)
 	}
 
-	intent, _ := r.store.UpdateICKPIntent(&ts, true, true)
+	intent, updated := r.store.UpdateICKPIntent(&ts, true, true)
 	if intent == nil {
 		return
+	}
+
+	if updated {
+		logutil.Info(
+			"Checkpoint-Incremental-Updated",
+			zap.String("intent", intent.String()),
+			zap.String("ts", ts.ToString()),
+		)
 	}
 
 	r.incrementalCheckpointQueue.Enqueue(struct{}{})
