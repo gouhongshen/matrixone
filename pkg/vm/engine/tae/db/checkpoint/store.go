@@ -238,8 +238,7 @@ func (s *runnerStore) CommitICKPIntent(intent *CheckpointEntry) (committed bool)
 			// PXU TODO: err = xxx
 			return
 		}
-	}
-	if (maxICKP == nil && !maxGCKP.end.EQ(&intent.start)) ||
+	} else if (maxICKP == nil && !maxGCKP.end.EQ(&intent.start)) ||
 		(maxICKP != nil && !maxICKP.end.EQ(&intent.start)) {
 		maxi := "nil"
 		maxg := "nil"

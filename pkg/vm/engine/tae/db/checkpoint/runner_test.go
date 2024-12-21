@@ -376,6 +376,33 @@ func TestICKPSeekLT(t *testing.T) {
 
 func Test_RunnerStore1(t *testing.T) {
 	store := newRunnerStore("", time.Second, time.Second*1000)
+	_ = types.NextGlobalTsForTest()
+	_ = types.NextGlobalTsForTest()
+	t3 := types.NextGlobalTsForTest()
+	intent, updated := store.UpdateICKPIntent(&t3, true, true)
+	assert.True(t, updated)
+	assert.True(t, intent.IsPolicyChecked())
+	assert.True(t, intent.IsFlushChecked())
+	assert.True(t, intent.IsPendding())
+	assert.True(t, intent.AllChecked())
+	assert.True(t, intent.end.EQ(&t3))
+
+	taken, rollback := store.TakeICKPIntent()
+	assert.NotNil(t, taken)
+	assert.NotNil(t, rollback)
+	assert.True(t, taken.IsRunning())
+	assert.True(t, taken.end.EQ(&t3))
+
+	committed := store.CommitICKPIntent(taken)
+	assert.True(t, committed)
+
+	intent, updated = store.UpdateICKPIntent(&t3, true, true)
+	assert.False(t, updated)
+	assert.Nilf(t, intent, intent.String())
+}
+
+func Test_RunnerStore2(t *testing.T) {
+	store := newRunnerStore("", time.Second, time.Second*1000)
 	t1 := types.NextGlobalTsForTest()
 	intent, updated := store.UpdateICKPIntent(&t1, false, false)
 	assert.True(t, updated)
@@ -423,7 +450,7 @@ func Test_RunnerStore1(t *testing.T) {
 	assert.True(t, intent2.end.EQ(&t2))
 }
 
-func Test_RunnerStore2(t *testing.T) {
+func Test_RunnerStore3(t *testing.T) {
 	store := newRunnerStore("", time.Second, time.Second*1000)
 
 	t1 := types.NextGlobalTsForTest()
