@@ -225,26 +225,39 @@ func (s *runnerStore) CommitICKPIntent(intent *CheckpointEntry) (committed bool)
 	}
 	s.Lock()
 	defer s.Unlock()
-	maxEntry, _ := s.incrementals.Max()
-	if maxEntry == nil && !intent.start.IsEmpty() {
-		// should not happen
+	maxICKP, _ := s.incrementals.Max()
+	maxGCKP, _ := s.globals.Max()
+	if maxICKP == nil && maxGCKP == nil {
+		if !intent.start.IsEmpty() {
+			logutil.Error(
+				"CommitICKPIntent-Error",
+				zap.String("intent", intent.String()),
+				zap.String("max-i", "nil"),
+				zap.String("max-g", "nil"),
+			)
+			// PXU TODO: err = xxx
+			return
+		}
+	}
+	if (maxICKP == nil && !maxGCKP.end.EQ(&intent.start)) ||
+		(maxICKP != nil && !maxICKP.end.EQ(&intent.start)) {
+		maxi := "nil"
+		maxg := "nil"
+		if maxICKP != nil {
+			maxi = maxICKP.String()
+		}
+		if maxGCKP != nil {
+			maxg = maxGCKP.String()
+		}
 		logutil.Error(
 			"CommitICKPIntent-Error",
 			zap.String("intent", intent.String()),
-			zap.String("max-entry", "nil"),
+			zap.String("max-i", maxi),
+			zap.String("max-g", maxg),
 		)
+		// PXU TODO: err = xxx
 		return
 	}
-	if maxEntry != nil && !maxEntry.end.EQ(&intent.start) {
-		// should not happen
-		logutil.Error(
-			"CommitICKPIntent-Error",
-			zap.String("intent", intent.String()),
-			zap.String("max-entry", maxEntry.String()),
-		)
-		return
-	}
-
 	s.incrementalIntent.Store(nil)
 	intent.SetState(ST_Finished)
 	s.incrementals.Set(intent)
