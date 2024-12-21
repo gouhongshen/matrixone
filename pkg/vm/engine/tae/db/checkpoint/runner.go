@@ -576,14 +576,10 @@ func (r *runner) onPostCheckpointEntries(entries ...any) {
 }
 
 func (r *runner) softScheduleCheckpoint(ts *types.TS) (ret *CheckpointEntry, err error) {
-	intent, updated := r.store.UpdateICKPIntent(ts, false, false)
-	if updated {
-		logutil.Info(
-			"Checkpoint-Incremental-Updated",
-			zap.String("intent", intent.String()),
-			zap.String("ts", ts.ToString()),
-		)
-	}
+	var (
+		updated bool
+	)
+	intent := r.store.GetICKPIntent()
 
 	check := func() (done bool) {
 		if !r.source.IsCommitted(intent.GetStart(), intent.GetEnd()) {
@@ -624,7 +620,31 @@ func (r *runner) softScheduleCheckpoint(ts *types.TS) (ret *CheckpointEntry, err
 		)
 	}()
 
+	if intent == nil {
+		start := r.store.GetCheckpointed()
+		if ts.LT(&start) {
+			return
+		}
+		if !r.incrementalPolicy.Check(start) {
+			return
+		}
+		_, count := r.source.ScanInRange(start, *ts)
+		if count < r.options.minCount {
+			return
+		}
+		intent, updated = r.store.UpdateICKPIntent(ts, true, false)
+		if updated {
+			logutil.Info(
+				"Checkpoint-Incremental-Updated",
+				zap.String("intent", intent.String()),
+				zap.String("ts", ts.ToString()),
+				zap.Bool("updated", updated),
+			)
+		}
+	}
+
 	// [intent == nil]
+	// if intent is nil, it means no need to do checkpoint
 	if intent == nil {
 		return
 	}
@@ -660,7 +680,7 @@ func (r *runner) softScheduleCheckpoint(ts *types.TS) (ret *CheckpointEntry, err
 			logutil.Info(
 				"Checkpoint-Incremental-Updated",
 				zap.String("intent", intent.String()),
-				zap.String("ts", ts.ToString()),
+				zap.String("endTS", ts.ToString()),
 			)
 		}
 	}
@@ -700,13 +720,12 @@ func (r *runner) TryScheduleCheckpoint(
 		return
 	}
 
-	if updated {
-		logutil.Info(
-			"Checkpoint-Incremental-Updated",
-			zap.String("intent", intent.String()),
-			zap.String("ts", ts.ToString()),
-		)
-	}
+	logutil.Info(
+		"Checkpoint-Incremental-Updated-XX",
+		zap.String("intent", intent.String()),
+		zap.String("ts", ts.ToString()),
+		zap.Bool("updated", updated),
+	)
 
 	r.incrementalCheckpointQueue.Enqueue(struct{}{})
 

@@ -76,6 +76,33 @@ type runnerStore struct {
 	gcWatermark atomic.Value
 }
 
+func (s *runnerStore) GetICKPIntent() *CheckpointEntry {
+	return s.incrementalIntent.Load()
+}
+
+func (s *runnerStore) GetCheckpointed() types.TS {
+	s.RLock()
+	defer s.RUnlock()
+	return s.GetCheckpointedLocked()
+}
+
+func (s *runnerStore) GetCheckpointedLocked() types.TS {
+	var ret types.TS
+	maxICKP, _ := s.incrementals.Max()
+	maxGCKP, _ := s.globals.Max()
+	if maxICKP == nil {
+		// no ickp and no gckp, it's the first ickp
+		if maxGCKP == nil {
+			ret = types.TS{}
+		} else {
+			ret = maxGCKP.end
+		}
+	} else {
+		ret = maxICKP.end.Next()
+	}
+	return ret
+}
+
 // updated:
 // true:  updated and intent must contain the updated ts
 // false: not updated and intent is the old intent
@@ -128,20 +155,7 @@ func (s *runnerStore) UpdateICKPIntent(
 			// 2. if there is no ickp but has gckp, start ts is the end ts of the max gckp
 			// 3. if there is ickp, start ts is the end ts of the max ickp
 			// end-ts: the given ts
-			s.RLock()
-			maxICKP, _ := s.incrementals.Max()
-			maxGCKP, _ := s.globals.Max()
-			if maxICKP == nil {
-				// no ickp and no gckp, it's the first ickp
-				if maxGCKP == nil {
-					start = types.TS{}
-				} else {
-					start = maxGCKP.end
-				}
-			} else {
-				start = maxICKP.end.Next()
-			}
-			s.RUnlock()
+			start = s.GetCheckpointed()
 		}
 
 		if old != nil && old.end.EQ(ts) {
