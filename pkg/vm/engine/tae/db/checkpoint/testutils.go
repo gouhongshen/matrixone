@@ -141,7 +141,7 @@ func (r *runner) ForceIncrementalCheckpoint2(ts types.TS) (err error) {
 		return
 	}
 	// TODO: use context
-	timeout := time.After(time.Second * 2)
+	timeout := time.After(time.Minute * 2)
 	now := time.Now()
 	defer func() {
 		logger := logutil.Info
@@ -156,16 +156,14 @@ func (r *runner) ForceIncrementalCheckpoint2(ts types.TS) (err error) {
 		)
 	}()
 
-	for {
-		select {
-		case <-r.ctx.Done():
-			err = context.Cause(r.ctx)
-			return
-		case <-timeout:
-			err = moerr.NewInternalErrorNoCtx("timeout")
-			return
-		case <-intent.Wait():
-		}
+	select {
+	case <-r.ctx.Done():
+		err = context.Cause(r.ctx)
+		return
+	case <-timeout:
+		err = moerr.NewInternalErrorNoCtx("timeout")
+		return
+	case <-intent.Wait():
 	}
 	return
 }

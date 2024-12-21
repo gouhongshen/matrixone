@@ -265,7 +265,14 @@ func (e *CheckpointEntry) String() string {
 		t = "G"
 	}
 	state := e.GetState()
-	return fmt.Sprintf("CKP[%s][%v][%s](%s->%s)", t, state, e.LSNString(), e.start.ToString(), e.end.ToString())
+	return fmt.Sprintf(
+		"CKP[%s][%v][%s](%s->%s)",
+		t,
+		state,
+		e.LSNString(),
+		e.start.ToString(),
+		e.end.ToString(),
+	)
 }
 
 func (e *CheckpointEntry) Prefetch(

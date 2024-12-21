@@ -17,6 +17,7 @@ package checkpoint
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -430,6 +431,15 @@ func Test_RunnerStore1(t *testing.T) {
 	assert.True(t, ii2.end.EQ(&t3))
 	assert.True(t, ii2.start.IsEmpty())
 
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case <-ii2.Wait():
+		}
+	}()
+
 	taken, rollback = store.TakeICKPIntent()
 	assert.NotNil(t, taken)
 	assert.NotNil(t, rollback)
@@ -443,6 +453,8 @@ func Test_RunnerStore1(t *testing.T) {
 	committed := store.CommitICKPIntent(taken)
 	assert.True(t, committed)
 	assert.True(t, taken.IsFinished())
+
+	wg.Wait()
 
 	maxEntry = store.MaxIncrementalCheckpoint()
 	assert.Equal(t, maxEntry, taken)
