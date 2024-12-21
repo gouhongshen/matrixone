@@ -81,6 +81,7 @@ func (r *runner) ForceGlobalCheckpoint(end types.TS, interval time.Duration) err
 			"ForceGlobalCheckpoint-End",
 			zap.Uint64("retryTime", uint64(retryTime)),
 			zap.Duration("cost", time.Since(now)),
+			zap.String("ts", end.ToString()),
 			zap.Error(err),
 		)
 	}()
