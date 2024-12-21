@@ -574,6 +574,8 @@ func (r *runner) onPostCheckpointEntries(entries ...any) {
 	}
 }
 
+// NOTE:
+// when `force` is true, it must be called after force flush till the given ts
 // force: if true, not to check the validness of the checkpoint
 func (r *runner) TryScheduleCheckpoint(ts types.TS, force bool) (ret Intent, err error) {
 	if r.disabled.Load() {
@@ -628,15 +630,15 @@ func (r *runner) TryScheduleCheckpoint(ts types.TS, force bool) (ret Intent, err
 
 	// force == false and the intent is not checked:
 	// check the validness of the checkpoint
-	if !force && !intent.IsChecked() {
-		if !r.incrementalPolicy.Check(intent.GetEnd()) {
+	if !force && !intent.IsPolicyChecked() {
+		if !r.incrementalPolicy.Check(intent.GetStart()) {
 			return
 		}
 		_, count := r.source.ScanInRange(intent.start, intent.end)
 		if count < r.options.minCount {
 			return
 		}
-		intent.SetChecked()
+		intent.SetPolicyChecked()
 	}
 
 	check := func() (done bool) {

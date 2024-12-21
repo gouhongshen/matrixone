@@ -62,7 +62,7 @@ type CheckpointEntry struct {
 	ckpLSN      uint64
 	truncateLSN uint64
 
-	checked bool
+	policyChecked bool
 
 	// only for new entry logic procedure
 	bornTime   time.Time
@@ -93,16 +93,16 @@ func InheritCheckpointEntry(
 	from.RLock()
 	defer from.RUnlock()
 	e := &CheckpointEntry{
-		sid:        from.sid,
-		start:      from.start,
-		end:        from.end,
-		state:      from.state,
-		entryType:  from.entryType,
-		version:    from.version,
-		bornTime:   from.bornTime,
-		refreshCnt: from.refreshCnt,
-		checked:    from.checked,
-		doneC:      from.doneC,
+		sid:           from.sid,
+		start:         from.start,
+		end:           from.end,
+		state:         from.state,
+		entryType:     from.entryType,
+		version:       from.version,
+		bornTime:      from.bornTime,
+		refreshCnt:    from.refreshCnt,
+		policyChecked: from.policyChecked,
+		doneC:         from.doneC,
 	}
 	for _, opt := range replaceOpts {
 		opt(e)
@@ -123,16 +123,16 @@ func (e *CheckpointEntry) AllGE(o *CheckpointEntry) bool {
 	return e.start.GE(&o.end)
 }
 
-func (e *CheckpointEntry) SetChecked() {
+func (e *CheckpointEntry) SetPolicyChecked() {
 	e.Lock()
 	defer e.Unlock()
-	e.checked = true
+	e.policyChecked = true
 }
 
-func (e *CheckpointEntry) IsChecked() bool {
+func (e *CheckpointEntry) IsPolicyChecked() bool {
 	e.RLock()
 	defer e.RUnlock()
-	return e.checked
+	return e.policyChecked
 }
 
 func (e *CheckpointEntry) SetVersion(version uint32) {
