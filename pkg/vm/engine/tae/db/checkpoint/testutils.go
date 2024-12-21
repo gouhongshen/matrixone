@@ -56,6 +56,7 @@ func (r *runner) CleanPenddingCheckpoint() {
 }
 
 func (r *runner) ForceGlobalCheckpoint(end types.TS, interval time.Duration) error {
+	now := time.Now()
 	if interval == 0 {
 		interval = r.options.globalVersionInterval
 	}
@@ -72,12 +73,16 @@ func (r *runner) ForceGlobalCheckpoint(end types.TS, interval time.Duration) err
 	timeout := time.After(interval)
 	var err error
 	defer func() {
-		if err != nil || retryTime > 0 {
-			logutil.Error("ForceGlobalCheckpoint-End",
-				zap.Error(err),
-				zap.Uint64("retryTime", uint64(retryTime)))
-			return
+		logger := logutil.Info
+		if err != nil {
+			logger = logutil.Error
 		}
+		logger(
+			"ForceGlobalCheckpoint-End",
+			zap.Uint64("retryTime", uint64(retryTime)),
+			zap.Duration("cost", time.Since(now)),
+			zap.Error(err),
+		)
 	}()
 	for {
 		select {
