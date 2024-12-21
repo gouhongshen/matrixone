@@ -476,11 +476,23 @@ func Test_RunnerStore1(t *testing.T) {
 
 	// cannot commit a different intent with the incremental intent
 	t5 := types.NextGlobalTsForTest()
-	taken2_1 := taken2.ExtendAsNew(&t5)
+	taken2_1 := InheritCheckpointEntry(taken2, WithEndEntryOption(t5))
 	committed = store.CommitICKPIntent(taken2_1)
 	assert.False(t, committed)
 
-	taken.start = taken.start.Next()
-	committed = store.CommitICKPIntent(taken)
+	taken2.start = taken2.start.Next()
+	committed = store.CommitICKPIntent(taken2)
 	assert.False(t, committed)
+
+	taken2.start = taken2.start.Prev()
+	committed = store.CommitICKPIntent(taken2)
+	assert.True(t, committed)
+	assert.True(t, taken2.IsFinished())
+
+	timer := time.After(time.Second * 10)
+	select {
+	case <-intent10.Wait():
+	case <-timer:
+		assert.Equal(t, 1, 0)
+	}
 }

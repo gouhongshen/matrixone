@@ -575,7 +575,7 @@ func (r *runner) onPostCheckpointEntries(entries ...any) {
 }
 
 // force: if true, not to check the validness of the checkpoint
-func (r *runner) TryScheduleCheckpoint(ts types.TS, force bool) (err error) {
+func (r *runner) TryScheduleCheckpoint(ts types.TS, force bool) (ret Intent, err error) {
 	if r.disabled.Load() {
 		return
 	}
@@ -595,6 +595,7 @@ func (r *runner) TryScheduleCheckpoint(ts types.TS, force bool) (err error) {
 				// here just trigger the execution of the intent
 				// maybe the execution is stopped by some reason
 				r.incrementalCheckpointQueue.Enqueue(struct{}{})
+				ret = intent
 				return
 			} else {
 				// one intent is non-pending and less than the given ts
@@ -613,12 +614,14 @@ func (r *runner) TryScheduleCheckpoint(ts types.TS, force bool) (err error) {
 			// here just trigger the execution of the intent
 			// maybe the execution is stopped by some reason
 			r.incrementalCheckpointQueue.Enqueue(struct{}{})
+			ret = intent
 			return
 		}
 
 		// the old intent is too old. should not happen. just handle it
 		r.incrementalCheckpointQueue.Enqueue(struct{}{})
-		return moerr.NewPrevCheckpointNotFinished()
+		err = moerr.NewPrevCheckpointNotFinished()
+		return
 	}
 
 	// [updated == true] goes here
@@ -660,7 +663,10 @@ func (r *runner) TryScheduleCheckpoint(ts types.TS, force bool) (err error) {
 	}
 
 	v2.TaskCkpEntryPendingDurationHistogram.Observe(intent.Age().Seconds())
-	_, err = r.incrementalCheckpointQueue.Enqueue(struct{}{})
+	if _, err = r.incrementalCheckpointQueue.Enqueue(struct{}{}); err != nil {
+		return
+	}
+	ret = intent
 	return
 }
 

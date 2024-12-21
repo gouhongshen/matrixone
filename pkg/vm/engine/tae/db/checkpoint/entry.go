@@ -30,6 +30,25 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logtail"
 )
 
+type Intent interface {
+	String() string
+	Wait() <-chan struct{}
+}
+
+type EntryOption func(*CheckpointEntry)
+
+func WithEndEntryOption(end types.TS) EntryOption {
+	return func(e *CheckpointEntry) {
+		e.end = end
+	}
+}
+
+func WithStateEntryOption(state State) EntryOption {
+	return func(e *CheckpointEntry) {
+		e.state = state
+	}
+}
+
 type CheckpointEntry struct {
 	sync.RWMutex
 	sid        string
@@ -52,7 +71,9 @@ type CheckpointEntry struct {
 	doneC chan struct{}
 }
 
-func NewCheckpointEntry(sid string, start, end types.TS, typ EntryType) *CheckpointEntry {
+func NewCheckpointEntry(
+	sid string, start, end types.TS, typ EntryType,
+) *CheckpointEntry {
 	return &CheckpointEntry{
 		sid:       sid,
 		start:     start,
@@ -65,21 +86,28 @@ func NewCheckpointEntry(sid string, start, end types.TS, typ EntryType) *Checkpo
 	}
 }
 
-func (e *CheckpointEntry) ExtendAsNew(end *types.TS) *CheckpointEntry {
-	e.RLock()
-	defer e.RUnlock()
-	return &CheckpointEntry{
-		sid:        e.sid,
-		start:      e.start,
-		end:        *end,
-		state:      ST_Pending,
-		entryType:  e.entryType,
-		version:    e.version,
-		bornTime:   e.bornTime,
-		refreshCnt: e.refreshCnt,
-		checked:    e.checked,
-		doneC:      e.doneC,
+func InheritCheckpointEntry(
+	from *CheckpointEntry,
+	replaceOpts ...EntryOption,
+) *CheckpointEntry {
+	from.RLock()
+	defer from.RUnlock()
+	e := &CheckpointEntry{
+		sid:        from.sid,
+		start:      from.start,
+		end:        from.end,
+		state:      from.state,
+		entryType:  from.entryType,
+		version:    from.version,
+		bornTime:   from.bornTime,
+		refreshCnt: from.refreshCnt,
+		checked:    from.checked,
+		doneC:      from.doneC,
 	}
+	for _, opt := range replaceOpts {
+		opt(e)
+	}
+	return e
 }
 
 func (e *CheckpointEntry) Wait() <-chan struct{} {

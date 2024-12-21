@@ -132,8 +132,42 @@ func (r *runner) ForceGlobalCheckpointSynchronously(ctx context.Context, end typ
 	return nil
 }
 
-func (r *runner) ForceIncrementalCheckpoint2(ts types.TS) error {
-	return r.TryScheduleCheckpoint(ts, true)
+func (r *runner) ForceIncrementalCheckpoint2(ts types.TS) (err error) {
+	var intent Intent
+	if intent, err = r.TryScheduleCheckpoint(ts, true); err != nil {
+		return
+	}
+	if intent == nil {
+		return
+	}
+	// TODO: use context
+	timeout := time.After(time.Second * 2)
+	now := time.Now()
+	defer func() {
+		logger := logutil.Info
+		if err != nil {
+			logger = logutil.Error
+		}
+		logger(
+			"ForceIncrementalCheckpoint-End",
+			zap.String("entry", intent.String()),
+			zap.Duration("cost", time.Since(now)),
+			zap.Error(err),
+		)
+	}()
+
+	for {
+		select {
+		case <-r.ctx.Done():
+			err = context.Cause(r.ctx)
+			return
+		case <-timeout:
+			err = moerr.NewInternalErrorNoCtx("timeout")
+			return
+		case <-intent.Wait():
+		}
+	}
+	return
 }
 
 func (r *runner) ForceIncrementalCheckpoint(end types.TS, truncate bool) error {

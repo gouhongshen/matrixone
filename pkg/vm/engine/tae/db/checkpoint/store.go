@@ -127,7 +127,10 @@ func (s *runnerStore) UpdateICKPIntent(
 		if old == nil {
 			newIntent = NewCheckpointEntry(s.sid, start, *ts, ET_Incremental)
 		} else {
-			newIntent = old.ExtendAsNew(ts)
+			newIntent = InheritCheckpointEntry(
+				old,
+				WithEndEntryOption(*ts),
+			)
 		}
 		if s.incrementalIntent.CompareAndSwap(old, newIntent) {
 			intent = newIntent
@@ -144,23 +147,18 @@ func (s *runnerStore) TakeICKPIntent() (taken *CheckpointEntry, rollback func())
 		if old == nil || !old.IsPendding() {
 			return
 		}
-		taken = NewCheckpointEntry(s.sid, old.start, old.end, ET_Incremental)
-		taken.SetState(ST_Running)
+		taken = InheritCheckpointEntry(
+			old,
+			WithStateEntryOption(ST_Running),
+		)
 		if s.incrementalIntent.CompareAndSwap(old, taken) {
 			rollback = func() {
-				e := &CheckpointEntry{
-					sid:        s.sid,
-					start:      taken.start,
-					end:        taken.end,
-					checked:    taken.checked,
-					version:    taken.version,
-					entryType:  ET_Incremental,
-					bornTime:   taken.bornTime,
-					refreshCnt: taken.refreshCnt,
-					state:      ST_Pending,
-					doneC:      taken.doneC,
-				}
-				s.incrementalIntent.Store(e)
+				// rollback the intent
+				putBack := InheritCheckpointEntry(
+					taken,
+					WithStateEntryOption(ST_Pending),
+				)
+				s.incrementalIntent.Store(putBack)
 			}
 			break
 		}
@@ -184,7 +182,6 @@ func (s *runnerStore) CommitICKPIntent(intent *CheckpointEntry) (committed bool)
 	}
 	s.Lock()
 	defer s.Unlock()
-	s.incrementalIntent.Store(nil)
 	maxEntry, _ := s.incrementals.Max()
 	if maxEntry == nil && !intent.start.IsEmpty() {
 		// should not happen
@@ -205,6 +202,7 @@ func (s *runnerStore) CommitICKPIntent(intent *CheckpointEntry) (committed bool)
 		return
 	}
 
+	s.incrementalIntent.Store(nil)
 	intent.SetState(ST_Finished)
 	s.incrementals.Set(intent)
 	committed = true
