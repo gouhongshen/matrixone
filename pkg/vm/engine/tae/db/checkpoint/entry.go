@@ -49,6 +49,13 @@ func WithStateEntryOption(state State) EntryOption {
 	}
 }
 
+func WithCheckedEntryOption(policyChecked, flushedChecked bool) EntryOption {
+	return func(e *CheckpointEntry) {
+		e.policyChecked = policyChecked
+		e.flushChecked = flushedChecked
+	}
+}
+
 type CheckpointEntry struct {
 	sync.RWMutex
 	sid        string
@@ -63,6 +70,7 @@ type CheckpointEntry struct {
 	truncateLSN uint64
 
 	policyChecked bool
+	flushChecked  bool
 
 	// only for new entry logic procedure
 	bornTime   time.Time
@@ -72,9 +80,9 @@ type CheckpointEntry struct {
 }
 
 func NewCheckpointEntry(
-	sid string, start, end types.TS, typ EntryType,
+	sid string, start, end types.TS, typ EntryType, opts ...EntryOption,
 ) *CheckpointEntry {
-	return &CheckpointEntry{
+	e := &CheckpointEntry{
 		sid:       sid,
 		start:     start,
 		end:       end,
@@ -84,6 +92,10 @@ func NewCheckpointEntry(
 		bornTime:  time.Now(),
 		doneC:     make(chan struct{}),
 	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
 }
 
 func InheritCheckpointEntry(
@@ -102,6 +114,7 @@ func InheritCheckpointEntry(
 		bornTime:      from.bornTime,
 		refreshCnt:    from.refreshCnt,
 		policyChecked: from.policyChecked,
+		flushChecked:  from.flushChecked,
 		doneC:         from.doneC,
 	}
 	for _, opt := range replaceOpts {
@@ -133,6 +146,24 @@ func (e *CheckpointEntry) IsPolicyChecked() bool {
 	e.RLock()
 	defer e.RUnlock()
 	return e.policyChecked
+}
+
+func (e *CheckpointEntry) SetFlushChecked() {
+	e.Lock()
+	defer e.Unlock()
+	e.flushChecked = true
+}
+
+func (e *CheckpointEntry) IsFlushChecked() bool {
+	e.RLock()
+	defer e.RUnlock()
+	return e.flushChecked
+}
+
+func (e *CheckpointEntry) AllChecked() bool {
+	e.RLock()
+	defer e.RUnlock()
+	return e.policyChecked && e.flushChecked
 }
 
 func (e *CheckpointEntry) SetVersion(version uint32) {

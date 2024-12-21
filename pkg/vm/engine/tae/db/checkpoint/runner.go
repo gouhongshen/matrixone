@@ -23,9 +23,9 @@ import (
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
+	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logstore/store"
 
-	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
 	"go.uber.org/zap"
 
 	"github.com/matrixorigin/matrixone/pkg/perfcounter"
@@ -232,7 +232,7 @@ func NewRunner(
 	}
 	r.fillDefaults()
 
-	r.store = newRunnerStore(r.rt.SID(), r.options.globalVersionInterval)
+	r.store = newRunnerStore(r.rt.SID(), r.options.globalVersionInterval, time.Minute*2)
 
 	r.incrementalPolicy = &timeBasedPolicy{interval: r.options.minIncrementalInterval}
 	r.globalPolicy = &countBasedPolicy{minCount: r.options.globalMinCount}
@@ -384,6 +384,7 @@ func (r *runner) onIncrementalCheckpointEntries(items ...any) {
 
 	entry.SetLSN(lsn, lsnToTruncate)
 	r.store.CommitICKPIntent(entry)
+	v2.TaskCkpEntryPendingDurationHistogram.Observe(entry.Age().Seconds())
 
 	if file, err = r.saveCheckpoint(
 		entry.start, entry.end, lsn, lsnToTruncate,
@@ -574,72 +575,8 @@ func (r *runner) onPostCheckpointEntries(entries ...any) {
 	}
 }
 
-// NOTE:
-// when `force` is true, it must be called after force flush till the given ts
-// force: if true, not to check the validness of the checkpoint
-func (r *runner) TryScheduleCheckpoint(ts types.TS, force bool) (ret Intent, err error) {
-	if r.disabled.Load() {
-		return
-	}
-	intent, updated := r.store.UpdateICKPIntent(&ts)
-
-	// [updated == false]
-	// 1. the given ts is too old
-	// 2. one intent is running
-	if !updated {
-		// too old, no need to do checkpoint
-		if intent == nil {
-			return
-		}
-		if !intent.IsPendding() {
-			if intent.end.GE(&ts) {
-				// one intent is non-pending and greater equal to the given ts
-				// here just trigger the execution of the intent
-				// maybe the execution is stopped by some reason
-				r.incrementalCheckpointQueue.Enqueue(struct{}{})
-				ret = intent
-				return
-			} else {
-				// one intent is non-pending and less than the given ts
-				err = moerr.NewPrevCheckpointNotFinished()
-				// here just trigger the execution of the intent
-				// maybe the execution is stopped by some reason
-				r.incrementalCheckpointQueue.Enqueue(struct{}{})
-				return
-			}
-		}
-
-		// pending, but not updated
-
-		// if the old intent contains the given ts, skip scheduling
-		if intent.end.GE(&ts) {
-			// here just trigger the execution of the intent
-			// maybe the execution is stopped by some reason
-			r.incrementalCheckpointQueue.Enqueue(struct{}{})
-			ret = intent
-			return
-		}
-
-		// the old intent is too old. should not happen. just handle it
-		r.incrementalCheckpointQueue.Enqueue(struct{}{})
-		err = moerr.NewPrevCheckpointNotFinished()
-		return
-	}
-
-	// [updated == true] goes here
-
-	// force == false and the intent is not checked:
-	// check the validness of the checkpoint
-	if !force && !intent.IsPolicyChecked() {
-		if !r.incrementalPolicy.Check(intent.GetStart()) {
-			return
-		}
-		_, count := r.source.ScanInRange(intent.start, intent.end)
-		if count < r.options.minCount {
-			return
-		}
-		intent.SetPolicyChecked()
-	}
+func (r *runner) softScheduleCheckpoint(ts *types.TS) (ret *CheckpointEntry, err error) {
+	intent, _ := r.store.UpdateICKPIntent(ts, false, false)
 
 	check := func() (done bool) {
 		if !r.source.IsCommitted(intent.GetStart(), intent.GetEnd()) {
@@ -658,18 +595,104 @@ func (r *runner) TryScheduleCheckpoint(ts types.TS, force bool) (ret Intent, err
 		return tree.IsEmpty()
 	}
 
-	// if force == false, it will check the validness of the checkpoint
-	if !force && !check() {
-		// TODO: should return ErrCheckpointNotReady here
+	now := time.Now()
+
+	defer func() {
+		logger := logutil.Info
+		if err != nil {
+			logger = logutil.Error
+		} else {
+			ret = intent
+		}
+		intentInfo := "nil"
+		if intent != nil {
+			intentInfo = intent.String()
+		}
+		logger(
+			"ScheduleCheckpoint",
+			zap.String("intent", intentInfo),
+			zap.Error(err),
+			zap.String("ts", ts.ToString()),
+			zap.Duration("cost", time.Since(now)),
+		)
+	}()
+
+	// [intent == nil]
+	if intent == nil {
 		return
 	}
 
-	v2.TaskCkpEntryPendingDurationHistogram.Observe(intent.Age().Seconds())
-	if _, err = r.incrementalCheckpointQueue.Enqueue(struct{}{}); err != nil {
+	// [intent != nil]
+
+	var (
+		policyChecked  bool
+		flushedChecked bool
+	)
+	policyChecked = intent.IsPolicyChecked()
+	if !policyChecked {
+		if !r.incrementalPolicy.Check(intent.GetStart()) {
+			return
+		}
+		_, count := r.source.ScanInRange(intent.GetStart(), intent.GetEnd())
+		if count < r.options.minCount {
+			return
+		}
+		policyChecked = true
+	}
+
+	flushedChecked = intent.IsFlushChecked()
+	if !flushedChecked && check() {
+		flushedChecked = true
+	}
+
+	if policyChecked != intent.IsPolicyChecked() || flushedChecked != intent.IsFlushChecked() {
+		endTS := intent.GetEnd()
+		intent, _ = r.store.UpdateICKPIntent(&endTS, policyChecked, flushedChecked)
+	}
+
+	// no need to do checkpoint
+	if intent == nil {
 		return
 	}
-	ret = intent
+
+	if intent.end.LT(ts) {
+		err = moerr.NewPrevCheckpointNotFinished()
+		r.incrementalCheckpointQueue.Enqueue(struct{}{})
+		return
+	}
+
+	if intent.AllChecked() {
+		r.incrementalCheckpointQueue.Enqueue(struct{}{})
+	}
 	return
+}
+
+// NOTE:
+// when `force` is true, it must be called after force flush till the given ts
+// force: if true, not to check the validness of the checkpoint
+func (r *runner) TryScheduleCheckpoint(
+	ts types.TS, force bool,
+) (ret Intent, err error) {
+	if r.disabled.Load() {
+		return
+	}
+	if !force {
+		return r.softScheduleCheckpoint(&ts)
+	}
+
+	intent, _ := r.store.UpdateICKPIntent(&ts, true, true)
+	if intent == nil {
+		return
+	}
+
+	r.incrementalCheckpointQueue.Enqueue(struct{}{})
+
+	if intent.end.LT(&ts) {
+		err = moerr.NewPrevCheckpointNotFinished()
+		return
+	}
+
+	return intent, nil
 }
 
 func (r *runner) fillDefaults() {

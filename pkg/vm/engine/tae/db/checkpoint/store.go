@@ -33,10 +33,12 @@ import (
 func newRunnerStore(
 	sid string,
 	globalHistoryDuration time.Duration,
+	intentOldAge time.Duration,
 ) *runnerStore {
 	s := new(runnerStore)
 	s.sid = sid
 	s.globalHistoryDuration = globalHistoryDuration
+	s.intentOldAge = intentOldAge
 	s.incrementals = btree.NewBTreeGOptions(
 		func(a, b *CheckpointEntry) bool {
 			return a.end.LT(&b.end)
@@ -59,6 +61,7 @@ type runnerStore struct {
 	sid string
 
 	globalHistoryDuration time.Duration
+	intentOldAge          time.Duration
 
 	incrementalIntent atomic.Pointer[CheckpointEntry]
 
@@ -76,8 +79,10 @@ type runnerStore struct {
 // updated:
 // true:  updated and intent must contain the updated ts
 // false: not updated and intent is the old intent
+// policyChecked, flushChecked:
+// it cannot update the intent if the intent is checked by policy or flush
 func (s *runnerStore) UpdateICKPIntent(
-	ts *types.TS,
+	ts *types.TS, policyChecked, flushChecked bool,
 ) (intent *CheckpointEntry, updated bool) {
 	for {
 		old := s.incrementalIntent.Load()
@@ -85,10 +90,30 @@ func (s *runnerStore) UpdateICKPIntent(
 		// there is already an intent meets one of the following conditions:
 		// 1. the range of the old intent contains the ts, no need to update
 		// 2. the intent is not pendding: Running or Finished, cannot update
-		if old != nil && (old.end.GE(ts) || !old.IsPendding()) {
+		if old != nil && (old.end.GE(ts) || !old.IsPendding() || old.Age() > s.intentOldAge) {
 			intent = old
 			return
 		}
+
+		// Here
+		// 1. old == nil
+		// 2. old.end < ts && old.IsPendding()
+
+		if old != nil {
+			// if the old intent is checked by policy and the incoming intent is not checked by policy
+			// incoming vs old: false vs true
+			// it cannot update the intent in this case
+
+			if !policyChecked && old.IsPolicyChecked() {
+				intent = old
+				return
+			}
+			if !flushChecked && old.IsFlushChecked() {
+				intent = old
+				return
+			}
+		}
+
 		var start types.TS
 		if old != nil {
 			// Scenario 2:
@@ -125,11 +150,21 @@ func (s *runnerStore) UpdateICKPIntent(
 		}
 		var newIntent *CheckpointEntry
 		if old == nil {
-			newIntent = NewCheckpointEntry(s.sid, start, *ts, ET_Incremental)
+			newIntent = NewCheckpointEntry(
+				s.sid,
+				start,
+				*ts,
+				ET_Incremental,
+				WithCheckedEntryOption(policyChecked, flushChecked),
+			)
 		} else {
+			// the incoming checked status can override the old status
+			// it is impossible that the old is checked and the incoming is not checked here
+			// false -> true: impossible here
 			newIntent = InheritCheckpointEntry(
 				old,
 				WithEndEntryOption(*ts),
+				WithCheckedEntryOption(policyChecked, flushChecked),
 			)
 		}
 		if s.incrementalIntent.CompareAndSwap(old, newIntent) {
@@ -144,7 +179,7 @@ func (s *runnerStore) UpdateICKPIntent(
 func (s *runnerStore) TakeICKPIntent() (taken *CheckpointEntry, rollback func()) {
 	for {
 		old := s.incrementalIntent.Load()
-		if old == nil || !old.IsPendding() {
+		if old == nil || !old.IsPendding() || !old.AllChecked() {
 			return
 		}
 		taken = InheritCheckpointEntry(

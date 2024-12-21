@@ -375,10 +375,10 @@ func TestICKPSeekLT(t *testing.T) {
 }
 
 func Test_RunnerStore1(t *testing.T) {
-	store := newRunnerStore("", time.Second)
+	store := newRunnerStore("", time.Second, time.Second*10)
 
 	t1 := types.NextGlobalTsForTest()
-	intent, updated := store.UpdateICKPIntent(&t1)
+	intent, updated := store.UpdateICKPIntent(&t1, false, false)
 	assert.True(t, updated)
 	assert.True(t, intent.start.IsEmpty())
 	assert.True(t, intent.end.EQ(&t1))
@@ -388,7 +388,7 @@ func Test_RunnerStore1(t *testing.T) {
 	assert.Equal(t, intent, intent2)
 
 	t2 := types.NextGlobalTsForTest()
-	intent3, updated := store.UpdateICKPIntent(&t2)
+	intent3, updated := store.UpdateICKPIntent(&t2, true, true)
 	assert.True(t, updated)
 	assert.True(t, intent3.start.IsEmpty())
 	assert.True(t, intent3.end.EQ(&t2))
@@ -396,7 +396,7 @@ func Test_RunnerStore1(t *testing.T) {
 	intent4 := store.incrementalIntent.Load()
 	assert.Equal(t, intent3, intent4)
 
-	ii, updated := store.UpdateICKPIntent(&t1)
+	ii, updated := store.UpdateICKPIntent(&t1, true, true)
 	assert.False(t, updated)
 	assert.Equal(t, ii, intent4)
 
@@ -412,7 +412,7 @@ func Test_RunnerStore1(t *testing.T) {
 	assert.Nil(t, rollback2)
 
 	t3 := types.NextGlobalTsForTest()
-	ii2, updated := store.UpdateICKPIntent(&t3)
+	ii2, updated := store.UpdateICKPIntent(&t3, true, true)
 	assert.False(t, updated)
 	assert.Equal(t, ii2, intent5)
 
@@ -423,9 +423,10 @@ func Test_RunnerStore1(t *testing.T) {
 	assert.True(t, intent6.start.IsEmpty())
 	assert.Equal(t, intent6.bornTime, intent5.bornTime)
 	assert.Equal(t, intent6.refreshCnt, intent5.refreshCnt)
-	assert.Equal(t, intent6.checked, intent5.checked)
+	assert.Equal(t, intent6.policyChecked, intent5.policyChecked)
+	assert.Equal(t, intent6.flushChecked, intent5.flushChecked)
 
-	ii2, updated = store.UpdateICKPIntent(&t3)
+	ii2, updated = store.UpdateICKPIntent(&t3, true, true)
 	assert.True(t, updated)
 	assert.True(t, ii2.IsPendding())
 	assert.True(t, ii2.end.EQ(&t3))
@@ -463,7 +464,7 @@ func Test_RunnerStore1(t *testing.T) {
 	assert.Nil(t, intent8)
 
 	// UpdateICKPIntent with a smaller ts than the finished one
-	intent9, updated := store.UpdateICKPIntent(&t3)
+	intent9, updated := store.UpdateICKPIntent(&t3, true, true)
 	assert.False(t, updated)
 	assert.Nil(t, intent9)
 
@@ -473,7 +474,7 @@ func Test_RunnerStore1(t *testing.T) {
 	// UpdateICKPIntent with a larger ts than the finished one
 	// check if the intent is updated
 	// check if the start ts is equal to the last end ts
-	intent10, updated := store.UpdateICKPIntent(&t4)
+	intent10, updated := store.UpdateICKPIntent(&t4, true, true)
 	assert.True(t, updated)
 	assert.True(t, intent10.IsPendding())
 	assert.True(t, intent10.end.EQ(&t4))
