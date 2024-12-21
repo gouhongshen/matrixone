@@ -375,7 +375,56 @@ func TestICKPSeekLT(t *testing.T) {
 }
 
 func Test_RunnerStore1(t *testing.T) {
-	store := newRunnerStore("", time.Second, time.Second*10)
+	store := newRunnerStore("", time.Second, time.Second*1000)
+	t1 := types.NextGlobalTsForTest()
+	intent, updated := store.UpdateICKPIntent(&t1, false, false)
+	assert.True(t, updated)
+	assert.True(t, intent.start.IsEmpty())
+	assert.True(t, intent.end.EQ(&t1))
+	assert.True(t, intent.IsPendding())
+	assert.False(t, intent.AllChecked())
+
+	intent, updated = store.UpdateICKPIntent(&t1, true, false)
+	assert.True(t, updated)
+	assert.True(t, intent.IsPolicyChecked())
+	assert.False(t, intent.IsFlushChecked())
+	assert.True(t, intent.IsPendding())
+	assert.False(t, intent.AllChecked())
+
+	intent, updated = store.UpdateICKPIntent(&t1, false, true)
+	assert.False(t, updated)
+	assert.True(t, intent.IsPolicyChecked())
+	assert.False(t, intent.IsFlushChecked())
+	assert.True(t, intent.IsPendding())
+	assert.False(t, intent.AllChecked())
+
+	intent, updated = store.UpdateICKPIntent(&t1, true, true)
+	assert.True(t, updated)
+	assert.True(t, intent.IsPolicyChecked())
+	assert.True(t, intent.IsFlushChecked())
+	assert.True(t, intent.IsPendding())
+	assert.True(t, intent.AllChecked())
+	assert.True(t, intent.end.EQ(&t1))
+
+	t2 := types.NextGlobalTsForTest()
+	intent2, updated := store.UpdateICKPIntent(&t2, true, false)
+	assert.False(t, updated)
+	assert.Equal(t, intent, intent2)
+	intent2, updated = store.UpdateICKPIntent(&t2, false, true)
+	assert.False(t, updated)
+	assert.Equal(t, intent, intent2)
+
+	intent2, updated = store.UpdateICKPIntent(&t2, true, true)
+	assert.True(t, updated)
+	assert.True(t, intent2.IsPolicyChecked())
+	assert.True(t, intent2.IsFlushChecked())
+	assert.True(t, intent2.IsPendding())
+	assert.True(t, intent2.AllChecked())
+	assert.True(t, intent2.end.EQ(&t2))
+}
+
+func Test_RunnerStore2(t *testing.T) {
+	store := newRunnerStore("", time.Second, time.Second*1000)
 
 	t1 := types.NextGlobalTsForTest()
 	intent, updated := store.UpdateICKPIntent(&t1, false, false)

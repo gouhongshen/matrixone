@@ -90,14 +90,14 @@ func (s *runnerStore) UpdateICKPIntent(
 		// there is already an intent meets one of the following conditions:
 		// 1. the range of the old intent contains the ts, no need to update
 		// 2. the intent is not pendding: Running or Finished, cannot update
-		if old != nil && (old.end.GE(ts) || !old.IsPendding() || old.Age() > s.intentOldAge) {
+		if old != nil && (old.end.GT(ts) || !old.IsPendding() || old.Age() > s.intentOldAge) {
 			intent = old
 			return
 		}
 
 		// Here
 		// 1. old == nil
-		// 2. old.end < ts && old.IsPendding()
+		// 2. old.end <= ts && old.IsPendding() && old.Age() <= s.intentOldAge
 
 		if old != nil {
 			// if the old intent is checked by policy and the incoming intent is not checked by policy
@@ -143,6 +143,14 @@ func (s *runnerStore) UpdateICKPIntent(
 			}
 			s.RUnlock()
 		}
+
+		if old != nil && old.end.EQ(ts) {
+			if old.IsPolicyChecked() == policyChecked && old.IsFlushChecked() == flushChecked {
+				intent = old
+				return
+			}
+		}
+
 		// if the start ts is larger equal to the given ts, no need to update
 		if start.GE(ts) {
 			intent = old

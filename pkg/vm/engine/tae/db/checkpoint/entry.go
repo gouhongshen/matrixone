@@ -192,7 +192,7 @@ func (e *CheckpointEntry) TooOld() bool {
 	return time.Since(e.bornTime) > time.Minute*4*time.Duration(e.refreshCnt+1)
 }
 func (e *CheckpointEntry) LSNString() string {
-	return fmt.Sprintf("ckp %d, truncate %d", e.ckpLSN, e.truncateLSN)
+	return fmt.Sprintf("%d-%d", e.ckpLSN, e.truncateLSN)
 }
 
 func (e *CheckpointEntry) LSN() uint64 {
@@ -297,9 +297,11 @@ func (e *CheckpointEntry) String() string {
 	}
 	state := e.GetState()
 	return fmt.Sprintf(
-		"CKP[%s][%v][%s](%s->%s)",
+		"CKP[%s][%v][%v:%v][%s](%s->%s)",
 		t,
 		state,
+		e.IsPolicyChecked(),
+		e.IsFlushChecked(),
 		e.LSNString(),
 		e.start.ToString(),
 		e.end.ToString(),
