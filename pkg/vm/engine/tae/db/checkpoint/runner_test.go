@@ -554,7 +554,8 @@ func Test_RunnerStore3(t *testing.T) {
 	assert.True(t, updated)
 	assert.True(t, intent10.IsPendding())
 	assert.True(t, intent10.end.EQ(&t4))
-	assert.True(t, intent10.start.EQ(&t3))
+	prev := intent10.start.Prev()
+	assert.True(t, prev.EQ(&t3))
 
 	taken2, rollback2 = store.TakeICKPIntent()
 	assert.NotNil(t, taken2)

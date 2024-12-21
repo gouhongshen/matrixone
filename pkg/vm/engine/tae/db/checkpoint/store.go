@@ -139,7 +139,7 @@ func (s *runnerStore) UpdateICKPIntent(
 					start = maxGCKP.end
 				}
 			} else {
-				start = maxICKP.end
+				start = maxICKP.end.Next()
 			}
 			s.RUnlock()
 		}
@@ -227,6 +227,16 @@ func (s *runnerStore) CommitICKPIntent(intent *CheckpointEntry) (committed bool)
 	defer s.Unlock()
 	maxICKP, _ := s.incrementals.Max()
 	maxGCKP, _ := s.globals.Max()
+	var (
+		maxICKPEndNext types.TS
+		maxGCKPEndNext types.TS
+	)
+	if maxICKP != nil {
+		maxICKPEndNext = maxICKP.end.Next()
+	}
+	if maxGCKP != nil {
+		maxGCKPEndNext = maxGCKP.end.Next()
+	}
 	if maxICKP == nil && maxGCKP == nil {
 		if !intent.start.IsEmpty() {
 			logutil.Error(
@@ -238,8 +248,8 @@ func (s *runnerStore) CommitICKPIntent(intent *CheckpointEntry) (committed bool)
 			// PXU TODO: err = xxx
 			return
 		}
-	} else if (maxICKP == nil && !maxGCKP.end.EQ(&intent.start)) ||
-		(maxICKP != nil && !maxICKP.end.EQ(&intent.start)) {
+	} else if (maxICKP == nil && !maxGCKPEndNext.EQ(&intent.start)) ||
+		(maxICKP != nil && !maxICKPEndNext.EQ(&intent.start)) {
 		maxi := "nil"
 		maxg := "nil"
 		if maxICKP != nil {
