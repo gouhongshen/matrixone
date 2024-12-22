@@ -61,13 +61,15 @@ func (r *runner) ForceGlobalCheckpoint(end types.TS, interval time.Duration) err
 		interval = r.options.globalVersionInterval
 	}
 	if r.GetPenddingIncrementalCount() != 0 {
-		end = r.MaxIncrementalCheckpoint().GetEnd()
-		r.globalCheckpointQueue.Enqueue(&globalCheckpointContext{
-			force:    true,
-			end:      end,
-			interval: interval,
-		})
-		return nil
+		end2 := r.MaxIncrementalCheckpoint().GetEnd()
+		if end2.GE(&end) {
+			r.globalCheckpointQueue.Enqueue(&globalCheckpointContext{
+				force:    true,
+				end:      end2,
+				interval: interval,
+			})
+			return nil
+		}
 	}
 	retryTime := 0
 	timeout := time.After(interval)
@@ -111,12 +113,6 @@ func (r *runner) ForceGlobalCheckpoint(end types.TS, interval time.Duration) err
 }
 
 func (r *runner) ForceGlobalCheckpointSynchronously(ctx context.Context, end types.TS, versionInterval time.Duration) error {
-	prevGlobalEnd := types.TS{}
-	global := r.store.MaxGlobalCheckpoint()
-	if global != nil {
-		prevGlobalEnd = global.end
-	}
-
 	r.ForceGlobalCheckpoint(end, versionInterval)
 
 	op := func() (ok bool, err error) {
@@ -124,7 +120,8 @@ func (r *runner) ForceGlobalCheckpointSynchronously(ctx context.Context, end typ
 		if global == nil {
 			return false, nil
 		}
-		return global.end.GT(&prevGlobalEnd), nil
+		ok = global.end.GE(&end)
+		return
 	}
 	err := common.RetryWithIntervalAndTimeout(
 		op,
