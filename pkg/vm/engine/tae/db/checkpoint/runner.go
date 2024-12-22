@@ -362,6 +362,7 @@ func (r *runner) onIncrementalCheckpointEntries(items ...any) {
 			fields = append(fields, zap.Uint64("lsn", lsn))
 			fields = append(fields, zap.Uint64("reserve", r.options.reservedWALEntryCount))
 			fields = append(fields, zap.String("entry", entry.String()))
+			fields = append(fields, zap.Duration("age", entry.Age()))
 			logutil.Info(
 				"Checkpoint-End",
 				fields...,
@@ -383,8 +384,14 @@ func (r *runner) onIncrementalCheckpointEntries(items ...any) {
 	}
 
 	entry.SetLSN(lsn, lsnToTruncate)
-	r.store.CommitICKPIntent(entry)
+	if !r.store.CommitICKPIntent(entry, false) {
+		errPhase = "commit"
+		rollback()
+		err = moerr.NewInternalErrorNoCtxf("cannot commit ickp")
+		return
+	}
 	v2.TaskCkpEntryPendingDurationHistogram.Observe(entry.Age().Seconds())
+	defer entry.Done()
 
 	if file, err = r.saveCheckpoint(
 		entry.start, entry.end, lsn, lsnToTruncate,
@@ -721,7 +728,7 @@ func (r *runner) TryScheduleCheckpoint(
 	}
 
 	logutil.Info(
-		"Checkpoint-Incremental-Updated-XX",
+		"ForceScheduleCheckpoint",
 		zap.String("intent", intent.String()),
 		zap.String("ts", ts.ToString()),
 		zap.Bool("updated", updated),

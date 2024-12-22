@@ -226,7 +226,10 @@ func (s *runnerStore) TakeICKPIntent() (taken *CheckpointEntry, rollback func())
 }
 
 // intent must be in Running state
-func (s *runnerStore) CommitICKPIntent(intent *CheckpointEntry) (committed bool) {
+func (s *runnerStore) CommitICKPIntent(intent *CheckpointEntry, done bool) (committed bool) {
+	if done && committed {
+		intent.Done()
+	}
 	old := s.incrementalIntent.Load()
 	// should not happen
 	if old != intent {
@@ -285,7 +288,6 @@ func (s *runnerStore) CommitICKPIntent(intent *CheckpointEntry) (committed bool)
 	intent.SetState(ST_Finished)
 	s.incrementals.Set(intent)
 	committed = true
-	intent.Done()
 	return
 }
 

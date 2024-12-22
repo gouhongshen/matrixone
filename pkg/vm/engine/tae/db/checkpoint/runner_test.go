@@ -393,7 +393,7 @@ func Test_RunnerStore1(t *testing.T) {
 	assert.True(t, taken.IsRunning())
 	assert.True(t, taken.end.EQ(&t3))
 
-	committed := store.CommitICKPIntent(taken)
+	committed := store.CommitICKPIntent(taken, true)
 	assert.True(t, committed)
 
 	intent, updated = store.UpdateICKPIntent(&t3, true, true)
@@ -527,7 +527,7 @@ func Test_RunnerStore3(t *testing.T) {
 	maxEntry := store.MaxIncrementalCheckpoint()
 	assert.Nil(t, maxEntry)
 
-	committed := store.CommitICKPIntent(taken)
+	committed := store.CommitICKPIntent(taken, true)
 	assert.True(t, committed)
 	assert.True(t, taken.IsFinished())
 
@@ -567,15 +567,15 @@ func Test_RunnerStore3(t *testing.T) {
 	// cannot commit a different intent with the incremental intent
 	t5 := types.NextGlobalTsForTest()
 	taken2_1 := InheritCheckpointEntry(taken2, WithEndEntryOption(t5))
-	committed = store.CommitICKPIntent(taken2_1)
+	committed = store.CommitICKPIntent(taken2_1, true)
 	assert.False(t, committed)
 
 	taken2.start = taken2.start.Next()
-	committed = store.CommitICKPIntent(taken2)
+	committed = store.CommitICKPIntent(taken2, true)
 	assert.False(t, committed)
 
 	taken2.start = taken2.start.Prev()
-	committed = store.CommitICKPIntent(taken2)
+	committed = store.CommitICKPIntent(taken2, true)
 	assert.True(t, committed)
 	assert.True(t, taken2.IsFinished())
 
