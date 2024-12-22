@@ -447,7 +447,7 @@ func Test_EmptyObjectStats(t *testing.T) {
 		testutil2.CompactBlocks(t, accountId, taeEngine.GetDB(), databaseName, schema, false)
 		txn, _ = taeEngine.StartTxn()
 		ts := txn.GetStartTS()
-		taeEngine.GetDB().ForceCheckpoint(p.Ctx, ts.Next(), time.Second*10)
+		taeEngine.GetDB().ForceGlobalCheckpoint(p.Ctx, ts.Next(), time.Second*10, time.Minute)
 	}
 
 	var err error
