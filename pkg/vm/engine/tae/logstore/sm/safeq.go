@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 const (
@@ -40,15 +41,33 @@ type safeQueue struct {
 	onItemsCB OnItemsCB
 	// value is true by default
 	blocking bool
+
+	batchWaiting time.Duration
+}
+
+func WithBatchWaiting(dur time.Duration) func(q *safeQueue) {
+	return func(q *safeQueue) {
+		q.batchWaiting = dur
+	}
 }
 
 // NewSafeQueue is blocking queue by default
-func NewSafeQueue(queueSize, batchSize int, onItem OnItemsCB) *safeQueue {
+func NewSafeQueue(
+	queueSize, batchSize int,
+	onItem OnItemsCB,
+	opts ...func(q *safeQueue)) *safeQueue {
+
 	q := &safeQueue{
-		queue:     make(chan any, queueSize),
-		batchSize: batchSize,
-		onItemsCB: onItem,
+		queue:        make(chan any, queueSize),
+		batchSize:    batchSize,
+		onItemsCB:    onItem,
+		batchWaiting: time.Microsecond,
 	}
+
+	for _, op := range opts {
+		op(q)
+	}
+
 	q.blocking = true
 	q.state.Store(Created)
 	q.ctx, q.cancel = context.WithCancel(context.Background())
@@ -65,17 +84,35 @@ func (q *safeQueue) Start() {
 	q.state.Store(Running)
 	q.wg.Add(1)
 	items := make([]any, 0, q.batchSize)
+
+	ticker := time.NewTicker(q.batchWaiting)
+
+	batchProcess := func() {
+		if q.onItemsCB != nil {
+			cnt := len(items)
+			q.onItemsCB(items...)
+			q.pending.Add(-1 * int64(cnt))
+		}
+
+		items = items[:0]
+		ticker.Reset(q.batchWaiting)
+	}
+
 	go func() {
 		defer q.wg.Done()
 		for {
 			select {
 			case <-q.ctx.Done():
 				return
-			case item := <-q.queue:
-				if q.onItemsCB == nil {
-					continue
+
+			case <-ticker.C:
+				if len(items) > 0 {
+					batchProcess()
 				}
+
+			case item := <-q.queue:
 				items = append(items, item)
+
 			Left:
 				for i := 0; i < q.batchSize-1; i++ {
 					select {
@@ -85,10 +122,10 @@ func (q *safeQueue) Start() {
 						break Left
 					}
 				}
-				cnt := len(items)
-				q.onItemsCB(items...)
-				items = items[:0]
-				q.pending.Add(-1 * int64(cnt))
+
+				if len(items) >= q.batchSize {
+					batchProcess()
+				}
 			}
 		}
 	}()

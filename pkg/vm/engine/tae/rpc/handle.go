@@ -17,10 +17,13 @@ package rpc
 import (
 	"context"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logstore/sm"
+	"github.com/panjf2000/ants/v2"
 	"os"
 	"reflect"
 	"regexp"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -40,7 +43,6 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/pb/txn"
 	"github.com/matrixorigin/matrixone/pkg/perfcounter"
 	"github.com/matrixorigin/matrixone/pkg/util/fault"
-	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
 	"github.com/matrixorigin/matrixone/pkg/util/trace"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/cmd_util"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/blockio"
@@ -61,6 +63,180 @@ const (
 	MAX_TXN_COMMIT_LATENCY  = time.Minute * 2
 )
 
+type txnPair struct {
+	req     *txn.TxnCommitRequest
+	resp    *txn.TxnResponse
+	oriMeta txn.TxnMeta
+	retRecv chan aggResult
+}
+
+type aggResult struct {
+	hasDDL bool
+	hrErr  error    // handle request err
+	ctErr  error    // commit err
+	txnErr error    // create txn err
+	cts    types.TS // commit ts
+}
+
+const aggSize = 10
+
+type txnAggregator struct {
+	ctx         context.Context
+	h           *Handle
+	queue       sm.Queue
+	pairsPool   sync.Pool
+	taskPool    *ants.Pool
+	idAllocator *common.TxnIDAllocator
+}
+
+type aggErr struct {
+	hasDDL bool
+	err    error
+	order  int
+}
+
+func (agg *txnAggregator) Close() {
+	agg.queue.Stop()
+	agg.taskPool.Release()
+	agg.idAllocator = nil
+}
+
+var total float64
+var times float64
+
+// TODO(ghs) if a txn had transferred on CN side, it should not batch commit
+func (agg *txnAggregator) onBatchCommiting(items ...any) {
+	total += float64(len(items))
+	times++
+
+	if int(times)%1000 == 0 {
+		fmt.Println("onBatchCommiting", total, times, total/times)
+	}
+
+	agg.taskPool.Submit(func() {
+		pairs := agg.pairsPool.Get().(*[]txnPair)
+		defer func() {
+			*pairs = (*pairs)[:0]
+			agg.pairsPool.Put(pairs)
+		}()
+
+		var (
+			aTxn  txnif.AsyncTxn
+			err   error
+			id    = agg.idAllocator.Alloc()
+			maxTS timestamp.Timestamp
+		)
+
+		for _, item := range items {
+			tp := item.(txnPair)
+			if tp.oriMeta.SnapshotTS.Greater(maxTS) {
+				maxTS = tp.oriMeta.SnapshotTS
+			}
+			*pairs = append(*pairs, tp)
+		}
+
+		aggMeta := txn.TxnMeta{
+			ID:         id,
+			SnapshotTS: maxTS,
+		}
+
+		if aTxn, err = agg.h.db.GetOrCreateTxnWithMeta(
+			nil, id, types.TimestampToTS(maxTS)); err != nil {
+			for i := range *pairs {
+				(*pairs)[i].retRecv <- aggResult{
+					txnErr: err,
+				}
+			}
+			return
+		}
+
+		var (
+			release []func()
+			hasDDL  bool
+		)
+
+		for _, tp := range *pairs {
+			release, hasDDL, err = agg.h.handleRequests(agg.ctx, aTxn, tp.req, tp.resp, aggMeta)
+			for _, f := range release {
+				if f != nil {
+					f()
+				}
+			}
+
+			if err != nil {
+				tp.retRecv <- aggResult{
+					hasDDL: hasDDL,
+					hrErr:  err,
+				}
+			}
+		}
+
+		err = aTxn.Commit(agg.ctx)
+		cts := aTxn.GetCommitTS()
+
+		for i := range *pairs {
+			(*pairs)[i].retRecv <- aggResult{
+				hasDDL: hasDDL,
+				hrErr:  nil,
+				txnErr: nil,
+				ctErr:  err,
+				cts:    cts,
+			}
+		}
+	})
+
+}
+
+func newTxnAggregator(
+	ctx context.Context,
+	h *Handle,
+) (*txnAggregator, error) {
+	agg := &txnAggregator{
+		ctx:         ctx,
+		h:           h,
+		idAllocator: common.NewTxnIDAllocator(),
+
+		pairsPool: sync.Pool{
+			New: func() any {
+				pairs := make([]txnPair, 0, aggSize)
+				return &pairs
+			},
+		},
+	}
+
+	var err error
+	agg.taskPool, err = ants.NewPool(runtime.NumCPU())
+	if err != nil {
+		return nil, err
+	}
+
+	agg.queue = sm.NewSafeQueue(
+		aggSize*1000, aggSize,
+		agg.onBatchCommiting, sm.WithBatchWaiting(time.Microsecond*100))
+
+	agg.queue.Start()
+
+	return agg, nil
+}
+
+func (agg *txnAggregator) aggCommit(
+	ctx context.Context,
+	meta txn.TxnMeta,
+	req *txn.TxnCommitRequest,
+	resp *txn.TxnResponse,
+) chan aggResult {
+
+	tp := txnPair{
+		oriMeta: meta,
+		req:     req,
+		resp:    resp,
+		retRecv: make(chan aggResult),
+	}
+
+	agg.queue.Enqueue(tp)
+	return tp.retRecv
+}
+
 type Handle struct {
 	db *db.DB
 	// only used for UT
@@ -68,6 +244,8 @@ type Handle struct {
 	//GCJob   *tasks.CancelableJob
 
 	interceptMatchRegexp atomic.Pointer[regexp.Regexp]
+
+	txnAgg *txnAggregator
 }
 
 var _ rpchandle.Handler = (*Handle)(nil)
@@ -120,6 +298,10 @@ func NewTAEHandle(ctx context.Context, path string, opt *options.Options) *Handl
 		db: tae,
 	}
 
+	h.txnAgg, err = newTxnAggregator(ctx, h)
+	if err != nil {
+		panic(err)
+	}
 	h.txnCtxs = common.NewMap[string, *txnContext](runtime.GOMAXPROCS(0))
 	h.interceptMatchRegexp.Store(regexp.MustCompile(`.*bmsql_stock.*`))
 
@@ -345,7 +527,7 @@ func (h *Handle) handleRequests(
 
 	for iter.Next() {
 		if entry, err = iter.Entry(); err != nil {
-			return
+			goto endHandle
 		}
 
 		switch req := entry.(type) {
@@ -368,7 +550,7 @@ func (h *Handle) handleRequests(
 			hasDDL = true
 			for _, r := range req {
 				if err = h.HandleAlterTable(ctx, txn, r); err != nil {
-					return
+					break
 				}
 			}
 
@@ -381,13 +563,15 @@ func (h *Handle) handleRequests(
 			}
 
 			if wr.Type == cmd_util.EntryDelete {
-				var f []func()
-				if f, err = h.tryLockMergeForBulkDelete([]any{req}, txn); err != nil {
-					logutil.Warn("failed to lock merging", zap.Error(err))
-					return
+				var (
+					err2 error
+					f    []func()
+				)
+				if f, err2 = h.tryLockMergeForBulkDelete([]any{req}, txn); err2 != nil {
+					logutil.Warn("failed to lock merging", zap.Error(err2))
+				} else {
+					releaseF = append(releaseF, f...)
 				}
-
-				releaseF = append(releaseF, f...)
 			}
 
 			var r1, r2, r3, r4 int
@@ -405,10 +589,15 @@ func (h *Handle) handleRequests(
 
 		//Need to roll back the txn.
 		if err != nil {
-			txn.Rollback(ctx)
-			return
+			goto endHandle
 		}
 	}
+
+endHandle:
+	if err != nil {
+		txn.Rollback(ctx)
+	}
+
 	if inMemoryInsertRows+inMemoryTombstoneRows+persistedTombstoneRows+persistedMemoryInsertRows > 100000 {
 		logutil.Info(
 			"BIG-COMMIT-TRACE-LOG",
@@ -417,8 +606,10 @@ func (h *Handle) handleRequests(
 			zap.Int("in-memory-tombstones", inMemoryTombstoneRows),
 			zap.Int("persisted-tombstones", persistedTombstoneRows),
 			zap.String("txn", txn.String()),
+			zap.Error(err),
 		)
 	}
+
 	return
 }
 
@@ -516,6 +707,20 @@ func (h *Handle) HandlePreCommitWrite(
 	return h.TryPrefetchTxn(ctx, &meta)
 }
 
+func (h *Handle) commitWithTxnAggregate(
+	ctx context.Context,
+	meta txn.TxnMeta,
+	resp *txn.TxnResponse,
+	reqs *txn.TxnCommitRequest,
+) aggResult {
+
+	retRecv := h.txnAgg.aggCommit(ctx, meta, reqs, resp)
+
+	ret := <-retRecv
+
+	return ret
+}
+
 // HandlePreCommitWrite impls TxnStorage:Commit
 func (h *Handle) HandleCommit(
 	ctx context.Context,
@@ -562,32 +767,44 @@ func (h *Handle) HandleCommit(
 		})
 	}()
 
-	if txn, err = h.db.GetOrCreateTxnWithMeta(
-		nil, meta.GetID(), types.TimestampToTS(meta.GetSnapshotTS())); err != nil {
+	//if txn, err = h.db.GetOrCreateTxnWithMeta(
+	//	nil, meta.GetID(), types.TimestampToTS(meta.GetSnapshotTS())); err != nil {
+	//	return
+	//}
+	//
+	//if releaseF, hasDDL, err = h.handleRequests(
+	//	ctx, txn, commitRequests, response, meta); err != nil {
+	//	return
+	//}
+	//
+	////if txn is 2PC ,need to set commit timestamp passed by coordinator.
+	//if txn.Is2PC() {
+	//	txn.SetCommitTS(types.TimestampToTS(meta.GetCommitTS()))
+	//}
+	//
+	//v2.TxnBeforeCommitDurationHistogram.Observe(time.Since(start).Seconds())
+	//
+	//err = txn.Commit(ctx)
+	//cts = txn.GetCommitTS().ToTimestamp()
+	//if cts.PhysicalTime == txnif.UncommitTS.Physical() {
+	//	panic("bad committs causing hung")
+	//}
+
+	ret := h.commitWithTxnAggregate(ctx, meta, response, commitRequests)
+
+	if ret.hrErr != nil {
+		err = ret.hrErr
 		return
 	}
 
-	if releaseF, hasDDL, err = h.handleRequests(
-		ctx, txn, commitRequests, response, meta); err != nil {
+	if ret.txnErr != nil {
+		err = ret.txnErr
 		return
 	}
 
-	txn, err = h.db.GetTxnByID(meta.GetID())
-	if err != nil {
-		return
-	}
-	//if txn is 2PC ,need to set commit timestamp passed by coordinator.
-	if txn.Is2PC() {
-		txn.SetCommitTS(types.TimestampToTS(meta.GetCommitTS()))
-	}
-
-	v2.TxnBeforeCommitDurationHistogram.Observe(time.Since(start).Seconds())
-
-	err = txn.Commit(ctx)
-	cts = txn.GetCommitTS().ToTimestamp()
-	if cts.PhysicalTime == txnif.UncommitTS.Physical() {
-		panic("bad committs causing hung")
-	}
+	hasDDL = ret.hasDDL
+	err = ret.ctErr
+	cts = ret.cts.ToTimestamp()
 
 	if moerr.IsMoErrCode(err, moerr.ErrTAENeedRetry) {
 		for {
@@ -599,6 +816,7 @@ func (h *Handle) HandleCommit(
 			if err != nil {
 				return
 			}
+
 			logutil.Info(
 				"TAE-RETRY-TXN",
 				zap.String("old-txn", string(meta.GetID())),
@@ -666,6 +884,7 @@ func (h *Handle) HandleClose(ctx context.Context) (err error) {
 	//if h.GCJob != nil {
 	//	h.GCJob.Stop()
 	//}
+	h.txnAgg.Close()
 	return h.db.Close()
 }
 

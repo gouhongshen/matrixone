@@ -780,11 +780,10 @@ func (mgr *TxnManager) onApply(items ...any) {
 	 | txn op --> pre wal --> on wal --> post wal |
 	 ---------------------------------------------
 
-		            [------ on wal --------------]
-		pre wal ==> parallel marshal ==> flush wal        \\
-																==> apply ==> done apply(commit/rollback) ==> push logtail
-		                             ==> collect logtail  //
-		   													   [---------- post wal -------------------------------------]
+		            [------ on wal --------------------]
+						             ==> collect logtail  \\      [---------- post wal --------------------------------]
+	                                                        ====> apply ==> done apply(commit/rollback) ==> push logtail
+		pre wal ==> parallel marshal ==> flush wal        //
 */
 func (mgr *TxnManager) onWalAndApply(items ...any) {
 	now := time.Now()
