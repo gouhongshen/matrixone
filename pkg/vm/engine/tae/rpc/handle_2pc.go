@@ -44,17 +44,17 @@ func (h *Handle) HandleCommitting(
 func (h *Handle) HandlePrepare(
 	ctx context.Context,
 	meta txn.TxnMeta) (pts timestamp.Timestamp, err error) {
-	var txn txnif.AsyncTxn
+	var aTxn txnif.AsyncTxn
 
 	//handle pre-commit write for 2PC
-	txn, err = h.db.GetOrCreateTxnWithMeta(nil, meta.GetID(),
+	aTxn, err = h.db.GetOrCreateTxnWithMeta(nil, meta.GetID(),
 		types.TimestampToTS(meta.GetSnapshotTS()))
 	if err != nil {
 		return
 	}
-	h.handleRequests(ctx, txn, nil, nil, meta)
+	h.handleRequests(ctx, aTxn, nil, nil, txn.TxnMeta{}, meta)
 
-	txn, err = h.db.GetTxnByID(meta.GetID())
+	aTxn, err = h.db.GetTxnByID(meta.GetID())
 	if err != nil {
 		return timestamp.Timestamp{}, err
 	}
@@ -62,9 +62,9 @@ func (h *Handle) HandlePrepare(
 	for _, shard := range meta.GetTNShards() {
 		participants = append(participants, shard.GetShardID())
 	}
-	txn.SetParticipants(participants)
+	aTxn.SetParticipants(participants)
 	var ts types.TS
-	ts, err = txn.Prepare(ctx)
+	ts, err = aTxn.Prepare(ctx)
 	pts = ts.ToTimestamp()
 	return
 }

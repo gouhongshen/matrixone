@@ -110,8 +110,6 @@ func (un *TxnMVCCNode) IsVisible(txn txnif.TxnReader) (visible bool) {
 		return true
 	}
 
-	fmt.Println("txn.start", startTS.ToString())
-	fmt.Println("un.End", un.End.ToString())
 	// Node is not invisible if the commit ts is gt ts
 	return false
 

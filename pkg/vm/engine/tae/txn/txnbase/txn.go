@@ -287,6 +287,7 @@ func (txn *Txn) doCommit(ctx context.Context, inRecovery bool) (err error) {
 	}
 	// Skip readonly txn
 	if txn.Store.IsReadonly() {
+		fmt.Println("commit read only", []byte(txn.ID))
 		txn.Mgr.DeleteTxn(txn.GetID())
 		return nil
 	}

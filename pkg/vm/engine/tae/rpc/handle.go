@@ -113,78 +113,83 @@ func (agg *txnAggregator) onBatchCommiting(items ...any) {
 		fmt.Println("onBatchCommiting", total, times, total/times)
 	}
 
-	agg.taskPool.Submit(func() {
-		pairs := agg.pairsPool.Get().(*[]txnPair)
-		defer func() {
-			*pairs = (*pairs)[:0]
-			agg.pairsPool.Put(pairs)
-		}()
+	pairs := agg.pairsPool.Get().(*[]txnPair)
 
-		var (
-			aTxn  txnif.AsyncTxn
-			err   error
-			id    = agg.idAllocator.Alloc()
-			maxTS timestamp.Timestamp
-		)
+	var (
+		aTxn  txnif.AsyncTxn
+		err   error
+		id    = agg.idAllocator.Alloc()
+		maxTS timestamp.Timestamp
+	)
 
-		for _, item := range items {
-			tp := item.(txnPair)
-			if tp.oriMeta.SnapshotTS.Greater(maxTS) {
-				maxTS = tp.oriMeta.SnapshotTS
-			}
-			*pairs = append(*pairs, tp)
+	// parallel ==> w-w conflict ???
+	//agg.taskPool.Submit(func() {
+	defer func() {
+		*pairs = (*pairs)[:0]
+		agg.pairsPool.Put(pairs)
+	}()
+
+	for _, item := range items {
+		tp := item.(txnPair)
+		if tp.oriMeta.SnapshotTS.Greater(maxTS) {
+			maxTS = tp.oriMeta.SnapshotTS
 		}
+		*pairs = append(*pairs, tp)
+	}
 
-		aggMeta := txn.TxnMeta{
-			ID:         id,
-			SnapshotTS: maxTS,
-		}
+	aggMeta := txn.TxnMeta{
+		ID:         id,
+		SnapshotTS: maxTS,
+	}
 
-		if aTxn, err = agg.h.db.GetOrCreateTxnWithMeta(
-			nil, id, types.TimestampToTS(maxTS)); err != nil {
-			for i := range *pairs {
-				(*pairs)[i].retRecv <- aggResult{
-					txnErr: err,
-				}
-			}
-			return
-		}
-
-		var (
-			release []func()
-			hasDDL  bool
-		)
-
-		for _, tp := range *pairs {
-			release, hasDDL, err = agg.h.handleRequests(agg.ctx, aTxn, tp.req, tp.resp, aggMeta)
-			for _, f := range release {
-				if f != nil {
-					f()
-				}
-			}
-
-			if err != nil {
-				tp.retRecv <- aggResult{
-					hasDDL: hasDDL,
-					hrErr:  err,
-				}
-			}
-		}
-
-		err = aTxn.Commit(agg.ctx)
-		cts := aTxn.GetCommitTS()
-
+	if aTxn, err = agg.h.db.GetOrCreateTxnWithMeta(
+		nil, id, types.TimestampToTS(maxTS)); err != nil {
 		for i := range *pairs {
 			(*pairs)[i].retRecv <- aggResult{
-				hasDDL: hasDDL,
-				hrErr:  nil,
-				txnErr: nil,
-				ctErr:  err,
-				cts:    cts,
+				txnErr: err,
 			}
 		}
-	})
+		return
+	}
 
+	var (
+		release []func()
+		hasDDL  bool
+	)
+
+	for _, tp := range *pairs {
+		release, hasDDL, err = agg.h.handleRequests(agg.ctx, aTxn, tp.req, tp.resp, aggMeta, tp.oriMeta)
+		for _, f := range release {
+			if f != nil {
+				f()
+			}
+		}
+
+		if err != nil {
+			tp.retRecv <- aggResult{
+				hasDDL: hasDDL,
+				hrErr:  err,
+			}
+		}
+	}
+
+	err = aTxn.Commit(agg.ctx)
+	cts := aTxn.GetCommitTS()
+	//fmt.Println("onBatchCommitting",
+	//	(*pairs)[0].oriMeta.GetID(), id,
+	//	err, cts.ToString(),
+	//	aTxn.GetPrepareTS().ToString())
+
+	for i := range *pairs {
+		(*pairs)[i].retRecv <- aggResult{
+			hasDDL: hasDDL,
+			hrErr:  nil,
+			txnErr: nil,
+			ctErr:  err,
+			cts:    cts,
+		}
+	}
+	//})
 }
 
 func newTxnAggregator(
@@ -212,7 +217,7 @@ func newTxnAggregator(
 
 	agg.queue = sm.NewSafeQueue(
 		aggSize*1000, aggSize,
-		agg.onBatchCommiting, sm.WithBatchWaiting(time.Microsecond*100))
+		agg.onBatchCommiting, sm.WithBatchWaiting(time.Millisecond))
 
 	agg.queue.Start()
 
@@ -434,7 +439,7 @@ type txnCommitRequestsIter struct {
 
 func (h *Handle) newTxnCommitRequestsIter(
 	cr *txn.TxnCommitRequest,
-	meta txn.TxnMeta,
+	oriMeta txn.TxnMeta,
 ) *txnCommitRequestsIter {
 
 	// in the normal commit processes, the new logic won't cache the write requests anymore.
@@ -443,7 +448,7 @@ func (h *Handle) newTxnCommitRequestsIter(
 	// to keep that, there also leave the commiting code of the cached requests un-changed, but only for ut.
 	if cr == nil {
 		// for now, only test will into this logic
-		key := util.UnsafeBytesToString(meta.GetID())
+		key := util.UnsafeBytesToString(oriMeta.GetID())
 		txnCtx, ok := h.txnCtxs.Load(key)
 		if !ok {
 			// no requests
@@ -507,7 +512,8 @@ func (h *Handle) handleRequests(
 	txn txnif.AsyncTxn,
 	commitRequests *txn.TxnCommitRequest,
 	response *txn.TxnResponse,
-	txnMeta txn.TxnMeta,
+	aggMeta txn.TxnMeta,
+	oriMeta txn.TxnMeta,
 ) (releaseF []func(), hasDDL bool, err error) {
 
 	var (
@@ -521,7 +527,7 @@ func (h *Handle) handleRequests(
 		persistedTombstoneRows    int
 	)
 
-	if iter = h.newTxnCommitRequestsIter(commitRequests, txnMeta); iter == nil {
+	if iter = h.newTxnCommitRequestsIter(commitRequests, oriMeta); iter == nil {
 		return
 	}
 
@@ -557,7 +563,7 @@ func (h *Handle) handleRequests(
 		case *cmd_util.WriteReq, *api.Entry:
 			var wr *cmd_util.WriteReq
 			if ae, ok := req.(*api.Entry); ok {
-				wr = h.apiEntryToWriteEntry(ctx, txnMeta, ae, true)
+				wr = h.apiEntryToWriteEntry(ctx, aggMeta, ae, true)
 			} else {
 				wr = req.(*cmd_util.WriteReq)
 			}
@@ -693,6 +699,7 @@ func (h *Handle) HandlePreCommitWrite(
 			if err = h.CacheTxnRequest(ctx, meta, cmds); err != nil {
 				return err
 			}
+			fmt.Println("cache create database", meta.ID)
 		case *api.Entry:
 			//Handle DML
 			wr := h.apiEntryToWriteEntry(ctx, meta, e.(*api.Entry), false)
@@ -712,11 +719,15 @@ func (h *Handle) commitWithTxnAggregate(
 	meta txn.TxnMeta,
 	resp *txn.TxnResponse,
 	reqs *txn.TxnCommitRequest,
-) aggResult {
+) (ret aggResult) {
 
 	retRecv := h.txnAgg.aggCommit(ctx, meta, reqs, resp)
 
-	ret := <-retRecv
+	select {
+	case <-ctx.Done():
+		ret.ctErr = ctx.Err()
+	case ret = <-retRecv:
+	}
 
 	return ret
 }
@@ -731,21 +742,17 @@ func (h *Handle) HandleCommit(
 	start := time.Now()
 
 	var (
-		txn      txnif.AsyncTxn
+		aTxn     txnif.AsyncTxn
 		releaseF []func()
 		hasDDL   bool = false
 	)
 	defer func() {
-		for _, f := range releaseF {
-			f()
-		}
-
 		common.DoIfInfoEnabled(func() {
 			_, _, injected := fault.TriggerFault(objectio.FJ_CommitSlowLog)
 			if time.Since(start) > MAX_ALLOWED_TXN_LATENCY || err != nil || hasDDL || injected {
 				var tnTxnInfo string
-				if txn != nil {
-					tnTxnInfo = txn.String()
+				if aTxn != nil {
+					tnTxnInfo = aTxn.String()
 				}
 				logger := logutil.Warn
 				msg := "HandleCommit-SLOW-LOG"
@@ -767,29 +774,6 @@ func (h *Handle) HandleCommit(
 		})
 	}()
 
-	//if txn, err = h.db.GetOrCreateTxnWithMeta(
-	//	nil, meta.GetID(), types.TimestampToTS(meta.GetSnapshotTS())); err != nil {
-	//	return
-	//}
-	//
-	//if releaseF, hasDDL, err = h.handleRequests(
-	//	ctx, txn, commitRequests, response, meta); err != nil {
-	//	return
-	//}
-	//
-	////if txn is 2PC ,need to set commit timestamp passed by coordinator.
-	//if txn.Is2PC() {
-	//	txn.SetCommitTS(types.TimestampToTS(meta.GetCommitTS()))
-	//}
-	//
-	//v2.TxnBeforeCommitDurationHistogram.Observe(time.Since(start).Seconds())
-	//
-	//err = txn.Commit(ctx)
-	//cts = txn.GetCommitTS().ToTimestamp()
-	//if cts.PhysicalTime == txnif.UncommitTS.Physical() {
-	//	panic("bad committs causing hung")
-	//}
-
 	ret := h.commitWithTxnAggregate(ctx, meta, response, commitRequests)
 
 	if ret.hrErr != nil {
@@ -807,11 +791,16 @@ func (h *Handle) HandleCommit(
 	cts = ret.cts.ToTimestamp()
 
 	if moerr.IsMoErrCode(err, moerr.ErrTAENeedRetry) {
-		for {
+		defer func() {
 			for _, f := range releaseF {
-				f()
+				if f != nil {
+					f()
+				}
 			}
-			txn, err = h.db.StartTxnWithStartTSAndSnapshotTS(nil,
+		}()
+
+		for {
+			aTxn, err = h.db.StartTxnWithStartTSAndSnapshotTS(nil,
 				types.TimestampToTS(meta.GetSnapshotTS()))
 			if err != nil {
 				return
@@ -820,19 +809,19 @@ func (h *Handle) HandleCommit(
 			logutil.Info(
 				"TAE-RETRY-TXN",
 				zap.String("old-txn", string(meta.GetID())),
-				zap.String("new-txn", txn.GetID()),
+				zap.String("new-txn", aTxn.GetID()),
 			)
 			//Handle precommit-write command for 1PC
-			releaseF, hasDDL, err = h.handleRequests(ctx, txn, commitRequests, response, meta)
+			releaseF, hasDDL, err = h.handleRequests(ctx, aTxn, commitRequests, response, txn.TxnMeta{}, meta)
 			if err != nil && !moerr.IsMoErrCode(err, moerr.ErrTAENeedRetry) {
 				break
 			}
 			//if txn is 2PC ,need to set commit timestamp passed by coordinator.
-			if txn.Is2PC() {
-				txn.SetCommitTS(types.TimestampToTS(meta.GetCommitTS()))
+			if aTxn.Is2PC() {
+				aTxn.SetCommitTS(types.TimestampToTS(meta.GetCommitTS()))
 			}
-			err = txn.Commit(ctx)
-			cts = txn.GetCommitTS().ToTimestamp()
+			err = aTxn.Commit(ctx)
+			cts = aTxn.GetCommitTS().ToTimestamp()
 			if !moerr.IsMoErrCode(err, moerr.ErrTAENeedRetry) {
 				break
 			}

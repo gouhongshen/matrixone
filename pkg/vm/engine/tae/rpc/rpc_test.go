@@ -16,6 +16,7 @@ package rpc
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"sync"
 	"testing"
@@ -53,7 +54,9 @@ func TestHandle_HandleCommitPerformanceForS3Load(t *testing.T) {
 	opts := config.WithLongScanAndCKPOpts(nil)
 	ctx := context.Background()
 
-	handle := mockTAEHandle(ctx, t, opts)
+	handle, err := mockTAEHandle(ctx, t, opts)
+	require.NoError(t, err)
+
 	defer handle.HandleClose(context.TODO())
 	fs := handle.db.Opts.Fs
 	IDAlloc := catalog.NewIDAllocator()
@@ -186,7 +189,9 @@ func TestHandle_HandlePreCommitWriteS3(t *testing.T) {
 	opts := config.WithLongScanAndCKPOpts(nil)
 	ctx := context.Background()
 
-	handle := mockTAEHandle(ctx, t, opts)
+	handle, err := mockTAEHandle(ctx, t, opts)
+	require.NoError(t, err)
+
 	defer handle.HandleClose(context.TODO())
 	fs := handle.db.Opts.Fs
 	defer fs.Close(ctx)
@@ -206,7 +211,7 @@ func TestHandle_HandlePreCommitWriteS3(t *testing.T) {
 	taeBats[3] = taeBats[3].CloneWindow(0, 10)
 
 	//sort by primary key
-	_, err := mergesort.SortBlockColumns(taeBats[0].Vecs, 1, mocks.GetTestVectorPool())
+	_, err = mergesort.SortBlockColumns(taeBats[0].Vecs, 1, mocks.GetTestVectorPool())
 	assert.Nil(t, err)
 	_, err = mergesort.SortBlockColumns(taeBats[1].Vecs, 1, mocks.GetTestVectorPool())
 	assert.Nil(t, err)
@@ -380,6 +385,7 @@ func TestHandle_HandlePreCommitWriteS3(t *testing.T) {
 	)
 	assert.Nil(t, err)
 	//t.FailNow()
+	fmt.Println("test", txn.GetID())
 	_, err = handle.HandleCommit(context.TODO(), txn)
 	assert.Nil(t, err)
 	t.Log(handle.db.Catalog.SimplePPString(3))
@@ -510,7 +516,9 @@ func TestHandle_HandlePreCommit1PC(t *testing.T) {
 	defer testutils.AfterTest(t)()
 	ctx := context.Background()
 	opts := config.WithLongScanAndCKPOpts(nil)
-	handle := mockTAEHandle(ctx, t, opts)
+	handle, err := mockTAEHandle(ctx, t, opts)
+	require.NoError(t, err)
+
 	defer handle.HandleClose(context.TODO())
 	IDAlloc := catalog.NewIDAllocator()
 	schema := catalog.MockSchema(2, 1)
@@ -759,7 +767,9 @@ func TestHandle_HandlePreCommit2PCForCoordinator(t *testing.T) {
 	defer testutils.AfterTest(t)()
 	ctx := context.Background()
 	opts := config.WithLongScanAndCKPOpts(nil)
-	handle := mockTAEHandle(ctx, t, opts)
+	handle, err := mockTAEHandle(ctx, t, opts)
+	require.NoError(t, err)
+
 	defer handle.HandleClose(context.TODO())
 	IDAlloc := catalog.NewIDAllocator()
 	schema := catalog.MockSchemaAll(2, -1)
@@ -794,6 +804,7 @@ func TestHandle_HandlePreCommit2PCForCoordinator(t *testing.T) {
 		{typ: CmdCommit},
 	}
 	txnMeta := mock2PCTxn(handle.db)
+	fmt.Println("test", txnMeta.ID)
 	err = handle.handleCmds(ctx, txnMeta, txnCmds)
 	assert.Nil(t, err)
 
@@ -1060,7 +1071,9 @@ func TestHandle_HandlePreCommit2PCForParticipant(t *testing.T) {
 	defer testutils.AfterTest(t)()
 	ctx := context.Background()
 	opts := config.WithLongScanAndCKPOpts(nil)
-	handle := mockTAEHandle(ctx, t, opts)
+	handle, err := mockTAEHandle(ctx, t, opts)
+	require.NoError(t, err)
+
 	defer handle.HandleClose(context.TODO())
 	IDAlloc := catalog.NewIDAllocator()
 	schema := catalog.MockSchemaAll(2, -1)
@@ -1383,7 +1396,9 @@ func TestHandle_MVCCVisibility(t *testing.T) {
 	defer testutils.AfterTest(t)()
 	ctx := context.Background()
 	opts := config.WithLongScanAndCKPOpts(nil)
-	handle := mockTAEHandle(ctx, t, opts)
+	handle, err := mockTAEHandle(ctx, t, opts)
+	require.NoError(t, err)
+
 	defer handle.HandleClose(context.TODO())
 	IDAlloc := catalog.NewIDAllocator()
 	schema := catalog.MockSchemaAll(2, -1)
@@ -1714,7 +1729,9 @@ func TestApplyDeltaloc(t *testing.T) {
 	opts := config.WithLongScanAndCKPOpts(nil)
 	ctx := context.Background()
 
-	h := mockTAEHandle(ctx, t, opts)
+	h, err := mockTAEHandle(ctx, t, opts)
+	require.NoError(t, err)
+
 	defer h.HandleClose(context.TODO())
 	defer opts.Fs.Close(ctx)
 

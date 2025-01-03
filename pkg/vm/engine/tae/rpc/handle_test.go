@@ -29,7 +29,9 @@ import (
 )
 
 func TestHandleInspectPolicy(t *testing.T) {
-	handle := mockTAEHandle(context.Background(), t, &options.Options{})
+	handle, err := mockTAEHandle(context.Background(), t, &options.Options{})
+	require.NoError(t, err)
+
 	asyncTxn, err := handle.db.StartTxn(nil)
 	require.NoError(t, err)
 
@@ -82,7 +84,8 @@ func TestHandleInspectPolicy(t *testing.T) {
 }
 
 func TestHandlePrecommitWriteError(t *testing.T) {
-	h := mockTAEHandle(context.Background(), t, &options.Options{})
+	h, err := mockTAEHandle(context.Background(), t, &options.Options{})
+	require.NoError(t, err)
 
 	list := []*apipb.Entry{
 		{
@@ -97,6 +100,6 @@ func TestHandlePrecommitWriteError(t *testing.T) {
 		},
 	}
 
-	err := h.HandlePreCommitWrite(context.Background(), txn.TxnMeta{}, &apipb.PrecommitWriteCmd{EntryList: list}, &apipb.TNStringResponse{})
+	err = h.HandlePreCommitWrite(context.Background(), txn.TxnMeta{}, &apipb.PrecommitWriteCmd{EntryList: list}, &apipb.TNStringResponse{})
 	require.Error(t, err)
 }

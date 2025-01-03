@@ -148,7 +148,7 @@ func initDB(ctx context.Context, t *testing.T, opts *options.Options) *db.DB {
 	return db
 }
 
-func mockTAEHandle(ctx context.Context, t *testing.T, opts *options.Options) *mockHandle {
+func mockTAEHandle(ctx context.Context, t *testing.T, opts *options.Options) (*mockHandle, error) {
 	blockio.Start("")
 	tae := initDB(ctx, t, opts)
 	mh := &mockHandle{
@@ -158,8 +158,14 @@ func mockTAEHandle(ctx context.Context, t *testing.T, opts *options.Options) *mo
 	mh.Handle = &Handle{
 		db: tae,
 	}
+
+	var err error
+	mh.txnAgg, err = newTxnAggregator(ctx, mh.Handle)
+	if err != nil {
+		return nil, err
+	}
 	mh.Handle.txnCtxs = common.NewMap[string, *txnContext](runtime.GOMAXPROCS(0))
-	return mh
+	return mh, nil
 }
 
 func mock1PCTxn(db *db.DB) *txn.TxnMeta {
