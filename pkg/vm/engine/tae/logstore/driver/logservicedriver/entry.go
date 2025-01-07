@@ -16,6 +16,7 @@ package logservicedriver
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"math"
 	"sync"
@@ -314,6 +315,10 @@ func (r *recordEntry) append(e *entry.Entry) {
 	r.approxMemSize += e.ApproxCmdMemSize()
 }
 
+var totalCount atomic.Int64
+var totalSize atomic.Int64
+var times atomic.Int64
+
 func (r *recordEntry) prepareRecord() (size int) {
 	var err error
 
@@ -330,6 +335,18 @@ func (r *recordEntry) prepareRecord() (size int) {
 	if err != nil {
 		panic(err)
 	}
+
+	tt := times.Add(1)
+	tc := totalCount.Add(int64(len(r.entries)))
+	ts := totalSize.Add(int64(r.payloadSize))
+	if tt%1000 == 0 {
+		fmt.Printf("avg count = %d/%d=%.3f, avg size = %d/%d=%.3f\n",
+			tc, tt,
+			float64(tc)/float64(tt),
+			ts, tt,
+			float64(ts)/float64(tt))
+	}
+
 	return len(r.payload)
 }
 
