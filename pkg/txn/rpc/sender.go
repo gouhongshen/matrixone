@@ -112,12 +112,12 @@ func (s *sender) Close() error {
 func (s *sender) Send(ctx context.Context, requests []txn.TxnRequest) (*SendResult, error) {
 	sr := s.acquireSendResult()
 	if len(requests) == 1 {
-		sr.reset(requests)
 		resp, err := s.doSend(ctx, requests[0])
 		if err != nil {
 			sr.Release()
 			return nil, err
 		}
+		sr.reset(requests)
 		sr.Responses[0] = resp
 		return sr, nil
 	}

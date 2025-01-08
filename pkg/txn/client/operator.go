@@ -273,6 +273,8 @@ type txnOperator struct {
 		options            txn.TxnOptions
 		waitActiveHandle   func()
 	}
+
+	agg *txnAggregator
 }
 
 func newTxnOperator(

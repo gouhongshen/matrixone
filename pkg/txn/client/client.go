@@ -19,6 +19,12 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/container/types"
+	"github.com/matrixorigin/matrixone/pkg/defines"
+	"github.com/matrixorigin/matrixone/pkg/pb/lock"
+	"github.com/matrixorigin/matrixone/pkg/pb/metadata"
+	"github.com/panjf2000/ants/v2"
 	"math"
 	"runtime/debug"
 	"sync"
@@ -36,6 +42,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/txn/rpc"
 	"github.com/matrixorigin/matrixone/pkg/txn/util"
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/logstore/sm"
 	"go.uber.org/ratelimit"
 	"go.uber.org/zap"
 )
@@ -157,6 +164,164 @@ const (
 	normal status = status(1)
 )
 
+type aggRet struct {
+	ret *rpc.SendResult
+	err error
+}
+
+type txnPair struct {
+	ctx      context.Context
+	tc       *txnOperator
+	notifier chan aggRet
+}
+
+type txnAggregator struct {
+	ctx    context.Context
+	queue  sm.Queue
+	sender rpc.TxnSender
+
+	chanPool sync.Pool
+
+	nonCommitReqWorker *ants.Pool
+	newTxnMeta         func() txn.TxnMeta
+}
+
+func newTxnAggregator(c *txnClient) *txnAggregator {
+	agg := &txnAggregator{}
+
+	agg.sender = c.sender
+	agg.ctx = context.Background()
+	agg.queue = sm.NewSafeQueue(10000, 2, agg.onTxnRequests)
+	agg.newTxnMeta = c.newTxnMeta
+
+	agg.chanPool = sync.Pool{
+		New: func() any {
+			aggC := make(chan aggRet)
+			return &aggC
+		},
+	}
+
+	agg.nonCommitReqWorker, _ = ants.NewPool(1)
+
+	agg.queue.Start()
+
+	return agg
+}
+
+func (agg *txnAggregator) requireChan() (chan aggRet, func()) {
+	aggC := agg.chanPool.Get().(*chan aggRet)
+	return *aggC, func() {
+		agg.chanPool.Put(aggC)
+	}
+}
+
+func (agg *txnAggregator) aggSendTxnRequest(
+	ctx context.Context,
+	tc *txnOperator,
+	isCommit bool,
+) (*rpc.SendResult, error, bool) {
+
+	if !isCommit {
+		return nil, nil, false
+	}
+
+	if val := ctx.Value(defines.TemporaryTN{}); val != nil {
+		return nil, nil, false
+	}
+
+	ch, reuse := agg.requireChan()
+	defer func() {
+		reuse()
+	}()
+
+	tp := txnPair{
+		ctx:      ctx,
+		notifier: ch,
+	}
+
+	tp.tc = tc
+	agg.queue.Enqueue(tp)
+
+	ticker := time.NewTicker(time.Second * 5)
+	for {
+		select {
+		case <-ticker.C:
+			fmt.Println("wait for 5s", tc)
+		case ret := <-ch:
+			return ret.ret, ret.err, true
+		}
+	}
+}
+
+func logTxnRequest(req txn.TxnRequest) string {
+	buf := bytes.Buffer{}
+	meta := req.Txn
+	buf.WriteString(
+		fmt.Sprintf("reqID: %d, Method: %v, Flag: %d, cnReq: nil(%v), commitReq: nil(%v), Rollback: nil(%v), PrepareReq: nil(%v), meta:%v",
+			req.RequestID,
+			req.Method.String(),
+			req.Flag,
+			req.CNRequest == nil,
+			req.CommitRequest == nil,
+			req.RollbackRequest == nil,
+			req.PrepareRequest == nil,
+			meta.DebugString(),
+		))
+
+	return buf.String()
+}
+
+var totalCnt float64
+var times float64
+
+func (agg *txnAggregator) onTxnRequests(items ...any) {
+	aggCommitReq := txn.TxnRequest{
+		Method:        txn.TxnMethod_Commit,
+		Flag:          txn.SkipResponseFlag,
+		Txn:           agg.newTxnMeta(),
+		CommitRequest: &txn.TxnCommitRequest{},
+	}
+
+	var (
+		minTS   = types.MaxTs().ToTimestamp()
+		maxTS   = types.MinTs().ToTimestamp()
+		tnShard []metadata.TNShard
+		lts     []lock.LockTable
+	)
+
+	times++
+	totalCnt += float64(len(items))
+
+	if int(times)%500 == 0 {
+		fmt.Println("avg cnt", totalCnt/times)
+		times = 0
+		totalCnt = 0
+	}
+
+	for _, item := range items {
+		tp := item.(txnPair)
+
+	}
+
+	aggCommitReq.Txn.SnapshotTS = maxTS
+	aggCommitReq.Txn.TNShards = tnShard[:1]
+	aggCommitReq.Txn.LockTables = lts
+
+	ctx, cancel := context.WithTimeout(agg.ctx, time.Minute*5)
+	defer cancel()
+
+	ret, err := agg.sender.Send(ctx, []txn.TxnRequest{aggCommitReq})
+
+	for _, item := range items {
+		tp := item.(txnPair)
+
+		tp.notifier <- aggRet{
+			ret: ret,
+			err: err,
+		}
+	}
+}
+
 type txnClient struct {
 	sid                        string
 	stopper                    *stopper.Stopper
@@ -208,6 +373,8 @@ type txnClient struct {
 		waitMarkAllActiveAbortedC chan struct{}
 	}
 
+	txnAgg *txnAggregator
+
 	abortC chan time.Time
 }
 
@@ -256,6 +423,9 @@ func NewTxnClient(
 	if err := c.stopper.RunTask(c.handleMarkActiveTxnAborted); err != nil {
 		panic(err)
 	}
+
+	c.txnAgg = newTxnAggregator(c)
+
 	return c
 }
 
@@ -286,6 +456,9 @@ func (client *txnClient) New(
 		client.newTxnMeta(),
 		client.getTxnOptions(options)...,
 	)
+
+	op.agg = client.txnAgg
+
 	return client.doCreateTxn(
 		ctx,
 		op,
@@ -373,6 +546,7 @@ func (client *txnClient) NewWithSnapshot(
 }
 
 func (client *txnClient) Close() error {
+	client.txnAgg.queue.Stop()
 	client.stopper.Stop()
 	if client.leakChecker != nil {
 		client.leakChecker.close()
