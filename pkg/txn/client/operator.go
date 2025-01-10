@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -805,44 +804,45 @@ func (tc *txnOperator) doWrite(ctx context.Context, requests []txn.TxnRequest, c
 	if tc.opts.options.ReadOnly() {
 		tc.logger.Fatal("can not write on ready only transaction")
 	}
-	var payload []txn.TxnRequest
-	if commit {
-		if tc.reset.workspace != nil {
-			reqs, err := tc.reset.workspace.Commit(ctx)
-			if err != nil {
-				return nil, errors.Join(err, tc.Rollback(ctx))
-			}
-			payload = reqs
-		}
-		tc.mu.Lock()
-		defer func() {
-			tc.closeLocked()
-			tc.mu.Unlock()
-		}()
-		if tc.mu.closed {
-			tc.reset.commitErr = moerr.NewTxnClosedNoCtx(tc.reset.txnID)
-			return nil, tc.reset.commitErr
-		}
 
-		if tc.needUnlockLocked() {
-			tc.mu.txn.LockTables = tc.mu.lockTables
-			defer tc.unlock(ctx)
-		}
-	}
+	//var payload []txn.TxnRequest
+	//if commit {
+	//	if tc.reset.workspace != nil {
+	//		reqs, err := tc.reset.workspace.Commit(ctx)
+	//		if err != nil {
+	//			return nil, errors.Join(err, tc.Rollback(ctx))
+	//		}
+	//		payload = reqs
+	//	}
+	//	tc.mu.Lock()
+	//	defer func() {
+	//		tc.closeLocked()
+	//		tc.mu.Unlock()
+	//	}()
+	//	if tc.mu.closed {
+	//		tc.reset.commitErr = moerr.NewTxnClosedNoCtx(tc.reset.txnID)
+	//		return nil, tc.reset.commitErr
+	//	}
+	//
+	//	if tc.needUnlockLocked() {
+	//		tc.mu.txn.LockTables = tc.mu.lockTables
+	//		defer tc.unlock(ctx)
+	//	}
+	//}
 
 	if err := tc.validate(ctx, commit); err != nil {
 		return nil, err
 	}
 
-	var txnReqs []*txn.TxnRequest
-	if payload != nil {
-		v2.TxnCNCommitCounter.Inc()
-		for i := range payload {
-			payload[i].Txn = tc.getTxnMeta(true)
-			txnReqs = append(txnReqs, &payload[i])
-		}
-		tc.updateWritePartitions(payload, commit)
-	}
+	//var txnReqs []*txn.TxnRequest
+	//if payload != nil {
+	//	v2.TxnCNCommitCounter.Inc()
+	//	for i := range payload {
+	//		payload[i].Txn = tc.getTxnMeta(true)
+	//		txnReqs = append(txnReqs, &payload[i])
+	//	}
+	//	tc.updateWritePartitions(payload, commit)
+	//}
 
 	tc.updateWritePartitions(requests, commit)
 
@@ -852,19 +852,19 @@ func (tc *txnOperator) doWrite(ctx context.Context, requests []txn.TxnRequest, c
 	}
 
 	if commit {
-		if len(tc.mu.txn.TNShards) == 0 { // commit no write handled txn
-			tc.mu.txn.Status = txn.TxnStatus_Committed
-			return nil, nil
-		}
+		//if len(tc.mu.txn.TNShards) == 0 { // commit no write handled txn
+		//	tc.mu.txn.Status = txn.TxnStatus_Committed
+		//	return nil, nil
+		//}
 
 		requests = tc.maybeInsertCachedWrites(requests, true)
-		requests = append(requests, txn.TxnRequest{
-			Method: txn.TxnMethod_Commit,
-			Flag:   txn.SkipResponseFlag,
-			CommitRequest: &txn.TxnCommitRequest{
-				Payload:       txnReqs,
-				Disable1PCOpt: tc.opts.options.Is1PCDisabled(),
-			}})
+		//requests = append(requests, txn.TxnRequest{
+		//	Method: txn.TxnMethod_Commit,
+		//	Flag:   txn.SkipResponseFlag,
+		//	CommitRequest: &txn.TxnCommitRequest{
+		//		Payload:       txnReqs,
+		//		Disable1PCOpt: tc.opts.options.Is1PCDisabled(),
+		//	}})
 	}
 	if commit && tc.markAbortedLocked() {
 		tc.reset.commitErr = moerr.NewTxnClosedNoCtx(tc.reset.txnID)
@@ -1011,7 +1011,19 @@ func (tc *txnOperator) doSend(
 	}
 
 	util.LogTxnSendRequests(tc.logger, requests)
-	result, err := tc.sender.Send(ctx, requests)
+
+	var (
+		ok     bool
+		err    error
+		result *rpc.SendResult
+	)
+
+	if result, err, ok = tc.agg.aggSendTxnRequest(ctx, requests, tc, commit); err != nil {
+		return nil, err
+	} else if !ok {
+		result, err = tc.sender.Send(ctx, requests)
+	}
+
 	if err != nil {
 		util.LogTxnSendRequestsFailed(tc.logger, requests, err)
 		return nil, err

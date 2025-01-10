@@ -20,10 +20,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/matrixorigin/matrixone/pkg/container/types"
-	"github.com/matrixorigin/matrixone/pkg/defines"
 	"github.com/matrixorigin/matrixone/pkg/pb/lock"
-	"github.com/matrixorigin/matrixone/pkg/pb/metadata"
 	"github.com/panjf2000/ants/v2"
 	"math"
 	"runtime/debug"
@@ -171,6 +168,7 @@ type aggRet struct {
 
 type txnPair struct {
 	ctx      context.Context
+	extra    []txn.TxnRequest
 	tc       *txnOperator
 	notifier chan aggRet
 }
@@ -182,6 +180,7 @@ type txnAggregator struct {
 
 	chanPool sync.Pool
 
+	client             *txnClient
 	nonCommitReqWorker *ants.Pool
 	newTxnMeta         func() txn.TxnMeta
 }
@@ -191,8 +190,9 @@ func newTxnAggregator(c *txnClient) *txnAggregator {
 
 	agg.sender = c.sender
 	agg.ctx = context.Background()
-	agg.queue = sm.NewSafeQueue(10000, 2, agg.onTxnRequests)
+	agg.queue = sm.NewSafeQueue(10000, 1, agg.onTxnRequests)
 	agg.newTxnMeta = c.newTxnMeta
+	agg.client = c
 
 	agg.chanPool = sync.Pool{
 		New: func() any {
@@ -217,6 +217,7 @@ func (agg *txnAggregator) requireChan() (chan aggRet, func()) {
 
 func (agg *txnAggregator) aggSendTxnRequest(
 	ctx context.Context,
+	extra []txn.TxnRequest,
 	tc *txnOperator,
 	isCommit bool,
 ) (*rpc.SendResult, error, bool) {
@@ -225,8 +226,13 @@ func (agg *txnAggregator) aggSendTxnRequest(
 		return nil, nil, false
 	}
 
-	if val := ctx.Value(defines.TemporaryTN{}); val != nil {
-		return nil, nil, false
+	//if val := ctx.Value(defines.TemporaryTN{}); val != nil {
+	//	return nil, nil, false
+	//}
+
+	if !tc.reset.workspace.Readonly() {
+		_, err := tc.reset.workspace.Commit(ctx)
+		return nil, err, false
 	}
 
 	ch, reuse := agg.requireChan()
@@ -237,16 +243,18 @@ func (agg *txnAggregator) aggSendTxnRequest(
 	tp := txnPair{
 		ctx:      ctx,
 		notifier: ch,
+		tc:       tc,
+		extra:    extra,
 	}
 
 	tp.tc = tc
 	agg.queue.Enqueue(tp)
 
-	ticker := time.NewTicker(time.Second * 5)
+	ticker := time.NewTicker(time.Minute)
 	for {
 		select {
 		case <-ticker.C:
-			fmt.Println("wait for 5s", tc)
+			fmt.Println("wait for 1min", tc.reset.workspace)
 		case ret := <-ch:
 			return ret.ret, ret.err, true
 		}
@@ -283,10 +291,7 @@ func (agg *txnAggregator) onTxnRequests(items ...any) {
 	}
 
 	var (
-		minTS   = types.MaxTs().ToTimestamp()
-		maxTS   = types.MinTs().ToTimestamp()
-		tnShard []metadata.TNShard
-		lts     []lock.LockTable
+		lts []lock.LockTable
 	)
 
 	times++
@@ -298,13 +303,71 @@ func (agg *txnAggregator) onTxnRequests(items ...any) {
 		totalCnt = 0
 	}
 
+	var ws Workspace
 	for _, item := range items {
 		tp := item.(txnPair)
 
+		if ws == nil {
+			ws = tp.tc.reset.workspace.CloneSnapshotWS()
+		}
+
+		meta := tp.tc.getTxnMeta(true)
+		lts = append(lts, meta.LockTables...)
+
+		_, err := tp.tc.reset.workspace.Commit(tp.ctx)
+		if err != nil {
+			tp.notifier <- aggRet{
+				err: err,
+			}
+		}
+
+		tp.tc.reset.workspace.DumpWritesTo(ws)
 	}
 
-	aggCommitReq.Txn.SnapshotTS = maxTS
-	aggCommitReq.Txn.TNShards = tnShard[:1]
+	if ws == nil {
+		panic("workspace is nil")
+	}
+
+	notifyAllByErr := func(e error) {
+		for _, item := range items {
+			tp := item.(txnPair)
+			tp.notifier <- aggRet{
+				err: e,
+			}
+		}
+	}
+
+	op, err := agg.client.New(agg.ctx, timestamp.Timestamp{}, WithSkipPushClientReady())
+	if err != nil {
+		notifyAllByErr(err)
+	}
+
+	ws.BindTxnOp(op)
+
+	if err = ws.TransferTombstonesByCommit(agg.ctx); err != nil {
+		notifyAllByErr(err)
+	}
+
+	requests, err := ws.GenWriteReqs(agg.ctx)
+	if err != nil {
+		notifyAllByErr(err)
+	}
+
+	if len(requests) == 0 {
+		notifyAllByErr(nil)
+	}
+
+	for _, item := range items {
+		tp := item.(txnPair)
+		requests = append(tp.extra, requests...)
+	}
+
+	for i := range requests {
+		fmt.Println(logTxnRequest(requests[i]))
+	}
+	fmt.Println()
+
+	aggCommitReq.Txn = op.Txn()
 	aggCommitReq.Txn.LockTables = lts
 
 	ctx, cancel := context.WithTimeout(agg.ctx, time.Minute*5)

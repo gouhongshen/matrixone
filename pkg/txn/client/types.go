@@ -282,6 +282,10 @@ type Workspace interface {
 
 	// debug & test
 	PPString() string
+
+	GenWriteReqs(ctx context.Context) ([]txn.TxnRequest, error)
+	TransferTombstonesByCommit(context.Context) error
+	DumpWritesTo(Workspace)
 }
 
 // TxnOverview txn overview include meta and status

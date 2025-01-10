@@ -159,6 +159,18 @@ func (w *Ws) PPString() string {
 	return ""
 }
 
+func (w *Ws) GenWriteReqs(ctx context.Context) ([]txn.TxnRequest, error) {
+	return nil, nil
+}
+
+func (w *Ws) TransferTombstonesByCommit(context.Context) error {
+	return nil
+}
+
+func (w *Ws) DumpWritesTo(workspace client.Workspace) {
+	return
+}
+
 func NewMockCompile() *Compile {
 	return &Compile{
 		proc: testutil.NewProcess(),

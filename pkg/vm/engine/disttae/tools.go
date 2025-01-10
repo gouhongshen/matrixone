@@ -34,11 +34,10 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/txn/trace"
 )
 
-func genWriteReqs(
+func (trxn *Transaction) GenWriteReqs(
 	ctx context.Context,
-	txnCommit *Transaction,
 ) ([]txn.TxnRequest, error) {
-	writes, tablesInVain, op := txnCommit.writes, txnCommit.tablesInVain, txnCommit.op
+	writes, tablesInVain, op := trxn.writes, trxn.tablesInVain, trxn.op
 	var pkChkByTN int8
 	if v := ctx.Value(defines.PkCheckByTN{}); v != nil {
 		pkChkByTN = v.(int8)
@@ -52,7 +51,7 @@ func genWriteReqs(
 			tn = e.tnStore
 		}
 		if tnID != "" && tnID != e.tnStore.ServiceID {
-			panic(fmt.Sprintf("txnCommit contains entries from different TNs, %s != %s", tnID, e.tnStore.ServiceID))
+			panic(fmt.Sprintf("trxn contains entries from different TNs, %s != %s", tnID, e.tnStore.ServiceID))
 		}
 		if e.bat == nil || e.bat.IsEmpty() {
 			continue
@@ -85,7 +84,7 @@ func genWriteReqs(
 	if len(entries) == 0 {
 		return nil, nil
 	}
-	trace.GetService(txnCommit.proc.GetService()).TxnCommit(op, entries)
+	trace.GetService(trxn.proc.GetService()).TxnCommit(op, entries)
 	reqs := make([]txn.TxnRequest, 0, len(entries))
 	payload, err := types.Encode(&api.PrecommitWriteCmd{EntryList: entries})
 	if err != nil {
