@@ -38,6 +38,7 @@ func (c *DashboardCreator) initLogTailDashboard() error {
 			c.initLogtailTransmitRow(),
 			c.initLogtailSubscriptionRow(),
 			c.initLogtailUpdatePartitionRow(),
+			c.initLogtailPStateRow(),
 		)...)
 	if err != nil {
 		return err
@@ -128,6 +129,24 @@ func (c *DashboardCreator) initLogtailQueueRow() dashboard.Option {
 			4,
 			`sum(rate(`+c.getMetricWithFilter("mo_logtail_load_checkpoint_total", "")+`[$interval])) by (`+c.by+`)`,
 			"{{ "+c.by+" }}"),
+	)
+}
+
+func (c *DashboardCreator) initLogtailPStateRow() dashboard.Option {
+	return dashboard.Row(
+		"Logtail PState Status",
+
+		c.withMultiGraph(
+			"row count",
+			12,
+			[]string{
+				`sum(` + c.getMetricWithFilter("mo_logtail_pstate_size", `type="rows"`) + `)`,
+				`sum(` + c.getMetricWithFilter("mo_logtail_pstate_size", `type="in-use"`) + `)`,
+			},
+			[]string{
+				"rows",
+				"in-use",
+			}),
 	)
 }
 

@@ -18,7 +18,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
 	"math"
+	"runtime"
 	"runtime/trace"
 	"sync/atomic"
 
@@ -99,6 +101,8 @@ func (p *PartitionState) Desc() string {
 	return fmt.Sprintf("PartitionState(tid:%d) objLen %v, rowsLen %v", p.tid, p.dataObjectsNameIndex.Len(), p.rows.Len())
 }
 
+var stats runtime.MemStats
+
 func (p *PartitionState) HandleLogtailEntry(
 	ctx context.Context,
 	fs fileservice.FileService,
@@ -107,6 +111,13 @@ func (p *PartitionState) HandleLogtailEntry(
 	packer *types.Packer,
 	pool *mpool.MPool,
 ) {
+	defer func() {
+		v2.LogtailPStateRowsGauge.Set(float64(p.rows.Len()))
+
+		runtime.ReadMemStats(&stats)
+		v2.LogtailPStateInuseGauge.Set(float64(stats.HeapInuse))
+	}()
+
 	txnTrace.GetService(p.service).ApplyLogtail(entry, 1)
 	switch entry.EntryType {
 	case api.Entry_Insert:

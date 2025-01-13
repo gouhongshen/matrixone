@@ -12,3 +12,13 @@ port-base = 18000
 check-fraction = 65536
 enable-metrics = true
 
+[observability]
+enable-metric-to-prom = true
+
+[[fileservice]]
+name = "SHARED"
+backend = "DISK"
+data-dir = "mo-data/shared"
+
+[fileservice.cache]
+memory-capacity = "4GB"

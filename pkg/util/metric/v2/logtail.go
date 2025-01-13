@@ -175,3 +175,16 @@ var (
 			Help:      "Total numbers of logtail subscription the tn have received.",
 		})
 )
+
+var (
+	logTailPStateGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "mo",
+			Subsystem: "logtail",
+			Name:      "pstate_size",
+			Help:      "Size of logtail queue size.",
+		}, []string{"type"})
+
+	LogtailPStateRowsGauge  = logTailPStateGauge.WithLabelValues("rows")
+	LogtailPStateInuseGauge = logTailPStateGauge.WithLabelValues("in-use")
+)
