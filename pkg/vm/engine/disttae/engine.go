@@ -15,6 +15,7 @@
 package disttae
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -138,10 +139,43 @@ func New(
 	e.pClient.LogtailRPCClientFactory = DefaultNewRpcStreamToTnLogTailService
 	e.pClient.ctx = ctx
 
-	err = initMoTableStatsConfig(ctx, e)
-	if err != nil {
-		panic(err)
-	}
+	//err = initMoTableStatsConfig(ctx, e)
+	//if err != nil {
+	//	panic(err)
+	//}
+
+	go func() {
+		ticker := time.NewTicker(time.Second * 10)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+
+			case <-ticker.C:
+				buf := bytes.Buffer{}
+				m1 := make(map[uint64]float64)
+				m2 := make(map[uint64]float64)
+
+				e.MM.Range(func(key, value any) bool {
+					xxx := value.(logtailreplay.XXX)
+					//xxx := key.(logtailreplay.XXX)
+
+					dur := time.Now().Sub(xxx.Born)
+
+					m1[xxx.Tid]++
+					m2[xxx.Tid] += dur.Seconds()
+
+					return true
+				})
+
+				for tid, cnt := range m1 {
+					totalDur := m2[tid]
+					buf.WriteString(fmt.Sprintf("%7d: %v, %.3f s\n", tid, cnt, totalDur/cnt))
+				}
+				fmt.Println(buf.String())
+			}
+		}
+	}()
 
 	return e
 }

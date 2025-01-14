@@ -1518,6 +1518,7 @@ func GetMOTableStatsExecutor(
 	sqlExecutor func() ie.InternalExecutor,
 ) func(ctx context.Context, task task.Task) error {
 	return func(ctx context.Context, task task.Task) error {
+		return nil
 		return eng.(*Engine).dynamicCtx.tableStatsExecutor(ctx, service, eng)
 	}
 }
@@ -1698,6 +1699,8 @@ func (d *dynamicCtx) alphaTask(
 	tbls []tablePair,
 	caller string,
 ) (timeout bool, err error) {
+
+	return
 
 	// maybe the task exited, need to launch a new one
 	d.launchTask(betaTaskName)

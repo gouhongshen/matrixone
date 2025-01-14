@@ -268,6 +268,8 @@ type Engine struct {
 	dynamicCtx
 	// for test only.
 	skipConsume bool
+
+	MM sync.Map
 }
 
 func (e *Engine) SetService(svr string) {

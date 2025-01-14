@@ -16,7 +16,11 @@ package logtailreplay
 
 import (
 	"context"
+	"fmt"
+	"runtime"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
@@ -36,6 +40,8 @@ type Partition struct {
 
 	TableInfo   TableInfo
 	TableInfoOK bool
+
+	MM *sync.Map
 }
 
 type TableInfo struct {
@@ -44,16 +50,36 @@ type TableInfo struct {
 	PrimarySeqnum int
 }
 
+type XXX struct {
+	Tid  uint64
+	Born time.Time
+}
+
 func NewPartition(
+	mm *sync.Map,
 	service string,
 	id uint64,
 ) *Partition {
 	lock := make(chan struct{}, 1)
 	lock <- struct{}{}
 	ret := &Partition{
+		MM:   mm,
 		lock: lock,
 	}
-	ret.state.Store(NewPartitionState(service, false, id))
+
+	ps := NewPartitionState(service, false, id)
+	ret.state.Store(ps)
+
+	str := fmt.Sprintf("%p", ps)
+	mm.Store(str, XXX{
+		Tid:  id,
+		Born: time.Now(),
+	})
+	runtime.SetFinalizer(ps, func(x *PartitionState) {
+		str = fmt.Sprintf("%p", x)
+		mm.Delete(str)
+	})
+
 	return ret
 }
 
@@ -68,6 +94,17 @@ func (*Partition) CheckPoint(ctx context.Context, ts timestamp.Timestamp) error 
 func (p *Partition) MutateState() (*PartitionState, func()) {
 	curState := p.state.Load()
 	state := curState.Copy()
+
+	str := fmt.Sprintf("%p", state)
+	p.MM.Store(str, XXX{
+		Tid:  state.tid,
+		Born: time.Now(),
+	})
+	runtime.SetFinalizer(state, func(x *PartitionState) {
+		str = fmt.Sprintf("%p", x)
+		p.MM.Delete(str)
+	})
+
 	return state, func() {
 		if !p.state.CompareAndSwap(curState, state) {
 			panic("concurrent mutation")
@@ -176,6 +213,16 @@ func (p *Partition) ConsumeCheckpoints(
 
 	state := curState.Copy()
 
+	str := fmt.Sprintf("%p", state)
+	p.MM.Store(str, XXX{
+		Tid:  state.tid,
+		Born: time.Now(),
+	})
+	runtime.SetFinalizer(state, func(x *PartitionState) {
+		str = fmt.Sprintf("%p", x)
+		p.MM.Delete(str)
+	})
+
 	//consume checkpoints.
 	if err := state.consumeCheckpoints(fn); err != nil {
 		return err
@@ -199,6 +246,16 @@ func (p *Partition) Truncate(ctx context.Context, ids [2]uint64, ts types.TS) er
 	curState := p.state.Load()
 
 	state := curState.Copy()
+
+	str := fmt.Sprintf("%p", state)
+	p.MM.Store(str, XXX{
+		Tid:  state.tid,
+		Born: time.Now(),
+	})
+	runtime.SetFinalizer(state, func(x *PartitionState) {
+		str = fmt.Sprintf("%p", x)
+		p.MM.Delete(str)
+	})
 
 	state.truncate(ids, ts)
 
