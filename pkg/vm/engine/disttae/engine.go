@@ -163,14 +163,15 @@ func New(
 					dur := time.Now().Sub(xxx.Born)
 
 					m1[xxx.Tid]++
-					m2[xxx.Tid] += dur.Seconds()
+					m2[xxx.Tid] = max(m2[xxx.Tid], dur.Seconds())
 
 					return true
 				})
 
 				for tid, cnt := range m1 {
-					totalDur := m2[tid]
-					buf.WriteString(fmt.Sprintf("%7d: %v, %.3f s\n", tid, cnt, totalDur/cnt))
+					top1 := m2[tid]
+
+					buf.WriteString(fmt.Sprintf("%8d: %7v, %.3fs\n", tid, cnt, top1))
 				}
 				fmt.Println(buf.String())
 			}

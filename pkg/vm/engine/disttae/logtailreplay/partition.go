@@ -51,6 +51,7 @@ type TableInfo struct {
 }
 
 type XXX struct {
+	Rows uint64
 	Tid  uint64
 	Born time.Time
 }
