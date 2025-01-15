@@ -18,6 +18,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -154,24 +156,57 @@ func New(
 			case <-ticker.C:
 				buf := bytes.Buffer{}
 				m1 := make(map[uint64]float64)
-				m2 := make(map[uint64]float64)
+				m2 := make(map[uint64][]float64)
 
 				e.MM.Range(func(key, value any) bool {
 					xxx := value.(logtailreplay.XXX)
 					//xxx := key.(logtailreplay.XXX)
 
-					dur := time.Now().Sub(xxx.Born)
+					dur := time.Now().Sub(xxx.Born).Seconds()
 
 					m1[xxx.Tid]++
-					m2[xxx.Tid] = max(m2[xxx.Tid], dur.Seconds())
+					m2[xxx.Tid] = append(m2[xxx.Tid], math.Floor(dur*100)/100)
+
+					//if len(m2[xxx.Tid]) != 3 {
+					//	m2[xxx.Tid] = []float64{0, 0, 0}
+					//}
+					//
+					//if dur > m2[xxx.Tid][0] {
+					//	m2[xxx.Tid][0], dur = dur, m2[xxx.Tid][0]
+					//}
+					//
+					//if dur > m2[xxx.Tid][1] {
+					//	m2[xxx.Tid][1], dur = dur, m2[xxx.Tid][1]
+					//}
+					//
+					//if dur > m2[xxx.Tid][2] {
+					//	m2[xxx.Tid][2], dur = dur, m2[xxx.Tid][2]
+					//}
 
 					return true
 				})
 
 				for tid, cnt := range m1 {
-					top1 := m2[tid]
+					//ss := "nil"
 
-					buf.WriteString(fmt.Sprintf("%8d: %7v, %.3fs\n", tid, cnt, top1))
+					if cnt < 100 {
+						continue
+					}
+					//if cnt > 300 && m2[tid][0] > 60 {
+					//	ss = m3[tid]
+					//}
+					slices.Sort(m2[tid])
+
+					//buf.WriteString(fmt.Sprintf("%8d: %7v, [%8.3f, %8.3f, %8.3f]\n",
+					//	tid, cnt, m2[tid][0], m2[tid][1], m2[tid][2], ))
+
+					buf.WriteString(fmt.Sprintf("%8d: %7v, [%v, %v, %v, %v, %v]\n",
+						tid, cnt,
+						m2[tid][int(cnt)/20],
+						m2[tid][int(cnt)/10],
+						m2[tid][int(cnt)/5],
+						m2[tid][int(cnt)/2],
+						m2[tid][int(cnt)-1]))
 				}
 				fmt.Println(buf.String())
 			}

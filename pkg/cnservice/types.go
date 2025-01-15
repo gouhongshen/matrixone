@@ -400,7 +400,7 @@ func (c *Config) Validate() error {
 		c.Txn.MaxActiveAges.Duration = time.Minute * 2
 	}
 	if c.Txn.MaxActive == 0 {
-		c.Txn.MaxActive = runtime.NumCPU() * 4
+		c.Txn.MaxActive = max(runtime.NumCPU()*4, 200)
 	}
 	c.LockService.ServiceID = c.UUID
 	c.LockService.Validate()
@@ -551,7 +551,7 @@ func (c *Config) SetDefaultValue() {
 		c.Txn.MaxActiveAges.Duration = time.Minute * 2
 	}
 	if c.Txn.MaxActive == 0 {
-		c.Txn.MaxActive = runtime.NumCPU() * 4
+		c.Txn.MaxActive = max(runtime.NumCPU()*4, 200)
 	}
 	c.Txn.NormalStateNoWait = false
 	c.LockService.ServiceID = c.UUID

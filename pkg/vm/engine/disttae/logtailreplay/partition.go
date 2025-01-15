@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -51,9 +52,10 @@ type TableInfo struct {
 }
 
 type XXX struct {
-	Rows uint64
-	Tid  uint64
-	Born time.Time
+	Rows  uint64
+	Stack string
+	Tid   uint64
+	Born  time.Time
 }
 
 func NewPartition(
@@ -73,8 +75,9 @@ func NewPartition(
 
 	str := fmt.Sprintf("%p", ps)
 	mm.Store(str, XXX{
-		Tid:  id,
-		Born: time.Now(),
+		Stack: string(debug.Stack()),
+		Tid:   id,
+		Born:  time.Now(),
 	})
 	runtime.SetFinalizer(ps, func(x *PartitionState) {
 		str = fmt.Sprintf("%p", x)
@@ -98,8 +101,9 @@ func (p *Partition) MutateState() (*PartitionState, func()) {
 
 	str := fmt.Sprintf("%p", state)
 	p.MM.Store(str, XXX{
-		Tid:  state.tid,
-		Born: time.Now(),
+		Stack: string(debug.Stack()),
+		Tid:   state.tid,
+		Born:  time.Now(),
 	})
 	runtime.SetFinalizer(state, func(x *PartitionState) {
 		str = fmt.Sprintf("%p", x)
@@ -216,8 +220,9 @@ func (p *Partition) ConsumeCheckpoints(
 
 	str := fmt.Sprintf("%p", state)
 	p.MM.Store(str, XXX{
-		Tid:  state.tid,
-		Born: time.Now(),
+		Stack: string(debug.Stack()),
+		Tid:   state.tid,
+		Born:  time.Now(),
 	})
 	runtime.SetFinalizer(state, func(x *PartitionState) {
 		str = fmt.Sprintf("%p", x)
@@ -250,8 +255,9 @@ func (p *Partition) Truncate(ctx context.Context, ids [2]uint64, ts types.TS) er
 
 	str := fmt.Sprintf("%p", state)
 	p.MM.Store(str, XXX{
-		Tid:  state.tid,
-		Born: time.Now(),
+		Stack: string(debug.Stack()),
+		Tid:   state.tid,
+		Born:  time.Now(),
 	})
 	runtime.SetFinalizer(state, func(x *PartitionState) {
 		str = fmt.Sprintf("%p", x)
