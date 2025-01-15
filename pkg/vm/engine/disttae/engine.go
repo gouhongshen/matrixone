@@ -202,10 +202,10 @@ func New(
 
 					buf.WriteString(fmt.Sprintf("%8d: %7v, [%v, %v, %v, %v, %v]\n",
 						tid, cnt,
-						m2[tid][int(cnt)/20],
 						m2[tid][int(cnt)/10],
 						m2[tid][int(cnt)/5],
 						m2[tid][int(cnt)/2],
+						m2[tid][int(cnt)*4/5],
 						m2[tid][int(cnt)-1]))
 				}
 				fmt.Println(buf.String())
