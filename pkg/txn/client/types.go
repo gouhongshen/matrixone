@@ -94,6 +94,8 @@ type TxnClient interface {
 	IterTxns(func(TxnOverview) bool)
 	// GetState returns the current state of txn client.
 	GetState() TxnState
+
+	AttachBatchCommitter(bc BatchCommitter)
 }
 
 type TxnState struct {
@@ -282,6 +284,8 @@ type Workspace interface {
 
 	// debug & test
 	PPString() string
+
+	TransferTombstoneByCommit(ctx context.Context) error
 }
 
 // TxnOverview txn overview include meta and status
@@ -323,4 +327,22 @@ func (e TxnEvent) Committed() bool {
 
 func (e TxnEvent) Aborted() bool {
 	return e.Txn.Status == txn.TxnStatus_Aborted
+}
+
+type BatchCommitResp struct {
+	Err    error
+	RPCRet *rpc.SendResult
+}
+
+type BatchCommitReq struct {
+	Extra  []txn.TxnRequest
+	WS     Workspace
+	Meta   txn.TxnMeta
+	Ctx    context.Context
+	Commit bool
+	//LockTables []lock.LockTable
+}
+
+type BatchCommitter interface {
+	BatchCommit(reqs BatchCommitReq) BatchCommitResp
 }

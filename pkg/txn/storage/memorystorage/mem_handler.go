@@ -1013,6 +1013,8 @@ func (m *MemHandler) HandleNewTableIter(ctx context.Context, meta txn.TxnMeta, r
 	resp.IterID = id
 	m.iterators.Map[id] = iter
 
+	fmt.Println("MemHandler.HandleNewTableIter", meta.ID, id)
+
 	return nil
 }
 
@@ -1075,6 +1077,8 @@ func (m *MemHandler) HandleOpenRelation(ctx context.Context, meta txn.TxnMeta, r
 
 func (m *MemHandler) HandleRead(ctx context.Context, meta txn.TxnMeta, req *memoryengine.ReadReq, resp *memoryengine.ReadResp) error {
 	resp.SetHeap(m.mheap)
+
+	fmt.Println("MemHandler.HandleRead", meta.ID, req.IterID)
 
 	m.iterators.Lock()
 	iter, ok := m.iterators.Map[req.IterID]
@@ -1186,6 +1190,7 @@ func (m *MemHandler) HandleWrite(ctx context.Context, meta txn.TxnMeta, req *mem
 			row *DataRow,
 			_ types.Rowid,
 		) error {
+			fmt.Println("MemHandler.HandleWrite", meta.ID, row.String())
 			if err := m.data.Insert(tx, *row); err != nil {
 				return err
 			}

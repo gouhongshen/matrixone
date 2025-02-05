@@ -64,6 +64,10 @@ func (s *StorageTxnClient) New(
 	}, nil
 }
 
+func (s *StorageTxnClient) AttachBatchCommitter(bc client.BatchCommitter) {
+	panic("unimplemented")
+}
+
 func (s *StorageTxnClient) RestartTxn(
 	ctx context.Context,
 	op client.TxnOperator,

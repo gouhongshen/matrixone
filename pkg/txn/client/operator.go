@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/defines"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -272,6 +273,8 @@ type txnOperator struct {
 		options            txn.TxnOptions
 		waitActiveHandle   func()
 	}
+
+	bc BatchCommitter
 }
 
 func newTxnOperator(
@@ -802,14 +805,14 @@ func (tc *txnOperator) doWrite(ctx context.Context, requests []txn.TxnRequest, c
 	if tc.opts.options.ReadOnly() {
 		tc.logger.Fatal("can not write on ready only transaction")
 	}
-	var payload []txn.TxnRequest
+	//var payload []txn.TxnRequest
 	if commit {
 		if tc.reset.workspace != nil {
-			reqs, err := tc.reset.workspace.Commit(ctx)
+			_, err := tc.reset.workspace.Commit(ctx)
 			if err != nil {
 				return nil, errors.Join(err, tc.Rollback(ctx))
 			}
-			payload = reqs
+			//payload = reqs
 		}
 		tc.mu.Lock()
 		defer func() {
@@ -831,15 +834,15 @@ func (tc *txnOperator) doWrite(ctx context.Context, requests []txn.TxnRequest, c
 		return nil, err
 	}
 
-	var txnReqs []*txn.TxnRequest
-	if payload != nil {
-		v2.TxnCNCommitCounter.Inc()
-		for i := range payload {
-			payload[i].Txn = tc.getTxnMeta(true)
-			txnReqs = append(txnReqs, &payload[i])
-		}
-		tc.updateWritePartitions(payload, commit)
-	}
+	//var txnReqs []*txn.TxnRequest
+	//if payload != nil {
+	//	v2.TxnCNCommitCounter.Inc()
+	//	for i := range payload {
+	//		payload[i].Txn = tc.getTxnMeta(true)
+	//		txnReqs = append(txnReqs, &payload[i])
+	//	}
+	//	tc.updateWritePartitions(payload, commit)
+	//}
 
 	tc.updateWritePartitions(requests, commit)
 
@@ -849,19 +852,19 @@ func (tc *txnOperator) doWrite(ctx context.Context, requests []txn.TxnRequest, c
 	}
 
 	if commit {
-		if len(tc.mu.txn.TNShards) == 0 { // commit no write handled txn
-			tc.mu.txn.Status = txn.TxnStatus_Committed
-			return nil, nil
-		}
+		//if len(tc.mu.txn.TNShards) == 0 { // commit no write handled txn
+		//	tc.mu.txn.Status = txn.TxnStatus_Committed
+		//	return nil, nil
+		//}
 
 		requests = tc.maybeInsertCachedWrites(requests, true)
-		requests = append(requests, txn.TxnRequest{
-			Method: txn.TxnMethod_Commit,
-			Flag:   txn.SkipResponseFlag,
-			CommitRequest: &txn.TxnCommitRequest{
-				Payload:       txnReqs,
-				Disable1PCOpt: tc.opts.options.Is1PCDisabled(),
-			}})
+		//requests = append(requests, txn.TxnRequest{
+		//	Method: txn.TxnMethod_Commit,
+		//	Flag:   txn.SkipResponseFlag,
+		//	CommitRequest: &txn.TxnCommitRequest{
+		//		Payload:       txnReqs,
+		//		Disable1PCOpt: tc.opts.options.Is1PCDisabled(),
+		//	}})
 	}
 	if commit && tc.markAbortedLocked() {
 		tc.reset.commitErr = moerr.NewTxnClosedNoCtx(tc.reset.txnID)
@@ -1008,7 +1011,36 @@ func (tc *txnOperator) doSend(
 	}
 
 	util.LogTxnSendRequests(tc.logger, requests)
-	result, err := tc.sender.Send(ctx, requests)
+
+	var err error
+	var result *rpc.SendResult
+
+	//readOnly := tc.reset.workspace.Readonly()
+
+	if len(tc.mu.txn.TNShards) > 0 {
+		if tc.mu.txn.TNShards[0].Address == defines.TEMPORARY_TABLE_TN_ADDR {
+			//x := 0
+			//x++
+		}
+	}
+
+	ret := tc.bc.BatchCommit(BatchCommitReq{
+		Commit: commit,
+		Ctx:    ctx,
+		Extra:  requests,
+		Meta:   txnMeta,
+		WS:     tc.reset.workspace,
+	})
+
+	result = ret.RPCRet
+	err = ret.Err
+
+	if result == nil && err == nil {
+		// no tn target specified
+		tc.mu.txn.Status = txn.TxnStatus_Committed
+		return nil, nil
+	}
+
 	if err != nil {
 		util.LogTxnSendRequestsFailed(tc.logger, requests, err)
 		return nil, err
@@ -1036,6 +1068,10 @@ func (tc *txnOperator) doSend(
 func (tc *txnOperator) handleError(result *rpc.SendResult, err error) (*rpc.SendResult, error) {
 	if err != nil {
 		return nil, err
+	}
+
+	if result == nil {
+		return nil, nil
 	}
 
 	for _, resp := range result.Responses {
@@ -1197,6 +1233,10 @@ func (tc *txnOperator) checkResponseTxnStatusForRollback(resp txn.TxnResponse) e
 func (tc *txnOperator) trimResponses(result *rpc.SendResult, err error) (*rpc.SendResult, error) {
 	if err != nil {
 		return nil, err
+	}
+
+	if result == nil {
+		return nil, nil
 	}
 
 	values := result.Responses[:0]

@@ -209,6 +209,12 @@ type txnClient struct {
 	}
 
 	abortC chan time.Time
+
+	bc BatchCommitter
+}
+
+func (client *txnClient) AttachBatchCommitter(bc BatchCommitter) {
+	client.bc = bc
 }
 
 func (client *txnClient) GetState() TxnState {
@@ -286,6 +292,9 @@ func (client *txnClient) New(
 		client.newTxnMeta(),
 		client.getTxnOptions(options)...,
 	)
+
+	op.bc = client.bc
+
 	return client.doCreateTxn(
 		ctx,
 		op,

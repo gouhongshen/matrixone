@@ -17,6 +17,7 @@ package disttae
 import (
 	"context"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/txn/rpc"
 	"strings"
 	"sync"
 	"time"
@@ -67,6 +68,7 @@ func New(
 	mp *mpool.MPool,
 	fs fileservice.FileService,
 	cli client.TxnClient,
+	sender rpc.TxnSender,
 	hakeeper logservice.CNHAKeeperClient,
 	keyRouter client2.KeyRouter[pb.StatsInfoKey],
 	updateWorkerFactor int,
@@ -142,6 +144,9 @@ func New(
 	if err != nil {
 		panic(err)
 	}
+
+	bc := NewBatchCommiter(ctx, e, cli, sender)
+	cli.AttachBatchCommitter(bc)
 
 	return e
 }

@@ -1312,7 +1312,7 @@ func (txn *Transaction) Commit(ctx context.Context) ([]txn.TxnRequest, error) {
 		)
 	})
 
-	defer txn.delTransaction()
+	//defer txn.delTransaction()
 	if txn.readOnly.Load() {
 		return nil, nil
 	}
@@ -1321,9 +1321,9 @@ func (txn *Transaction) Commit(ctx context.Context) ([]txn.TxnRequest, error) {
 		return nil, err
 	}
 
-	if err := txn.transferTombstonesByCommit(ctx); err != nil {
-		return nil, err
-	}
+	//if err := txn.transferTombstonesByCommit(ctx); err != nil {
+	//	return nil, err
+	//}
 
 	if err := txn.mergeTxnWorkspaceLocked(ctx); err != nil {
 		return nil, err
@@ -1364,11 +1364,12 @@ func (txn *Transaction) Commit(ctx context.Context) ([]txn.TxnRequest, error) {
 			return nil, err
 		}
 	}
-	reqs, err := genWriteReqs(ctx, txn)
-	if err != nil {
-		return nil, err
-	}
-	return reqs, nil
+	//reqs, err := genWriteReqs(ctx, txn)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//return reqs, nil
+	return nil, nil
 }
 
 func (txn *Transaction) transferTombstonesByStatement(
@@ -1400,7 +1401,7 @@ func (txn *Transaction) transferTombstonesByStatement(
 	return nil
 }
 
-func (txn *Transaction) transferTombstonesByCommit(ctx context.Context) error {
+func (txn *Transaction) TransferTombstoneByCommit(ctx context.Context) error {
 	txn.Lock()
 	defer txn.Unlock()
 

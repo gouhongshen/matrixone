@@ -159,6 +159,10 @@ func (w *Ws) PPString() string {
 	return ""
 }
 
+func (w *Ws) TransferTombstoneByCommit(ctx context.Context) error {
+	return nil
+}
+
 func NewMockCompile() *Compile {
 	return &Compile{
 		proc: testutil.NewProcess(),

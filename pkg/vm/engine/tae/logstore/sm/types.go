@@ -49,7 +49,7 @@ func (c *ClosedState) TryClose() bool {
 type Queue interface {
 	Start()
 	Stop()
-
+	Len() int
 	// Enqueue puts an item into this queue
 	// it will return directly when if it is an unblocking queue and there has no more free space,
 	// and ErrFull will be return to notify the producer.

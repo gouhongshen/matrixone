@@ -40,6 +40,11 @@ func (s *service) initDistributedTAE(
 	if err != nil {
 		return err
 	}
+
+	sender, err := s.getTxnSender()
+	if err != nil {
+		return err
+	}
 	pu.TxnClient = client
 
 	// hakeeper
@@ -74,6 +79,7 @@ func (s *service) initDistributedTAE(
 		distributeTaeMp,
 		fs,
 		client,
+		sender,
 		hakeeper,
 		s.gossipNode.StatsKeyRouter(),
 		s.cfg.LogtailUpdateWorkerFactor,

@@ -59,6 +59,10 @@ func (txn *testWorkspace) PPString() string {
 	return ""
 }
 
+func (txn *testWorkspace) TransferTombstoneByCommit(ctx context.Context) error {
+	return nil
+}
+
 func (txn *testWorkspace) UpdateSnapshotWriteOffset() {
 	//TODO implement me
 	// panic("implement me")

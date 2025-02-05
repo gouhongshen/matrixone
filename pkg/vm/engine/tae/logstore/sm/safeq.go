@@ -61,6 +61,10 @@ func NewNonBlockingQueue(queueSize int, batchSize int, onItem OnItemsCB) *safeQu
 	return q
 }
 
+func (q *safeQueue) Len() int {
+	return len(q.queue)
+}
+
 func (q *safeQueue) Start() {
 	q.state.Store(Running)
 	q.wg.Add(1)
