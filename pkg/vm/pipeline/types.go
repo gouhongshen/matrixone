@@ -29,6 +29,8 @@ type Pipeline struct {
 	// orders to be executed
 	// instructions vm.Instructions
 	rootOp vm.Operator
+
+	OriginSql string
 }
 
 func IsCtePipelineAtLoop(rootOp vm.Operator) (isMergeCte bool, atLoop bool) {

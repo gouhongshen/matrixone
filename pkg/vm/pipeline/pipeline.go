@@ -17,6 +17,9 @@ package pipeline
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"runtime/debug"
+	"strings"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
@@ -61,6 +64,11 @@ func (p *Pipeline) RunWithReader(r engine.Reader, topValueMsgTag int32, proc *pr
 
 func (p *Pipeline) Run(proc *process.Process) (end bool, err error) {
 	defer catchPanic(proc.Ctx, &err)
+
+	if strings.Contains(p.OriginSql, "insert into hhh select * from generate_series") {
+		fmt.Println(p.OriginSql, string(debug.Stack()))
+		fmt.Println()
+	}
 
 	if err = vm.Prepare(p.rootOp, proc); err != nil {
 		return false, err

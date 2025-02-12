@@ -166,6 +166,7 @@ func (s *Scope) Run(c *Compile) (err error) {
 	if s.DataSource == nil {
 		s.ScopeAnalyzer.Stop()
 		p = pipeline.NewMerge(s.RootOp)
+		p.OriginSql = c.originSQL
 		_, err = p.Run(s.Proc)
 	} else {
 		id := uint64(0)
@@ -175,6 +176,7 @@ func (s *Scope) Run(c *Compile) (err error) {
 		p = pipeline.New(id, s.DataSource.Attributes, s.RootOp)
 		if s.DataSource.isConst {
 			s.ScopeAnalyzer.Stop()
+			p.OriginSql = c.originSQL
 			_, err = p.Run(s.Proc)
 		} else {
 			if s.DataSource.R == nil {
@@ -197,6 +199,7 @@ func (s *Scope) Run(c *Compile) (err error) {
 				tag = s.DataSource.node.RecvMsgList[0].MsgTag
 			}
 			s.ScopeAnalyzer.Stop()
+			p.OriginSql = c.originSQL
 			_, err = p.RunWithReader(s.DataSource.R, tag, s.Proc)
 		}
 	}
