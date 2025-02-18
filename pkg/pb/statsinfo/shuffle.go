@@ -222,8 +222,20 @@ func (s *ShuffleRange) Eval() {
 				}
 				if head.Tree.Key != head.Value {
 					if head.Value <= next.Value {
+						// head.Key >= next.Key
+						//  value       key
+						//    |---------|    next
+						// |------------|    head1
+						// |--------------|  head2
 						s.Overlap += float64(head.Size) * float64(next.Size) * (next.Tree.Key - next.Value) / (head.Tree.Key - head.Value)
 					} else {
+						// head.Key >= next.Key
+						//  value       key
+						//    |---------|    next
+						// 		  |-----|    head1
+						// 		  |-------|  head2
+						// why not this???
+						// s.Overlap += float64(head.Size) * float64(next.Size) * (next.Tree.Key - head.Value) / (head.Tree.Key - head.Value)
 						s.Overlap += float64(head.Size) * float64(next.Size) * (next.Tree.Key - head.Value) * (next.Tree.Key - head.Value) / (head.Tree.Key - head.Value) / (next.Tree.Key - next.Value)
 						head.Value = next.Value
 					}

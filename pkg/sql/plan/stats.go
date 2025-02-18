@@ -1350,11 +1350,25 @@ func calcScanStats(node *plan.Node, builder *QueryBuilder) *plan.Stats {
 		}
 		blockSel = andSelectivity(blockSel, currentBlockSel)
 	}
+
+	sortOrder := 0
+	for i := range node.FilterList {
+		if col := extractColRefInFilter(node.FilterList[i]); col != nil {
+			sortOrder += GetSortOrder(node.TableDef, col.ColPos)
+		}
+	}
+
 	node.BlockFilterList = blockExprList
 	stats.Selectivity = estimateExprSelectivity(colexec.RewriteFilterExprList(node.FilterList), builder, s)
 	stats.Outcnt = stats.Selectivity * stats.TableCnt
 	stats.Cost = stats.TableCnt * blockSel
 	stats.BlockNum = int32(float64(s.BlockNumber)*blockSel) + 1
+
+	// no pk filter, reader will scan all blocks
+	if sortOrder == len(node.FilterList)*-1 {
+		stats.Cost *= float64(s.BlockNumber)
+		stats.BlockNum = int32(s.BlockNumber)
+	}
 
 	return stats
 }
@@ -1704,6 +1718,8 @@ func calcBlockSelectivityUsingShuffleRange(s *pb.StatsInfo, colname string, expr
 			return 1
 		}
 	}
+
+	//[overlapThreshold/2, overlapThreshold]
 	ret := sel * 100 / (1 - overlap)
 	if ret > 1 {
 		ret = 1
