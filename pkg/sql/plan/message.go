@@ -48,6 +48,11 @@ func (builder *QueryBuilder) handleMessgaeFromTopToScan(nodeID int32) {
 		return
 	}
 	node := builder.qry.Nodes[nodeID]
+
+	if node.OrderBy != nil {
+		return
+	}
+
 	if len(node.Children) > 0 {
 		for _, child := range node.Children {
 			builder.handleMessgaeFromTopToScan(child)
@@ -59,10 +64,10 @@ func (builder *QueryBuilder) handleMessgaeFromTopToScan(nodeID int32) {
 	if node.Limit == nil {
 		return
 	}
-	if len(node.OrderBy) > 1 {
-		// for now ,only support order by one column
-		return
-	}
+	//if len(node.OrderBy) > 1 {
+	//	// for now ,only support order by one column
+	//	return
+	//}
 	scanID := builder.gatherLeavesForMessageFromTopToScan(node.Children[0])
 	if scanID == -1 {
 		return
