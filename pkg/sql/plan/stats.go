@@ -777,9 +777,14 @@ func estimateFilterWeight(expr *plan.Expr, w float64) float64 {
 }
 
 // harsh estimate of block selectivity, will improve it in the future
-func estimateFilterBlockSelectivity(ctx context.Context, expr *plan.Expr, tableDef *plan.TableDef, s *pb.StatsInfo) float64 {
+func estimateFilterBlockSelectivity(
+	ctx context.Context,
+	expr *plan.Expr,
+	tableDef *plan.TableDef,
+	s *pb.StatsInfo) (float64, int) {
+
 	if !ExprIsZonemappable(ctx, expr) {
-		return 1
+		return 1, -1
 	}
 	col := extractColRefInFilter(expr)
 	if col != nil {
@@ -789,13 +794,13 @@ func estimateFilterBlockSelectivity(ctx context.Context, expr *plan.Expr, tableD
 		case 0:
 			blocksel = math.Min(blocksel, 0.2)
 		case 1:
-			return math.Min(blocksel, 0.5)
+			return math.Min(blocksel, 0.5), 1
 		case 2:
-			return math.Min(blocksel, 0.7)
+			return math.Min(blocksel, 0.7), 2
 		}
-		return blocksel
+		return blocksel, sortOrder
 	}
-	return 1
+	return 1, -1
 }
 
 func sortFilterListByStats(ctx context.Context, nodeID int32, builder *QueryBuilder) {
@@ -1317,10 +1322,13 @@ func calcScanStats(node *plan.Node, builder *QueryBuilder) *plan.Stats {
 	stats.TableCnt = s.TableCnt
 	var blockSel float64 = 1
 
+	var sortOrderSum int
+
 	var blockExprList []*plan.Expr
 	for i := range node.FilterList {
 		node.FilterList[i].Selectivity = estimateExprSelectivity(node.FilterList[i], builder, s)
-		currentBlockSel := estimateFilterBlockSelectivity(builder.GetContext(), node.FilterList[i], node.TableDef, s)
+		currentBlockSel, order := estimateFilterBlockSelectivity(builder.GetContext(), node.FilterList[i], node.TableDef, s)
+		sortOrderSum += order
 		if builder.optimizerHints != nil {
 			if builder.optimizerHints.blockFilter == 1 { //always trying to pushdown blockfilters if zonemappable
 				if ExprIsZonemappable(builder.GetContext(), node.FilterList[i]) {
@@ -1351,13 +1359,6 @@ func calcScanStats(node *plan.Node, builder *QueryBuilder) *plan.Stats {
 		blockSel = andSelectivity(blockSel, currentBlockSel)
 	}
 
-	sortOrder := 0
-	for i := range node.FilterList {
-		if col := extractColRefInFilter(node.FilterList[i]); col != nil {
-			sortOrder += GetSortOrder(node.TableDef, col.ColPos)
-		}
-	}
-
 	node.BlockFilterList = blockExprList
 	stats.Selectivity = estimateExprSelectivity(colexec.RewriteFilterExprList(node.FilterList), builder, s)
 	stats.Outcnt = stats.Selectivity * stats.TableCnt
@@ -1365,8 +1366,8 @@ func calcScanStats(node *plan.Node, builder *QueryBuilder) *plan.Stats {
 	stats.BlockNum = int32(float64(s.BlockNumber)*blockSel) + 1
 
 	// no pk filter, reader will scan all blocks
-	if sortOrder == len(node.FilterList)*-1 {
-		stats.Cost *= float64(s.BlockNumber)
+	if sortOrderSum == len(node.FilterList)*-1 {
+		stats.Cost = stats.TableCnt
 		stats.BlockNum = int32(s.BlockNumber)
 	}
 
