@@ -679,7 +679,7 @@ func (flusher *flushImpl) ForceFlushWithInterval(
 		if _, err = flusher.flushRequestQ.Enqueue(request); err != nil {
 			return true, nil
 		}
-		return false, nil
+		return true, nil
 	}
 
 	cfg := flusher.mutableCfg.Load()
@@ -745,7 +745,7 @@ func (flusher *flushImpl) FlushTable(
 			// TODO: why (true,nil)???
 			return true, nil
 		}
-		return false, nil
+		return true, nil
 	}
 
 	cfg := flusher.mutableCfg.Load()
