@@ -68,7 +68,8 @@ type Flusher interface {
 	ChangeForceCheckInterval(interval time.Duration)
 	GetCfg() FlushCfg
 	Restart(opts ...FlusherOption)
-	IsNoop() bool
+	IsStopped() bool
+	Start()
 	Stop()
 }
 
@@ -164,7 +165,6 @@ func NewFlusher(
 	checkpointSchduler CheckpointScheduler,
 	catalogCache *catalog.Catalog,
 	sourcer logtail.Collector,
-	noop bool,
 	opts ...FlusherOption,
 ) Flusher {
 	flusher := &flusher{
@@ -173,15 +173,11 @@ func NewFlusher(
 		catalogCache:       catalogCache,
 		sourcer:            sourcer,
 	}
-	if noop {
-		return flusher
-	}
 	flusher.impl.Store(newFlusherImpl(rt, checkpointSchduler, catalogCache, sourcer, opts...))
-	flusher.impl.Load().Start()
 	return flusher
 }
 
-func (f *flusher) IsNoop() bool {
+func (f *flusher) IsStopped() bool {
 	return f.impl.Load() == nil
 }
 
@@ -264,6 +260,15 @@ func (f *flusher) GetCfg() FlushCfg {
 		return FlushCfg{}
 	}
 	return impl.GetCfg()
+}
+
+func (f *flusher) Start() {
+	impl := f.impl.Load()
+	if impl == nil {
+		logutil.Warn("need restart")
+		return
+	}
+	impl.Start()
 }
 
 func (f *flusher) Stop() {
