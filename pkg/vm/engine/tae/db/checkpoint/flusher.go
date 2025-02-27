@@ -653,11 +653,16 @@ func (flusher *flushImpl) ForceFlush(
 	)
 }
 
+var xxx atomic.Int64
+
 func (flusher *flushImpl) ForceFlushWithInterval(
 	ctx context.Context,
 	ts types.TS,
 	flushInterval time.Duration,
 ) (err error) {
+	defer func() {
+		xxx.Add(1)
+	}()
 	makeRequest := func() *FlushRequest {
 		tree := flusher.sourcer.ScanInRangePruned(types.TS{}, ts)
 		tree.GetTree().Compact()
@@ -672,6 +677,7 @@ func (flusher *flushImpl) ForceFlushWithInterval(
 		return request
 	}
 	op := func() (ok bool, err error) {
+		fmt.Println("XXX", xxx.Load())
 		request := makeRequest()
 		if request == nil {
 			return true, nil
@@ -711,11 +717,16 @@ func (flusher *flushImpl) GetCfg() FlushCfg {
 	return cfg
 }
 
+var yyy atomic.Int64
+
 func (flusher *flushImpl) FlushTable(
 	ctx context.Context,
 	dbID, tableID uint64,
 	ts types.TS,
 ) (err error) {
+	defer func() {
+		yyy.Add(1)
+	}()
 	iarg, sarg, flush := fault.TriggerFault("flush_table_error")
 	if flush && (iarg == 0 || rand.Int63n(iarg) == 0) {
 		return moerr.NewInternalError(ctx, sarg)
@@ -737,6 +748,7 @@ func (flusher *flushImpl) FlushTable(
 	}
 
 	op := func() (ok bool, err error) {
+		fmt.Println("YYY", yyy.Load())
 		request := makeRequest()
 		if request == nil {
 			return true, nil
