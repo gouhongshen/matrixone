@@ -2309,6 +2309,11 @@ func authenticateCanExecuteStatementAndPlan(reqCtx context.Context, ses *Session
 	var stats statistic.StatsArray
 	stats.Reset()
 
+	if strings.Contains(ses.GetSqlOfStmt(), ":retention") {
+		logutil.Info("YYY-authenticateCanExecuteStatementAndPlan",
+			zap.String("detail", ses.GetStmtInfo().String()))
+	}
+
 	_, task := gotrace.NewTask(reqCtx, "frontend.authenticateCanExecuteStatementAndPlan")
 	defer task.End()
 	if getPu(ses.GetService()).SV.SkipCheckPrivilege {
@@ -2808,6 +2813,11 @@ func executeStmt(ses *Session,
 	ses.EnterFPrint(FPExecStmt)
 	defer ses.ExitFPrint(FPExecStmt)
 	ses.GetTxnCompileCtx().tcw = execCtx.cw
+
+	if strings.Contains(ses.GetSqlOfStmt(), ":retention") {
+		logutil.Info("YYY-executeStmt",
+			zap.String("detail", ses.GetStmtInfo().String()))
+	}
 
 	// record goroutine info when ddl stmt run timeout
 	switch execCtx.stmt.(type) {

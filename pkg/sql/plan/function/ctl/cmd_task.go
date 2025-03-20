@@ -56,6 +56,7 @@ func handleTask(
 	sender requestSender,
 ) (Result, error) {
 	parameter = strings.ToLower(parameter)
+	fmt.Println("HANDLE-TASK", parameter)
 	switch parameter {
 	case disableTask:
 		taskservice.DebugCtlTaskFramework(true)

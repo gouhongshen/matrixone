@@ -168,6 +168,10 @@ func StatementInfoFilter(i table.Item) bool {
 	return false
 }
 
+func (s *StatementInfo) String() string {
+	return fmt.Sprintf("%s-%s-%d", s.Account, s.User, s.ConnectionId)
+}
+
 type StatementInfo struct {
 	StatementID          [16]byte `json:"statement_id"`
 	TransactionID        [16]byte `json:"transaction_id"`

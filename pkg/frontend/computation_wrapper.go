@@ -17,6 +17,9 @@ package frontend
 import (
 	"bytes"
 	"context"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
+	"go.uber.org/zap"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -193,6 +196,11 @@ func (cwft *TxnComputationWrapper) Compile(any any, fill func(*batch.Batch, *per
 	var originSQL string
 	var span trace.Span
 	var err error
+
+	if strings.Contains(cwft.ses.GetSqlOfStmt(), ":retention") {
+		logutil.Info("YYY-Compile",
+			zap.String("detail", cwft.ses.GetStmtInfo().String()))
+	}
 
 	execCtx := any.(*ExecCtx)
 	execCtx.reqCtx, span = trace.Start(execCtx.reqCtx, "TxnComputationWrapper.Compile",

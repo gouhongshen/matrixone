@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go.uber.org/zap"
 	"io"
 	"math"
 	"math/bits"
@@ -6786,6 +6787,11 @@ func authenticateUserCanExecuteStatementWithObjectTypeDatabaseAndTable(ctx conte
 	p *plan2.Plan) (bool, statistic.StatsArray, error) {
 	var stats statistic.StatsArray
 	stats.Reset()
+
+	if strings.Contains(ses.GetSqlOfStmt(), ":retention") {
+		logutil.Info("YYY-authenticateUserCanExecuteStatementWithObjectTypeDatabaseAndTable",
+			zap.String("detail", ses.GetStmtInfo().String()))
+	}
 
 	priv := determinePrivilegeSetOfStatement(stmt)
 	if priv.objectType() == objectTypeTable {
