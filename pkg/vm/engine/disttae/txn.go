@@ -1209,6 +1209,17 @@ func (txn *Transaction) mergeTxnWorkspaceLocked(ctx context.Context) error {
 		} else {
 			txn.writes = txn.writes[:i+1]
 		}
+
+		for i = range txn.writes {
+			if txn.writes[i].typ == DELETE {
+				err := colexec.SortByKey(txn.proc, txn.writes[i].bat, 0, false, txn.proc.Mp())
+				if err != nil {
+					return err
+				}
+
+				txn.writes[i].bat.Vecs[0].SetSorted(true)
+			}
+		}
 	}
 
 	return nil
