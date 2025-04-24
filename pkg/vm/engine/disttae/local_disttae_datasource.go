@@ -21,8 +21,6 @@ import (
 	"slices"
 	"sort"
 
-	"go.uber.org/zap"
-
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -40,6 +38,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/common"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/containers"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/index"
+	"go.uber.org/zap"
 )
 
 func NewLocalDataSource(
@@ -1106,21 +1105,24 @@ func (ls *LocalDisttaeDataSource) applyPStateInMemDeletes(
 		deletedOffsets []int64
 	)
 
-	defer func() {
-		if deletedOffsets != nil {
-			common.DefaultAllocator.PutSels(deletedOffsets)
-		}
-	}()
+	if len(leftRows) <= 500 {
+		// no heap allocation, stack allocation
+		deletedOffsets = make([]int64, 0, 500)
+	} else {
+		deletedOffsets = common.DefaultAllocator.GetSels()
+		defer func() {
+			if deletedOffsets != nil {
+				common.DefaultAllocator.PutSels(deletedOffsets)
+			}
+		}()
+	}
 
 	for delIter.Next() {
 		rowid := delIter.Entry().RowID
 		o := rowid.GetRowOffset()
-		if deletedOffsets == nil {
-			deletedOffsets = common.DefaultAllocator.GetSels()
-		}
 
 		deletedOffsets = append(deletedOffsets, int64(o))
-		if len(deletedOffsets) >= len(leftRows) {
+		if len(deletedOffsets) >= cap(deletedOffsets) {
 			readutil.FastApplyDeletesByRowOffsets(&leftRows, deletedRows, deletedOffsets)
 			deletedOffsets = deletedOffsets[:0]
 		}

@@ -15,8 +15,7 @@ package colexec
 
 import (
 	"context"
-	"fmt"
-	"github.com/matrixorigin/matrixone/pkg/vm/process"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/common"
 	"testing"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -449,8 +448,6 @@ func TestS3Writer_SortAndSync(t *testing.T) {
 		s, err := s3writer.Sync(ctx, proc.Mp())
 		require.NoError(t, err)
 		require.Nil(t, s)
-
-		fmt.Println(s3writer.String())
 	}
 
 	// test no SHARED service err
@@ -464,8 +461,6 @@ func TestS3Writer_SortAndSync(t *testing.T) {
 
 		_, err = s3writer.Sync(ctx, proc.Mp())
 		require.Equal(t, err.(*moerr.Error).ErrorCode(), moerr.ErrNoService)
-
-		fmt.Println(s3writer.String())
 	}
 
 	// test normal flush
@@ -483,8 +478,6 @@ func TestS3Writer_SortAndSync(t *testing.T) {
 
 		_, err = s3writer.Sync(ctx, proc.Mp())
 		require.NoError(t, err)
-
-		fmt.Println(s3writer.String())
 	}
 
 	// test data size larger than object size limit
@@ -522,29 +515,51 @@ func TestS3Writer_SortAndSync(t *testing.T) {
 
 		_, err = s3writer.Sync(ctx, proc.Mp())
 		require.Equal(t, err.(*moerr.Error).ErrorCode(), moerr.ErrTooLargeObjectSize)
-
-		fmt.Println(s3writer.String())
 	}
 }
 
-func TestGetSharedFSFromProc(t *testing.T) {
-	{
-		proc := testutil.NewProc()
-		fs, err := GetSharedFSFromProc(proc)
-		require.NoError(t, err)
-		require.NotNil(t, fs)
-		require.NotEmpty(t, fs.Name())
-	}
+func BenchmarkX(b *testing.B) {
+	const N int = 1000
 
-	{
-		proc := &process.Process{
-			Base: &process.BaseProcess{
-				FileService: nil,
-			},
+	b.Run("A", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			a := common.DefaultAllocator.GetSels()
+			for j := 0; j < N; j++ {
+				a = append(a, int64(j))
+			}
+			common.DefaultAllocator.PutSels(a)
 		}
+	})
 
-		fs, err := GetSharedFSFromProc(proc)
-		require.NotNil(t, err)
-		require.Nil(t, fs)
-	}
+	b.Run("B", func(b *testing.B) {
+		var a []int64
+		for range 1 {
+			if N <= 100 {
+				a = make([]int64, 0, N)
+			}
+			for j := 0; j < N; j++ {
+				a = append(a, int64(j))
+			}
+		}
+		//for i := 0; i < b.N; i++ {
+		//	var a []int64
+		//	if N <= 100 {
+		//		a = make([]int64, 0, N)
+		//	}
+		//
+		//	for j := 0; j < N; j++ {
+		//		a = append(a, int64(j))
+		//	}
+		//}
+	})
+
+	b.Run("C", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			mask := objectio.GetReusableBitmap()
+			for j := 0; j < N; j++ {
+				mask.Add(uint64(j))
+			}
+			mask.Release()
+		}
+	})
 }
