@@ -143,7 +143,7 @@ func (insert *Insert) GetAffectedRows() uint64 {
 }
 
 func (insert *Insert) initBufForS3() {
-	insert.ctr.buf = colexec.AllocCNS3ResultBat(false, insert.isMemoryTable())
+	insert.ctr.buf = colexec.AllocCNS3ResultBat(insert.isMemoryTable())
 }
 
 func (insert *Insert) isMemoryTable() bool {

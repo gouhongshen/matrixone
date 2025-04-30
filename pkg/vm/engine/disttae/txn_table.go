@@ -1025,12 +1025,11 @@ func (tbl *txnTable) collectUnCommittedDataObjs(txnOffset int) ([]objectio.Objec
 				return
 			}
 			if entry.typ != INSERT ||
-				len(entry.bat.Attrs) < 2 ||
-				entry.bat.Attrs[1] != catalog.ObjectMeta_ObjectStats {
+				entry.bat.Attrs[0] != catalog.ObjectMeta_ObjectStats {
 				return
 			}
-			for i := 0; i < entry.bat.Vecs[1].Length(); i++ {
-				stats.UnMarshal(entry.bat.Vecs[1].GetBytesAt(i))
+			for i := 0; i < entry.bat.Vecs[0].Length(); i++ {
+				stats.UnMarshal(entry.bat.Vecs[0].GetBytesAt(i))
 				unCommittedObjects = append(unCommittedObjects, stats)
 				unCommittedObjNames[*stats.ObjectShortName()] = struct{}{}
 			}
@@ -1545,11 +1544,13 @@ func (tbl *txnTable) Write(ctx context.Context, bat *batch.Batch) error {
 	if bat == nil || bat.RowCount() == 0 {
 		return nil
 	}
-	// for writing S3 Block
-	if bat.Attrs[0] == catalog.BlockMeta_BlockInfo {
+
+	if bat.Attrs[0] == catalog.ObjectMeta_ObjectStats {
 		tbl.getTxn().hasS3Op.Store(true)
-		//bocks maybe come from different S3 object, here we just need to make sure fileName is not Nil.
-		fileName := objectio.DecodeBlockInfo(bat.Vecs[0].GetBytesAt(0)).MetaLocation().Name().String()
+
+		stats := objectio.ObjectStats(bat.Vecs[0].GetBytesAt(0))
+		fileName := stats.ObjectName().String()
+
 		return tbl.getTxn().WriteFile(
 			INSERT,
 			tbl.accountId,
@@ -1561,6 +1562,7 @@ func (tbl *txnTable) Write(ctx context.Context, bat *batch.Batch) error {
 			bat,
 			tbl.getTxn().tnStores[0])
 	}
+
 	ibat, err := util.CopyBatch(bat, tbl.getTxn().proc)
 	if err != nil {
 		return err
@@ -1728,13 +1730,9 @@ func (tbl *txnTable) Delete(
 		tbl.getTxn().hasS3Op.Store(true)
 		stats := objectio.ObjectStats(bat.Vecs[0].GetBytesAt(0))
 		fileName := stats.ObjectLocation().String()
-		copBat, err := util.CopyBatch(bat, tbl.getTxn().proc)
-		if err != nil {
-			return err
-		}
 
 		if err := tbl.getTxn().WriteFile(DELETE, tbl.accountId, tbl.db.databaseId, tbl.tableId,
-			tbl.db.databaseName, tbl.tableName, fileName, copBat, tbl.getTxn().tnStores[0]); err != nil {
+			tbl.db.databaseName, tbl.tableName, fileName, bat, tbl.getTxn().tnStores[0]); err != nil {
 			return err
 		}
 

@@ -232,32 +232,10 @@ func (w *CNS3Writer) FillBlockInfoBat(
 
 	var err error
 
-	if !w.isTombstone {
-		objectio.ForeachBlkInObjStatsList(
-			true, nil,
-			func(blk objectio.BlockInfo, blkMeta objectio.BlockObject) bool {
-				if err = vector.AppendBytes(
-					w.blockInfoBat.Vecs[0],
-					objectio.EncodeBlockInfo(&blk), false, mp); err != nil {
-					return false
-				}
-
-				return true
-
-			}, w.written...)
-
-		for i := range w.written {
-			if err = vector.AppendBytes(w.blockInfoBat.Vecs[1],
-				w.written[i].Marshal(), false, mp); err != nil {
-				return nil, err
-			}
-		}
-	} else {
-		for i := range w.written {
-			if err = vector.AppendBytes(w.blockInfoBat.Vecs[0],
-				w.written[i].Marshal(), false, mp); err != nil {
-				return nil, err
-			}
+	for i := range w.written {
+		if err = vector.AppendBytes(w.blockInfoBat.Vecs[0],
+			w.written[i].Marshal(), false, mp); err != nil {
+			return nil, err
 		}
 	}
 
@@ -266,7 +244,6 @@ func (w *CNS3Writer) FillBlockInfoBat(
 }
 
 func AllocCNS3ResultBat(
-	isTombstone bool,
 	isMemoryTable bool,
 ) *batch.Batch {
 
@@ -280,10 +257,8 @@ func AllocCNS3ResultBat(
 	if isMemoryTable {
 		attrs = []string{catalog.BlockMeta_TableIdx_Insert, catalog.BlockMeta_BlockInfo, catalog.ObjectMeta_ObjectStats}
 		attrTypes = []types.Type{types.T_int16.ToType(), types.T_text.ToType(), types.T_binary.ToType()}
-	} else if !isTombstone {
-		attrs = []string{catalog.BlockMeta_BlockInfo, catalog.ObjectMeta_ObjectStats}
-		attrTypes = []types.Type{types.T_text.ToType(), types.T_binary.ToType()}
 	} else {
+		// tombstone object and insert object have the same attributes.
 		attrs = []string{catalog.ObjectMeta_ObjectStats}
 		attrTypes = []types.Type{types.T_binary.ToType()}
 	}
@@ -304,7 +279,7 @@ func (w *CNS3Writer) ResetBlockInfoBat() {
 		w.blockInfoBat.CleanOnlyData()
 	}
 
-	w.blockInfoBat = AllocCNS3ResultBat(w.isTombstone, false)
+	w.blockInfoBat = AllocCNS3ResultBat(false)
 }
 
 // reference to pkg/sql/colexec/order/order.go logic

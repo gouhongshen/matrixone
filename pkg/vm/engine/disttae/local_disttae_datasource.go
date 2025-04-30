@@ -455,7 +455,7 @@ func checkWorkspaceEntryType(
 		if entry.typ != INSERT ||
 			entry.bat == nil ||
 			entry.bat.IsEmpty() ||
-			entry.bat.Attrs[0] == catalog.BlockMeta_MetaLoc {
+			entry.bat.Attrs[0] == catalog.ObjectMeta_ObjectStats {
 			return false
 		}
 		if deleted, exist := tbl.getTxn().batchSelectList[entry.bat]; exist &&
