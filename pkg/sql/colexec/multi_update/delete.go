@@ -81,7 +81,7 @@ func (update *MultiUpdate) delete_table(
 
 		crs := analyzer.GetOpCounterSet()
 		newCtx := perfcounter.AttachS3RequestKey(proc.Ctx, crs)
-		err = source.Delete(newCtx, deleteBatch, catalog.Row_ID)
+		err = source.Delete(newCtx, deleteBatch)
 		if err != nil {
 			return err
 		}

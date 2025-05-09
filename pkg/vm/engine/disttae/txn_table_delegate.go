@@ -935,12 +935,11 @@ func (tbl *txnTableDelegate) Update(
 func (tbl *txnTableDelegate) Delete(
 	ctx context.Context,
 	bat *batch.Batch,
-	name string,
 ) error {
 	if tbl.partition.is {
-		return tbl.partition.tbl.Delete(ctx, bat, name)
+		return tbl.partition.tbl.Delete(ctx, bat)
 	}
-	return tbl.origin.Delete(ctx, bat, name)
+	return tbl.origin.Delete(ctx, bat)
 }
 
 func (tbl *txnTableDelegate) AddTableDef(

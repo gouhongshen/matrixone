@@ -116,7 +116,7 @@ func (t *Table) DelTableDef(ctx context.Context, def engine.TableDef) error {
 	return nil
 }
 
-func (t *Table) Delete(ctx context.Context, bat *batch.Batch, colName string) error {
+func (t *Table) Delete(ctx context.Context, bat *batch.Batch) error {
 	if bat == nil {
 		return nil
 	}
@@ -125,7 +125,7 @@ func (t *Table) Delete(ctx context.Context, bat *batch.Batch, colName string) er
 		ctx,
 		t.id,
 		t.TableDefs,
-		colName,
+		catalog.Row_ID,
 		vec,
 		getTNServices(t.engine.cluster),
 	)
@@ -144,7 +144,7 @@ func (t *Table) Delete(ctx context.Context, bat *batch.Batch, colName string) er
 				TableID:      t.id,
 				DatabaseName: t.databaseName,
 				TableName:    t.tableName,
-				ColumnName:   colName,
+				ColumnName:   catalog.Row_ID,
 				Vector:       shard.Vector,
 			},
 		)

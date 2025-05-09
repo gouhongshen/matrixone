@@ -1652,7 +1652,7 @@ func (tbl *txnTable) rewriteObjectByDeletion(
 }
 
 func (tbl *txnTable) Delete(
-	ctx context.Context, bat *batch.Batch, name string,
+	ctx context.Context, bat *batch.Batch,
 ) error {
 	if tbl.db.op.IsSnapOp() {
 		return moerr.NewInternalErrorNoCtx("delete operation is not allowed in snapshot transaction")

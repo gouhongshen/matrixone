@@ -38,7 +38,7 @@ type mockRelation struct {
 	result *batch.Batch
 }
 
-func (e *mockRelation) Delete(ctx context.Context, b *batch.Batch, attrName string) error {
+func (e *mockRelation) Delete(ctx context.Context, b *batch.Batch) error {
 	e.result = b
 	return nil
 }

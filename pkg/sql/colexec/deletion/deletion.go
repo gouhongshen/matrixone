@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"sync/atomic"
 
-	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/nulls"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
@@ -247,7 +246,7 @@ func (deletion *Deletion) normalDelete(proc *process.Process) (vm.CallResult, er
 	if affectedRows > 0 {
 		crs := analyzer.GetOpCounterSet()
 		newCtx := perfcounter.AttachS3RequestKey(proc.Ctx, crs)
-		err = deletion.ctr.source.Delete(newCtx, deletion.ctr.resBat, catalog.Row_ID)
+		err = deletion.ctr.source.Delete(newCtx, deletion.ctr.resBat)
 		if err != nil {
 			return result, err
 		}

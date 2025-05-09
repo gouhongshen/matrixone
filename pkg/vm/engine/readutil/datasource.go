@@ -240,7 +240,7 @@ func FastApplyDeletesByRowIds(
 		n := float64(len(deletedRowIds))
 		m := float64(len(*leftRows))
 
-		if m > n/(math.Log2(n)-1) {
+		if n > 2 && m > n/(math.Log2(n)-1) {
 			updateOffset := func(idx int) {
 				if idx < int(m) {
 					cur.SetRowOffset(uint32((*leftRows)[idx]))

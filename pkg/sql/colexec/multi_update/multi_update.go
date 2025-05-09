@@ -245,8 +245,7 @@ func (update *MultiUpdate) updateFlushS3Info(proc *process.Process, analyzer pro
 	updateCtxIdx := vector.MustFixedColNoTypeCheck[uint16](input.Batch.Vecs[1])
 	partitionIdx := vector.MustFixedColNoTypeCheck[uint16](input.Batch.Vecs[2])
 	rowCounts := vector.MustFixedColNoTypeCheck[uint64](input.Batch.Vecs[3])
-	nameData, nameArea := vector.MustVarlenaRawData(input.Batch.Vecs[4])
-	batData, batArea := vector.MustVarlenaRawData(input.Batch.Vecs[5])
+	batData, batArea := vector.MustVarlenaRawData(input.Batch.Vecs[4])
 
 	ctx := proc.Ctx
 	batBufs := make(map[actionType]*batch.Batch)
@@ -271,12 +270,11 @@ func (update *MultiUpdate) updateFlushS3Info(proc *process.Process, analyzer pro
 			}
 			tableType := update.ctr.updateCtxInfos[updateCtx.TableDef.Name].tableType
 			update.addDeleteAffectRows(tableType, rowCounts[i])
-			name := nameData[i].UnsafeGetString(nameArea)
 			source := update.ctr.updateCtxInfos[updateCtx.TableDef.Name].Sources[partitionIdx[i]]
 
 			crs := analyzer.GetOpCounterSet()
 			newCtx := perfcounter.AttachS3RequestKey(proc.Ctx, crs)
-			err = source.Delete(newCtx, batBufs[actionDelete], name)
+			err = source.Delete(newCtx, batBufs[actionDelete])
 			if err != nil {
 				return input, err
 			}

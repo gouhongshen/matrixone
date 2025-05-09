@@ -252,3 +252,86 @@ func TestFastApplyDeletesByRowOffsets(t *testing.T) {
 	foo(10, 300)
 	foo(300, 10)
 }
+
+func TestFastApplyDeletesByRowIdsRandom(t *testing.T) {
+	// obj, bid, offset
+	rootRowId := types.RandomRowid()
+
+	const canLen = 1000
+	var row types.Rowid
+	var off int
+
+	rowIds := make([]types.Rowid, 0, canLen)
+	for i := 0; i < canLen; i++ {
+		obj := rand.Intn(5) + 1
+		blk := rand.Intn(5) + 1
+
+		copy(row[:], rootRowId[:])
+		row.SetObjOffset(uint16(obj))
+		row.SetBlkOffset(uint16(blk))
+		row.SetRowOffset(uint32(off))
+
+		off++
+
+		rowIds = append(rowIds, row)
+	}
+
+	slices.SortFunc(rowIds, func(a, b types.Rowid) int { return a.Compare(&b) })
+	rowIds = slices.CompactFunc(rowIds, func(a types.Rowid, b types.Rowid) bool { return a.EQ(&b) })
+
+	foo := func(leftRowsLen, deletedRowIdsLen int) {
+		require.LessOrEqual(t, deletedRowIdsLen, len(rowIds))
+
+		for i := 0; i < canLen/10; i++ {
+			l := rand.Intn(len(rowIds) - deletedRowIdsLen)
+			deletedRowIds := rowIds[l : l+deletedRowIdsLen]
+
+			checkBid := deletedRowIds[rand.Intn(len(deletedRowIds))].CloneBlockID()
+
+			leftRows := make([]int64, 0, leftRowsLen)
+			for j := 0; j < deletedRowIdsLen; j++ {
+				leftRows = append(leftRows, int64(deletedRowIds[j].GetRowOffset()))
+			}
+
+			slices.Sort(leftRows)
+
+			if len(leftRows) >= leftRowsLen {
+				leftRows = leftRows[:leftRowsLen]
+			} else {
+				s := leftRows[len(leftRows)-1]
+				for j := leftRowsLen - len(leftRows); j >= 0; j-- {
+					leftRows = append(leftRows, s+1)
+					s++
+				}
+			}
+
+			old := make([]int64, len(leftRows))
+			copy(old, leftRows)
+
+			FastApplyDeletesByRowIds(&checkBid, &leftRows, nil, deletedRowIds, i%2 == 0)
+
+			for j := range leftRows {
+				x := types.NewRowid(&checkBid, uint32(leftRows[j]))
+				idx := slices.IndexFunc(deletedRowIds, func(a types.Rowid) bool { return x.EQ(&a) })
+				if idx != -1 {
+					fmt.Println(x.String())
+					fmt.Println(len(leftRows), leftRows)
+					fmt.Println(len(old), old)
+					fmt.Println()
+
+					for k := range deletedRowIds {
+						fmt.Println(k, deletedRowIds[k])
+					}
+				}
+				require.Equal(t, -1, idx)
+			}
+		}
+	}
+
+	for i := 0; i < 20; i++ {
+		x := rand.Intn(canLen/2) + 10
+		y := rand.Intn(canLen/2) + 10
+
+		foo(x, y)
+	}
+}

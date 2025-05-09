@@ -16,8 +16,6 @@ package mergedelete
 
 import (
 	"bytes"
-	"fmt"
-
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec"
@@ -59,7 +57,7 @@ func (mergeDelete *MergeDelete) Call(proc *process.Process) (vm.CallResult, erro
 	analyzer := mergeDelete.OpAnalyzer
 
 	var err error
-	var name string
+	//var name string
 
 	input, err := vm.ChildrenCall(mergeDelete.Children[0], proc, analyzer)
 	if err != nil {
@@ -78,9 +76,7 @@ func (mergeDelete *MergeDelete) Call(proc *process.Process) (vm.CallResult, erro
 	// |  blk_id  | batch.Marshal(int64 offset) | CNBlockOffset (CN Block )                 |  partitionIdx
 	// |  blk_id  | batch.Marshal(rowId)        | RawRowIdBatch (DN Blcok )                 |  partitionIdx
 	// |  blk_id  | batch.Marshal(int64 offset) | RawBatchOffset(RawBatch[in txn workspace])|  partitionIdx
-	blkIds, _ := vector.MustVarlenaRawData(resBat.GetVector(0))
 	deltaLocs, area1 := vector.MustVarlenaRawData(resBat.GetVector(1))
-	typs := vector.MustFixedColWithTypeCheck[int8](resBat.GetVector(2))
 
 	bat := mergeDelete.ctr.bat
 	bat.CleanOnlyData()
@@ -89,11 +85,11 @@ func (mergeDelete *MergeDelete) Call(proc *process.Process) (vm.CallResult, erro
 
 	// If the target table is a general table
 	for i := 0; i < resBat.RowCount(); i++ {
-		name = fmt.Sprintf("%s|%d", blkIds[i], typs[i])
+		//name = fmt.Sprintf("%s|%d", blkIds[i], typs[i])
 		if err := bat.UnmarshalBinary(deltaLocs[i].GetByteSlice(area1)); err != nil {
 			return input, err
 		}
-		err = mergeDelete.ctr.delSource.Delete(proc.Ctx, bat, name)
+		err = mergeDelete.ctr.delSource.Delete(proc.Ctx, bat)
 		if err != nil {
 			return input, err
 		}
