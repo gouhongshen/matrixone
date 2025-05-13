@@ -16,10 +16,21 @@ package logutil
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
+
+var debug atomic.Bool
+
+func SetDebug() {
+	debug.Store(true)
+}
+
+func GetDebug() bool {
+	return debug.Load()
+}
 
 func Debug(msg string, fields ...zap.Field) {
 	GetSkip1Logger().Debug(msg, fields...)
