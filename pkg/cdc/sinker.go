@@ -874,13 +874,14 @@ func (s *mysqlSink) Send(ctx context.Context, ar *ActiveRoutine, sqlBuf []byte, 
 			var txnSql []byte
 			padding := strings.Repeat(" ", sqlBufReserved)
 			txnSql = append(txnSql, []byte(padding)...)
+			txnSql = append(txnSql, rollback...) // rollback failed txn
 			txnSql = append(txnSql, begin...)
 			txnSql = append(txnSql, []byte(";")...)
 			for i := range s.debugTxnRecorder.txnSQL {
 				txnSql = append(txnSql, []byte(s.debugTxnRecorder.txnSQL[i])...)
 				txnSql = append(txnSql, []byte(";")...)
 			}
-			txnSql = append(txnSql, commit...)
+			//txnSql = append(txnSql, commit...)
 			txnSql = append(txnSql, []byte(";")...)
 
 			s.infoRecordedTxnSQLs(err)
@@ -910,7 +911,7 @@ func (s *mysqlSink) Send(ctx context.Context, ar *ActiveRoutine, sqlBuf []byte, 
 		return
 	}
 
-	needRetry = false
+	//needRetry = false
 
 	if !needRetry {
 		return f()
