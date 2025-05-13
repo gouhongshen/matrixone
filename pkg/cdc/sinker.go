@@ -880,7 +880,7 @@ func (s *mysqlSink) Send(ctx context.Context, ar *ActiveRoutine, sqlBuf []byte, 
 				txnSql = append(txnSql, []byte(s.debugTxnRecorder.txnSQL[i])...)
 				txnSql = append(txnSql, []byte(";")...)
 			}
-			txnSql = append(txnSql, rollback...)
+			txnSql = append(txnSql, commit...)
 			txnSql = append(txnSql, []byte(";")...)
 
 			s.infoRecordedTxnSQLs(err)
