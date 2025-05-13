@@ -868,16 +868,46 @@ func (s *mysqlSink) Send(ctx context.Context, ar *ActiveRoutine, sqlBuf []byte, 
 
 		if err != nil {
 
-			logutil.SetDebug()
-			fmt.Println("DEBUG SEND FAILED")
-			s.infoRecordedTxnSQLs(err)
-
 			logutil.Errorf("cdc mysqlSink Send failed, err: %v, sql: %s", err, sqlBuf[sqlBufReserved:min(len(sqlBuf), sqlPrintLen)])
 			//logutil.Errorf("cdc mysqlSink Send failed, err: %v, sql: %s", err, sqlBuf[sqlBufReserved:])
+
+			var txnSql []byte
+			padding := strings.Repeat(" ", sqlBufReserved)
+			txnSql = append(txnSql, []byte(padding)...)
+			txnSql = append(txnSql, begin...)
+			for i := range s.debugTxnRecorder.txnSQL {
+				txnSql = append(txnSql, []byte(s.debugTxnRecorder.txnSQL[i])...)
+			}
+			txnSql = append(txnSql, rollback...)
+
+			s.infoRecordedTxnSQLs(err)
+			logutil.SetDebug()
+
+			reuseQueryArg = sql.NamedArg{
+				Name:  mysql.ReuseQueryBuf,
+				Value: txnSql,
+			}
+
+			fmt.Printf("STEP1 rerun failed sql: %v\n", err)
+
+			if s.tx != nil {
+				_, err = s.tx.Exec(fakeSql, reuseQueryArg)
+			} else {
+				_, err = s.conn.Exec(fakeSql, reuseQueryArg)
+			}
+
+			if err != nil {
+				logutil.Fatal(err.Error())
+			} else {
+				fmt.Println("STEP 2 rerun failed sql success")
+			}
 		}
+
 		//logutil.Infof("cdc mysqlSink Send success, sql: %s", sqlBuf[sqlBufReserved:])
 		return
 	}
+
+	needRetry = false
 
 	if !needRetry {
 		return f()

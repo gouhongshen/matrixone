@@ -420,7 +420,7 @@ func (r *reader) Read(
 				r.tableDef.DbName == "tpcc_bak" && r.tableDef.Name == "bmsql_stock" {
 
 				buf := bytes.NewBuffer(nil)
-				buf.WriteString("Read\n")
+				buf.WriteString("READ START\n")
 
 				for i := range outBatch.Vecs {
 					if *outBatch.Vecs[i].GetType() == types.T_Rowid.ToType() {
@@ -439,7 +439,7 @@ func (r *reader) Read(
 
 				buf.WriteString("\n")
 				if dataState == engine.End {
-					buf.WriteString("\n\nEND\n\n")
+					buf.WriteString("\n\nREAD END\n\n")
 				}
 
 				fmt.Println(buf.String())
