@@ -18,11 +18,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"go.uber.org/zap"
 	"slices"
 	"sort"
 	"strings"
-
-	"go.uber.org/zap"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
@@ -270,13 +269,37 @@ func (ls *LocalDisttaeDataSource) Close() {
 func (ls *LocalDisttaeDataSource) Next(
 	ctx context.Context,
 	cols []string,
-	types []types.Type,
+	typs []types.Type,
 	seqNums []uint16,
 	pkSeqNum int32,
 	filter any,
 	mp *mpool.MPool,
 	outBatch *batch.Batch,
 ) (info *objectio.BlockInfo, state engine.DataState, err error) {
+
+	if ls.table.db.databaseName == "tpcc_bak" &&
+		strings.Contains(ls.table.tableName, "bmsql_stock") {
+		var checkRowId types.Rowid
+
+		if row := logutil.GetDebug(); row != nil {
+			x := row.(*interface{})
+			if x != nil && (*x) != nil {
+				checkRowId = (*x).(types.Rowid)
+				writes := ls.table.getTxn().writes
+				buf := bytes.NewBuffer(nil)
+				buf.WriteString(fmt.Sprintf("Next checkRowId: %s\n", checkRowId.String()))
+				buf.WriteString("inMemDeletes:\n")
+				for _, w := range writes {
+					if w.typ == DELETE && w.bat != nil && w.fileName == "nil" {
+						buf.WriteString(common.MoVectorToString(w.bat.Vecs[0], w.bat.Vecs[0].Length()))
+					}
+				}
+
+				logutil.Fatal(buf.String())
+			}
+		}
+
+	}
 
 	if ls.memPKFilter == nil {
 		ff := filter.(*readutil.MemPKFilter)
@@ -338,7 +361,7 @@ func (ls *LocalDisttaeDataSource) Next(
 		case engine.InMem:
 			outBatch.CleanOnlyData()
 			if err = ls.iterateInMemData(
-				ctx, cols, types, seqNums, pkSeqNum, outBatch, mp,
+				ctx, cols, typs, seqNums, pkSeqNum, outBatch, mp,
 			); err != nil {
 				state = engine.InMem
 				return
@@ -932,22 +955,22 @@ func (ls *LocalDisttaeDataSource) applyWorkspaceEntryDeletes(
 		defer ls.table.getTxn().Unlock()
 	}
 
-	var (
-		debug      bool
-		checkRowId types.Rowid
-	)
-
-	if ls.table.db.databaseName == "tpcc_bak" &&
-		strings.Contains(ls.table.tableName, "bmsql_stock") {
-
-		if row := logutil.GetDebug(); row != nil {
-			x := row.(*interface{})
-			if x != nil && (*x) != nil {
-				checkRowId = (*x).(types.Rowid)
-				debug = true
-			}
-		}
-	}
+	//var (
+	//	debug      bool
+	//	checkRowId types.Rowid
+	//)
+	//
+	//if ls.table.db.databaseName == "tpcc_bak" &&
+	//	strings.Contains(ls.table.tableName, "bmsql_stock") {
+	//
+	//	if row := logutil.GetDebug(); row != nil {
+	//		x := row.(*interface{})
+	//		if x != nil && (*x) != nil {
+	//			checkRowId = (*x).(types.Rowid)
+	//			debug = true
+	//		}
+	//	}
+	//}
 
 	//done := false
 	writes := ls.table.getTxn().writes[:ls.txnOffset]
@@ -959,18 +982,18 @@ func (ls *LocalDisttaeDataSource) applyWorkspaceEntryDeletes(
 
 		sorted := writes[idx].bat.Vecs[0].GetSorted()
 		rowIds := vector.MustFixedColNoTypeCheck[objectio.Rowid](writes[idx].bat.Vecs[0])
-		if debug {
-			if slices.IndexFunc(rowIds, func(a objectio.Rowid) bool { return checkRowId.EQ(&a) }) != -1 {
-				buf := bytes.NewBuffer(nil)
-				buf.WriteString(fmt.Sprintf("checkBid: %s, offset: %v", bid, leftRows))
-				buf.WriteString(fmt.Sprintf("\ndeletedRowIds[%v]: ", sorted))
-				for _, rowId := range rowIds {
-					buf.WriteString(fmt.Sprintf("%s; ", rowId.String()))
-				}
-				buf.WriteString("\n")
-				fmt.Println(buf.String())
-			}
-		}
+		//if debug {
+		//	if slices.IndexFunc(rowIds, func(a objectio.Rowid) bool { return checkRowId.EQ(&a) }) != -1 {
+		//		buf := bytes.NewBuffer(nil)
+		//		buf.WriteString(fmt.Sprintf("checkBid: %s, offset: %v", bid, leftRows))
+		//		buf.WriteString(fmt.Sprintf("\ndeletedRowIds[%v]: ", sorted))
+		//		for _, rowId := range rowIds {
+		//			buf.WriteString(fmt.Sprintf("%s; ", rowId.String()))
+		//		}
+		//		buf.WriteString("\n")
+		//		fmt.Println(buf.String())
+		//	}
+		//}
 
 		readutil.FastApplyDeletesByRowIds(bid, &leftRows, deletedRows, rowIds, sorted)
 

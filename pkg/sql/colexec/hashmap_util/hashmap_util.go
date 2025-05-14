@@ -384,6 +384,7 @@ func (hb *HashmapBuilder) BuildHashmap(hashOnPK bool, needAllocateSels bool, nee
 								buf.WriteString("\n")
 
 								fmt.Println(buf.String())
+								fmt.Println(rowIds[dupIdx1].String(), rowIds[dupIdx2].String())
 								fmt.Println("\nBuildHashMap END\n")
 							}
 						}
