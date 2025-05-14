@@ -290,12 +290,12 @@ func (ls *LocalDisttaeDataSource) Next(
 				buf.WriteString(fmt.Sprintf("Next checkRowId: %s\n", checkRowId.String()))
 				buf.WriteString("inMemDeletes:\n")
 				for _, w := range writes {
-					if w.typ == DELETE && w.bat != nil && w.fileName == "nil" {
+					if w.typ == DELETE && w.bat != nil && w.fileName == "" {
 						buf.WriteString(common.MoVectorToString(w.bat.Vecs[0], w.bat.Vecs[0].Length()))
 					}
 				}
 
-				logutil.Fatal(buf.String())
+				fmt.Println(buf.String())
 			}
 		}
 
@@ -955,22 +955,22 @@ func (ls *LocalDisttaeDataSource) applyWorkspaceEntryDeletes(
 		defer ls.table.getTxn().Unlock()
 	}
 
-	//var (
-	//	debug      bool
-	//	checkRowId types.Rowid
-	//)
-	//
-	//if ls.table.db.databaseName == "tpcc_bak" &&
-	//	strings.Contains(ls.table.tableName, "bmsql_stock") {
-	//
-	//	if row := logutil.GetDebug(); row != nil {
-	//		x := row.(*interface{})
-	//		if x != nil && (*x) != nil {
-	//			checkRowId = (*x).(types.Rowid)
-	//			debug = true
-	//		}
-	//	}
-	//}
+	var (
+		debug      bool
+		checkRowId types.Rowid
+	)
+
+	if ls.table.db.databaseName == "tpcc_bak" &&
+		strings.Contains(ls.table.tableName, "bmsql_stock") {
+
+		if row := logutil.GetDebug(); row != nil {
+			x := row.(*interface{})
+			if x != nil && (*x) != nil {
+				checkRowId = (*x).(types.Rowid)
+				debug = true
+			}
+		}
+	}
 
 	//done := false
 	writes := ls.table.getTxn().writes[:ls.txnOffset]
@@ -982,18 +982,23 @@ func (ls *LocalDisttaeDataSource) applyWorkspaceEntryDeletes(
 
 		sorted := writes[idx].bat.Vecs[0].GetSorted()
 		rowIds := vector.MustFixedColNoTypeCheck[objectio.Rowid](writes[idx].bat.Vecs[0])
-		//if debug {
-		//	if slices.IndexFunc(rowIds, func(a objectio.Rowid) bool { return checkRowId.EQ(&a) }) != -1 {
-		//		buf := bytes.NewBuffer(nil)
-		//		buf.WriteString(fmt.Sprintf("checkBid: %s, offset: %v", bid, leftRows))
-		//		buf.WriteString(fmt.Sprintf("\ndeletedRowIds[%v]: ", sorted))
-		//		for _, rowId := range rowIds {
-		//			buf.WriteString(fmt.Sprintf("%s; ", rowId.String()))
-		//		}
-		//		buf.WriteString("\n")
-		//		fmt.Println(buf.String())
-		//	}
-		//}
+		if debug {
+			if slices.IndexFunc(rowIds, func(a objectio.Rowid) bool { return checkRowId.EQ(&a) }) != -1 {
+
+				buf := bytes.NewBuffer(nil)
+				buf.WriteString(fmt.Sprintf("checkBid: %s, offset: %v", bid, leftRows))
+				buf.WriteString(fmt.Sprintf("\ndeletedRowIds[%v]: ", sorted))
+				for _, rowId := range rowIds {
+					buf.WriteString(fmt.Sprintf("%s; ", rowId.String()))
+				}
+				buf.WriteString("\n")
+
+				defer func() {
+					buf.WriteString(fmt.Sprintf("leftRows: %v\n", leftRows))
+					logutil.Fatal(buf.String())
+				}()
+			}
+		}
 
 		readutil.FastApplyDeletesByRowIds(bid, &leftRows, deletedRows, rowIds, sorted)
 

@@ -350,11 +350,14 @@ func (hb *HashmapBuilder) BuildHashmap(hashOnPK bool, needAllocateSels bool, nee
 								for j := range col {
 									bb := col[j].GetByteSlice(area)
 									val, _ := types.Unpack(bb)
-									if _, ok := vis[val.String()]; !ok {
-										vis[val.String()] = j
-									} else {
-										dupIdx1 = vis[val.String()]
-										dupIdx2 = j
+
+									if len(val.String()) == 2 {
+										if _, ok := vis[val.String()]; !ok {
+											vis[val.String()] = j
+										} else {
+											dupIdx1 = vis[val.String()]
+											dupIdx2 = j
+										}
 									}
 
 									buf.WriteString(fmt.Sprintf("%v; ", val.SQLStrings(nil)))
