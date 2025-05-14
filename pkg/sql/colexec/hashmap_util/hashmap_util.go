@@ -335,9 +335,9 @@ func (hb *HashmapBuilder) BuildHashmap(hashOnPK bool, needAllocateSels bool, nee
 							if len(hb.Batches.Buf) == 0 {
 								fmt.Println("build batch nil")
 							} else {
-								vis := make(map[string]int)
-								dupIdx1 := 0
-								dupIdx2 := 0
+								vis := make(map[[2]int32]int)
+								dupIdx1 := -1
+								dupIdx2 := -1
 
 								pkVec1 := hb.Batches.Buf[0].Vecs[0]
 								rowIdVec := hb.Batches.Buf[0].Vecs[1]
@@ -351,11 +351,13 @@ func (hb *HashmapBuilder) BuildHashmap(hashOnPK bool, needAllocateSels bool, nee
 									bb := col[j].GetByteSlice(area)
 									val, _ := types.Unpack(bb)
 
-									if len(val.String()) == 2 {
-										if _, ok := vis[val.String()]; !ok {
-											vis[val.String()] = j
+									if len(val) == 2 && dupIdx2 == -1 {
+										gg := [2]int32{val[0].(int32), val[1].(int32)}
+
+										if _, ok := vis[gg]; !ok {
+											vis[gg] = j
 										} else {
-											dupIdx1 = vis[val.String()]
+											dupIdx1 = vis[gg]
 											dupIdx2 = j
 										}
 									}
