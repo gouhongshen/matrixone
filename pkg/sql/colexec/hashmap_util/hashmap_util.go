@@ -337,7 +337,7 @@ func (hb *HashmapBuilder) BuildHashmap(hashOnPK bool, needAllocateSels bool, nee
 							} else {
 								pkVec1 := hb.Batches.Buf[0].Vecs[0]
 								rowIdVec := hb.Batches.Buf[0].Vecs[1]
-								pkVec2 := hb.Batches.Buf[0].Vecs[len(hb.Batches.Buf)-1]
+								pkVec2 := hb.Batches.Buf[0].Vecs[len(hb.Batches.Buf[0].Vecs)-1]
 
 								buf := bytes.NewBuffer(nil)
 								buf.WriteString(fmt.Sprintf("buf len: %d\n", len(hb.Batches.Buf)))
