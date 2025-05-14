@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 
 	"go.uber.org/zap"
 
@@ -931,6 +932,17 @@ func (ls *LocalDisttaeDataSource) applyWorkspaceEntryDeletes(
 		defer ls.table.getTxn().Unlock()
 	}
 
+	var (
+		debug      bool
+		checkRowId *types.Rowid
+	)
+
+	if strings.Contains(ls.table.tableName, "bmsql_stock") {
+		if checkRowId = logutil.GetDebug(); checkRowId != nil {
+			debug = true
+		}
+	}
+
 	//done := false
 	writes := ls.table.getTxn().writes[:ls.txnOffset]
 
@@ -941,6 +953,18 @@ func (ls *LocalDisttaeDataSource) applyWorkspaceEntryDeletes(
 
 		sorted := writes[idx].bat.Vecs[0].GetSorted()
 		rowIds := vector.MustFixedColNoTypeCheck[objectio.Rowid](writes[idx].bat.Vecs[0])
+		if debug {
+			if slices.IndexFunc(rowIds, func(a objectio.Rowid) bool { return checkRowId.EQ(&a) }) != -1 {
+				buf := bytes.NewBuffer(nil)
+				buf.WriteString(fmt.Sprintf("checkBid: %s, offset: %v", bid, leftRows))
+				buf.WriteString(fmt.Sprintf("\ndeletedRowIds[%v]: ", sorted))
+				for _, rowId := range rowIds {
+					buf.WriteString(fmt.Sprintf("%s; ", rowId.String()))
+				}
+				buf.WriteString("\n")
+				fmt.Println(buf.String())
+			}
+		}
 
 		readutil.FastApplyDeletesByRowIds(bid, &leftRows, deletedRows, rowIds, sorted)
 

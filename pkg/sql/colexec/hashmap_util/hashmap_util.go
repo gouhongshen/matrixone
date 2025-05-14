@@ -17,6 +17,7 @@ package hashmap_util
 import (
 	"bytes"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"runtime"
 	"strings"
 
@@ -331,10 +332,13 @@ func (hb *HashmapBuilder) BuildHashmap(hashOnPK bool, needAllocateSels bool, nee
 						}
 
 						if strings.Contains(hb.DedupColName, "s_w_id") {
-
 							if len(hb.Batches.Buf) == 0 {
 								fmt.Println("build batch nil")
 							} else {
+								vis := make(map[string]int)
+								dupIdx1 := 0
+								dupIdx2 := 0
+
 								pkVec1 := hb.Batches.Buf[0].Vecs[0]
 								rowIdVec := hb.Batches.Buf[0].Vecs[1]
 								pkVec2 := hb.Batches.Buf[0].Vecs[len(hb.Batches.Buf[0].Vecs)-1]
@@ -346,6 +350,13 @@ func (hb *HashmapBuilder) BuildHashmap(hashOnPK bool, needAllocateSels bool, nee
 								for j := range col {
 									bb := col[j].GetByteSlice(area)
 									val, _ := types.Unpack(bb)
+									if _, ok := vis[val.String()]; !ok {
+										vis[val.String()] = j
+									} else {
+										dupIdx1 = vis[val.String()]
+										dupIdx2 = j
+									}
+
 									buf.WriteString(fmt.Sprintf("%v; ", val.SQLStrings(nil)))
 								}
 								buf.WriteString("\n")
@@ -356,6 +367,12 @@ func (hb *HashmapBuilder) BuildHashmap(hashOnPK bool, needAllocateSels bool, nee
 									buf.WriteString(fmt.Sprintf("%v; ", rowIds[j].String()))
 								}
 								buf.WriteString("\n")
+
+								if rowIds[dupIdx1].BorrowSegmentID().EQ(&colexec.TxnWorkspaceSegment) {
+									logutil.SetDebug(rowIds[dupIdx2])
+								} else {
+									logutil.SetDebug(rowIds[dupIdx1])
+								}
 
 								col, area = vector.MustVarlenaRawData(pkVec2)
 								buf.WriteString(fmt.Sprintf("[%d]: ", len(col)))

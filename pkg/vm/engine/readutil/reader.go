@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"slices"
 	"strings"
 	"time"
@@ -415,38 +414,36 @@ func (r *reader) Read(
 	start := time.Now()
 	defer func() {
 
-		if r.tableDef != nil {
-			if logutil.GetDebug() && outBatch != nil && outBatch.RowCount() > 0 &&
-				r.tableDef.DbName == "tpcc_bak" && r.tableDef.Name == "bmsql_stock" {
-
-				logutil.SetDebug(false)
-
-				buf := bytes.NewBuffer(nil)
-				buf.WriteString("READ START\n")
-
-				for i := range outBatch.Vecs {
-					if *outBatch.Vecs[i].GetType() == types.T_Rowid.ToType() {
-						buf.WriteString(common.MoVectorToString(outBatch.Vecs[i], outBatch.Vecs[i].Length()))
-						buf.WriteString("\n")
-					} else if strings.Contains(outBatch.Attrs[i], "cpkey") {
-						col, area := vector.MustVarlenaRawData(outBatch.Vecs[i])
-						for j := range col {
-							pk := col[j].GetByteSlice(area)
-							bb, _ := types.Unpack(pk)
-							buf.WriteString(fmt.Sprintf("%s, ", bb.SQLStrings(nil)))
-						}
-						buf.WriteString("\n")
-					}
-				}
-
-				buf.WriteString("\n")
-				if dataState == engine.End {
-					buf.WriteString("\n\nREAD END\n\n")
-				}
-
-				fmt.Println(buf.String())
-			}
-		}
+		//if r.tableDef != nil {
+		//	if logutil.GetDebug() != nil && outBatch != nil && outBatch.RowCount() > 0 &&
+		//		r.tableDef.DbName == "tpcc_bak" && r.tableDef.Name == "bmsql_stock" {
+		//
+		//		buf := bytes.NewBuffer(nil)
+		//		buf.WriteString("READ START\n")
+		//
+		//		for i := range outBatch.Vecs {
+		//			if *outBatch.Vecs[i].GetType() == types.T_Rowid.ToType() {
+		//				buf.WriteString(common.MoVectorToString(outBatch.Vecs[i], outBatch.Vecs[i].Length()))
+		//				buf.WriteString("\n")
+		//			} else if strings.Contains(outBatch.Attrs[i], "cpkey") {
+		//				col, area := vector.MustVarlenaRawData(outBatch.Vecs[i])
+		//				for j := range col {
+		//					pk := col[j].GetByteSlice(area)
+		//					bb, _ := types.Unpack(pk)
+		//					buf.WriteString(fmt.Sprintf("%s, ", bb.SQLStrings(nil)))
+		//				}
+		//				buf.WriteString("\n")
+		//			}
+		//		}
+		//
+		//		buf.WriteString("\n")
+		//		if dataState == engine.End {
+		//			buf.WriteString("\n\nREAD END\n\n")
+		//		}
+		//
+		//		fmt.Println(buf.String())
+		//	}
+		//}
 
 		v2.TxnBlockReaderDurationHistogram.Observe(time.Since(start).Seconds())
 		if err != nil || dataState == engine.End {
