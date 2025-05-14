@@ -937,11 +937,13 @@ func (ls *LocalDisttaeDataSource) applyWorkspaceEntryDeletes(
 		checkRowId types.Rowid
 	)
 
-	if strings.Contains(ls.table.tableName, "bmsql_stock") {
+	if ls.table.db.databaseName == "tpcc_bak" &&
+		strings.Contains(ls.table.tableName, "bmsql_stock") {
+
 		if row := logutil.GetDebug(); row != nil {
-			x := *(row.(*interface{}))
-			if x != nil {
-				checkRowId = x.(types.Rowid)
+			x := row.(*interface{})
+			if x != nil && (*x) != nil {
+				checkRowId = (*x).(types.Rowid)
 				debug = true
 			}
 		}
