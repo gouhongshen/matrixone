@@ -871,46 +871,46 @@ func (s *mysqlSink) Send(ctx context.Context, ar *ActiveRoutine, sqlBuf []byte, 
 			logutil.Errorf("cdc mysqlSink Send failed, err: %v, sql: %s", err, sqlBuf[sqlBufReserved:min(len(sqlBuf), sqlPrintLen)])
 			//logutil.Errorf("cdc mysqlSink Send failed, err: %v, sql: %s", err, sqlBuf[sqlBufReserved:])
 
-			if len(s.debugTxnRecorder.txnSQL) > 0 {
-
-				var txnSql []byte
-				padding := strings.Repeat(" ", sqlBufReserved)
-				txnSql = append(txnSql, []byte(padding)...)
-
-				txnSql = append(txnSql, rollback...) // rollback failed txn
-				txnSql = append(txnSql, []byte(";")...)
-
-				txnSql = append(txnSql, begin...)
-				txnSql = append(txnSql, []byte(";")...)
-				for i := range s.debugTxnRecorder.txnSQL {
-					txnSql = append(txnSql, []byte(s.debugTxnRecorder.txnSQL[i])...)
-					txnSql = append(txnSql, []byte(";")...)
-				}
-				//txnSql = append(txnSql, commit...)
-				txnSql = append(txnSql, []byte(";")...)
-
-				s.infoRecordedTxnSQLs(err)
-				logutil.SetDebug()
-
-				reuseQueryArg = sql.NamedArg{
-					Name:  mysql.ReuseQueryBuf,
-					Value: txnSql,
-				}
-
-				fmt.Printf("STEP1 rerun failed sql: %v\n", err)
-
-				if s.tx != nil {
-					_, err = s.tx.Exec(fakeSql, reuseQueryArg)
-				} else {
-					_, err = s.conn.Exec(fakeSql, reuseQueryArg)
-				}
-
-				if err != nil {
-					logutil.Fatal(err.Error())
-				} else {
-					fmt.Println("STEP 2 rerun failed sql success")
-				}
-			}
+			//if len(s.debugTxnRecorder.txnSQL) > 0 {
+			//
+			//	var txnSql []byte
+			//	padding := strings.Repeat(" ", sqlBufReserved)
+			//	txnSql = append(txnSql, []byte(padding)...)
+			//
+			//	txnSql = append(txnSql, rollback...) // rollback failed txn
+			//	txnSql = append(txnSql, []byte(";")...)
+			//
+			//	txnSql = append(txnSql, begin...)
+			//	txnSql = append(txnSql, []byte(";")...)
+			//	for i := range s.debugTxnRecorder.txnSQL {
+			//		txnSql = append(txnSql, []byte(s.debugTxnRecorder.txnSQL[i])...)
+			//		txnSql = append(txnSql, []byte(";")...)
+			//	}
+			//	//txnSql = append(txnSql, commit...)
+			//	txnSql = append(txnSql, []byte(";")...)
+			//
+			//	s.infoRecordedTxnSQLs(err)
+			//	logutil.SetDebug(true)
+			//
+			//	reuseQueryArg = sql.NamedArg{
+			//		Name:  mysql.ReuseQueryBuf,
+			//		Value: txnSql,
+			//	}
+			//
+			//	fmt.Printf("STEP1 rerun failed sql: %v\n", err)
+			//
+			//	if s.tx != nil {
+			//		_, err = s.tx.Exec(fakeSql, reuseQueryArg)
+			//	} else {
+			//		_, err = s.conn.Exec(fakeSql, reuseQueryArg)
+			//	}
+			//
+			//	if err != nil {
+			//		logutil.Fatal(err.Error())
+			//	} else {
+			//		fmt.Println("STEP 2 rerun failed sql success")
+			//	}
+			//}
 		}
 
 		//logutil.Infof("cdc mysqlSink Send success, sql: %s", sqlBuf[sqlBufReserved:])

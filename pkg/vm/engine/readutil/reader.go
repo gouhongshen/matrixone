@@ -419,6 +419,8 @@ func (r *reader) Read(
 			if logutil.GetDebug() && outBatch != nil && outBatch.RowCount() > 0 &&
 				r.tableDef.DbName == "tpcc_bak" && r.tableDef.Name == "bmsql_stock" {
 
+				logutil.SetDebug(false)
+
 				buf := bytes.NewBuffer(nil)
 				buf.WriteString("READ START\n")
 

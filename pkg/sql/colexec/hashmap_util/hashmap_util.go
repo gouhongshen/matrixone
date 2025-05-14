@@ -15,6 +15,8 @@
 package hashmap_util
 
 import (
+	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/common"
 	"runtime"
 	"strings"
 
@@ -327,6 +329,18 @@ func (hb *HashmapBuilder) BuildHashmap(hashOnPK bool, needAllocateSels bool, nee
 							}
 							rowStr = "(" + strings.Join(rowItems, ",") + ")"
 						}
+
+						if len(hb.Batches.Buf) == 0 {
+							fmt.Println("build batch nil")
+						} else {
+							for j := range hb.Batches.Buf {
+								fmt.Println(common.MoBatchToString(
+									hb.Batches.Buf[j],
+									hb.Batches.Buf[j].RowCount()))
+							}
+							fmt.Println("\nEND\n")
+						}
+
 						return moerr.NewDuplicateEntry(proc.Ctx, rowStr, hb.DedupColName)
 					case plan.Node_IGNORE:
 						hb.IgnoreRows.Add(uint64(i + k))

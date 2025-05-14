@@ -24,8 +24,8 @@ import (
 
 var debug atomic.Bool
 
-func SetDebug() {
-	debug.Store(true)
+func SetDebug(v bool) {
+	debug.Store(v)
 }
 
 func GetDebug() bool {
