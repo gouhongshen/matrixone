@@ -982,7 +982,10 @@ func (ls *LocalDisttaeDataSource) applyWorkspaceEntryDeletes(
 
 		sorted := writes[idx].bat.Vecs[0].GetSorted()
 		rowIds := vector.MustFixedColNoTypeCheck[objectio.Rowid](writes[idx].bat.Vecs[0])
-		if debug {
+
+		ptr := slices.Index(offsets, int64(checkRowId.GetRowOffset()))
+
+		if debug && checkRowId.BorrowBlockID().EQ(bid) && ptr != -1 {
 			if slices.IndexFunc(rowIds, func(a objectio.Rowid) bool { return checkRowId.EQ(&a) }) != -1 {
 
 				buf := bytes.NewBuffer(nil)
