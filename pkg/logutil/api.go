@@ -16,23 +16,22 @@ package logutil
 
 import (
 	"fmt"
-	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"sync/atomic"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
-var debug atomic.Pointer[types.Rowid]
+var debug atomic.Pointer[any]
 
-func SetDebug(v types.Rowid) {
+func SetDebug(v any) {
 	if debug.Load() != nil {
 		return
 	}
 	debug.Store(&v)
 }
 
-func GetDebug() *types.Rowid {
+func GetDebug() any {
 	return debug.Load()
 }
 

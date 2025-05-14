@@ -934,11 +934,12 @@ func (ls *LocalDisttaeDataSource) applyWorkspaceEntryDeletes(
 
 	var (
 		debug      bool
-		checkRowId *types.Rowid
+		checkRowId types.Rowid
 	)
 
 	if strings.Contains(ls.table.tableName, "bmsql_stock") {
-		if checkRowId = logutil.GetDebug(); checkRowId != nil {
+		if row := logutil.GetDebug(); row != nil {
+			checkRowId = row.(types.Rowid)
 			debug = true
 		}
 	}
