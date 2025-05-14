@@ -15,8 +15,8 @@
 package hashmap_util
 
 import (
+	"bytes"
 	"fmt"
-	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/common"
 	"runtime"
 	"strings"
 
@@ -330,15 +330,45 @@ func (hb *HashmapBuilder) BuildHashmap(hashOnPK bool, needAllocateSels bool, nee
 							rowStr = "(" + strings.Join(rowItems, ",") + ")"
 						}
 
-						if len(hb.Batches.Buf) == 0 {
-							fmt.Println("build batch nil")
-						} else {
-							for j := range hb.Batches.Buf {
-								fmt.Println(common.MoBatchToString(
-									hb.Batches.Buf[j],
-									hb.Batches.Buf[j].RowCount()))
+						if strings.Contains(hb.DedupColName, "s_w_id") {
+
+							if len(hb.Batches.Buf) == 0 {
+								fmt.Println("build batch nil")
+							} else {
+								pkVec1 := hb.Batches.Buf[0].Vecs[0]
+								rowIdVec := hb.Batches.Buf[0].Vecs[1]
+								pkVec2 := hb.Batches.Buf[0].Vecs[len(hb.Batches.Buf)-1]
+
+								buf := bytes.NewBuffer(nil)
+								buf.WriteString(fmt.Sprintf("buf len: %d\n", len(hb.Batches.Buf)))
+								col, area := vector.MustVarlenaRawData(pkVec1)
+								buf.WriteString(fmt.Sprintf("[%d]: ", len(col)))
+								for j := range col {
+									bb := col[j].GetByteSlice(area)
+									val, _ := types.Unpack(bb)
+									buf.WriteString(fmt.Sprintf("%v; ", val.SQLStrings(nil)))
+								}
+								buf.WriteString("\n")
+
+								rowIds := vector.MustFixedColWithTypeCheck[types.Rowid](rowIdVec)
+								buf.WriteString(fmt.Sprintf("[%d]: ", len(rowIds)))
+								for j := range rowIds {
+									buf.WriteString(fmt.Sprintf("%v; ", rowIds[j].String()))
+								}
+								buf.WriteString("\n")
+
+								col, area = vector.MustVarlenaRawData(pkVec2)
+								buf.WriteString(fmt.Sprintf("[%d]: ", len(col)))
+								for j := range col {
+									bb := col[j].GetByteSlice(area)
+									val, _ := types.Unpack(bb)
+									buf.WriteString(fmt.Sprintf("%v; ", val.SQLStrings(nil)))
+								}
+								buf.WriteString("\n")
+
+								fmt.Println(buf.String())
+								fmt.Println("\nBuildHashMap END\n")
 							}
-							fmt.Println("\nEND\n")
 						}
 
 						return moerr.NewDuplicateEntry(proc.Ctx, rowStr, hb.DedupColName)
