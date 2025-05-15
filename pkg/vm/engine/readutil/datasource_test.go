@@ -17,6 +17,7 @@ package readutil
 import (
 	"context"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/common"
 	"math/rand"
 	"slices"
 	"testing"
@@ -496,13 +497,17 @@ func TestFastApplyDeletesByRowIds2(t *testing.T) {
 		"0196ce3f-ce26-7a59-8d9f-9336cc0c797e-0-0-7115", "0196ce3f-ce26-7a59-8d9f-9336cc0c797e-0-0-7234",
 	}
 
-	var rowIds []types.Rowid
+	delRowIdVec := vector.NewVec(types.T_Rowid.ToType())
+
 	for _, rowStr := range rowStrs {
 		rowId, err := types.NewRowIdFromString(rowStr)
 		require.NoError(t, err)
 
-		rowIds = append(rowIds, *rowId)
+		err = vector.AppendFixed[types.Rowid](delRowIdVec, *rowId, false, common.DefaultAllocator)
+		require.NoError(t, err)
 	}
+
+	rowIds := vector.MustFixedColNoTypeCheck[types.Rowid](delRowIdVec)
 
 	checkRowIdStr := "0196ce3f-aea0-7388-afcb-422369a1adae-0-0-0"
 	checkRowId, err := types.NewRowIdFromString(checkRowIdStr)
@@ -515,7 +520,19 @@ func TestFastApplyDeletesByRowIds2(t *testing.T) {
 	idx := slices.IndexFunc(rowIds, func(x types.Rowid) bool { return x.EQ(checkRowId) })
 	require.NotEqual(t, -1, idx)
 
+	sorted := slices.IsSortedFunc(rowIds, func(a, b types.Rowid) int { return a.Compare(&b) })
+	require.True(t, sorted)
+
 	FastApplyDeletesByRowIds(&checkBid, &offsets, nil, rowIds, true)
+
+	//err = mergeutil.SortColumnsByIndex(
+	//	[]*vector.Vector{delRowIdVec}, 0, common.DefaultAllocator)
+	//require.NoError(t, err)
+	//
+	//rowIds = vector.MustFixedColNoTypeCheck[types.Rowid](delRowIdVec)
+	//sorted = slices.IsSortedFunc(rowIds, func(a, b types.Rowid) int { return a.Compare(&b) })
+	////require.True(t, sorted)
+	//fmt.Println(sorted)
 
 	idx = slices.Index(offsets, 6361)
 	require.Equal(t, -1, idx)
