@@ -127,7 +127,6 @@ func transferTombstoneObjects(
 
 			obj := make([]string, 0, len(statsList))
 			for i := range statsList {
-				fileName := statsList[i].ObjectLocation().String()
 				obj = append(obj, statsList[i].ObjectName().ObjectId().ShortStringEx())
 				bat := batch.New([]string{catalog.ObjectMeta_ObjectStats})
 				bat.SetVector(0, vector.NewVec(types.T_text.ToType()))
@@ -139,9 +138,9 @@ func transferTombstoneObjects(
 				bat.SetRowCount(bat.Vecs[0].Length())
 
 				if err = txn.WriteFileLocked(
-					DELETE,
+					WS_TOMBSTONE_OBJS,
 					tbl.accountId, tbl.db.databaseId, tbl.tableId,
-					tbl.db.databaseName, tbl.tableName, fileName,
+					tbl.db.databaseName, tbl.tableName,
 					bat, txn.tnStores[0],
 				); err != nil {
 					return err
@@ -246,9 +245,8 @@ func transferTombstones(
 	for i, entry := range txnWrites {
 		// skip all entries not table-realted
 		// skip all non-delete entries
-		if entry.tableId != table.tableId ||
-			entry.typ != DELETE ||
-			entry.fileName != "" || entry.bat == nil {
+		if entry.tableId != table.tableId || entry.bat == nil ||
+			entry.typ != WS_TOMBSTONE_ROWS {
 			continue
 		}
 

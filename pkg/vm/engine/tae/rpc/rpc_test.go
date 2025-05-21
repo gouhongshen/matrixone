@@ -16,6 +16,7 @@ package rpc
 
 import (
 	"context"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae"
 	"strconv"
 	"sync"
 	"testing"
@@ -153,12 +154,13 @@ func TestHandle_HandleCommitPerformanceForS3Load(t *testing.T) {
 	vecTypes := []types.Type{types.New(types.T_varchar, types.MaxVarcharLen, 0)}
 	vecOpts := containers.Options{}
 	vecOpts.Capacity = 0
-	for i, obj := range objNames {
+	for i, _ := range objNames {
 		metaLocBat := containers.BuildBatch(attrs, vecTypes, vecOpts)
 		metaLocBat.Vecs[0].Append([]byte(stats[i][:]), false)
 		metaLocMoBat := containers.ToCNBatch(metaLocBat)
-		addS3BlkEntry, err := makePBEntry(INSERT, dbTestID,
-			tbTestID, dbName, schema.Name, obj.String(), metaLocMoBat)
+		addS3BlkEntry, err := makePBEntry(
+			disttae.WS_DATA_OBJS, dbTestID,
+			tbTestID, dbName, schema.Name, metaLocMoBat)
 		assert.NoError(t, err)
 		entries = append(entries, addS3BlkEntry)
 		defer metaLocBat.Close()
@@ -339,8 +341,9 @@ func TestHandle_HandlePreCommitWriteS3(t *testing.T) {
 	handle.db.Catalog.RecurLoop(p)
 	txn = mock1PCTxn(handle.db)
 	//append data into "tbtest" table
-	insertEntry, err := makePBEntry(INSERT, dbTestID,
-		tbTestID, dbName, schema.Name, "", moBats[2])
+	insertEntry, err := makePBEntry(
+		disttae.WS_DATA_ROWS, dbTestID,
+		tbTestID, dbName, schema.Name, moBats[2])
 	assert.NoError(t, err)
 	entries = append(entries, insertEntry)
 
@@ -354,8 +357,9 @@ func TestHandle_HandlePreCommitWriteS3(t *testing.T) {
 	metaLocBat1.Vecs[0].Append([]byte(stats1[:]), false)
 
 	metaLocMoBat1 := containers.ToCNBatch(metaLocBat1)
-	addS3BlkEntry1, err := makePBEntry(INSERT, dbTestID,
-		tbTestID, dbName, schema.Name, objName1.String(), metaLocMoBat1)
+	addS3BlkEntry1, err := makePBEntry(
+		disttae.WS_DATA_OBJS, dbTestID,
+		tbTestID, dbName, schema.Name, metaLocMoBat1)
 	assert.NoError(t, err)
 
 	entries = append(entries, addS3BlkEntry1)
@@ -365,8 +369,9 @@ func TestHandle_HandlePreCommitWriteS3(t *testing.T) {
 	metaLocBat2.Vecs[0].Append([]byte(stats3[:]), false)
 
 	metaLocMoBat2 := containers.ToCNBatch(metaLocBat2)
-	addS3BlkEntry2, err := makePBEntry(INSERT, dbTestID,
-		tbTestID, dbName, schema.Name, objName2.String(), metaLocMoBat2)
+	addS3BlkEntry2, err := makePBEntry(
+		disttae.WS_DATA_OBJS, dbTestID,
+		tbTestID, dbName, schema.Name, metaLocMoBat2)
 	assert.NoError(t, err)
 	entries = append(entries, addS3BlkEntry2)
 
@@ -464,8 +469,9 @@ func TestHandle_HandlePreCommitWriteS3(t *testing.T) {
 
 	delLocMoBat := containers.ToCNBatch(delLocBat)
 	var delApiEntries []*api.Entry
-	deleteS3BlkEntry, err := makePBEntry(DELETE, dbTestID,
-		tbTestID, dbName, schema.Name, objName3.String(), delLocMoBat)
+	deleteS3BlkEntry, err := makePBEntry(
+		disttae.WS_TOMBSTONE_OBJS, dbTestID,
+		tbTestID, dbName, schema.Name, delLocMoBat)
 	assert.NoError(t, err)
 	delApiEntries = append(delApiEntries, deleteS3BlkEntry)
 
@@ -651,8 +657,9 @@ func TestHandle_HandlePreCommit1PC(t *testing.T) {
 	//DML: insert batch into table
 	insertTxn := mock1PCTxn(handle.db)
 	moBat := containers.ToCNBatch(catalog.MockBatch(schema, 100))
-	insertEntry, err := makePBEntry(INSERT, dbTestId,
-		tbTestId, dbName, schema.Name, "", moBat)
+	insertEntry, err := makePBEntry(
+		disttae.WS_DATA_ROWS, dbTestId,
+		tbTestId, dbName, schema.Name, moBat)
 	assert.NoError(t, err)
 	err = handle.HandlePreCommit(
 		context.TODO(),
@@ -713,12 +720,11 @@ func TestHandle_HandlePreCommit1PC(t *testing.T) {
 	//delete 20 rows
 	deleteTxn := mock1PCTxn(handle.db)
 	deleteEntry, _ := makePBEntry(
-		DELETE,
+		disttae.WS_TOMBSTONE_ROWS,
 		dbId,
 		tbTestId,
 		dbName,
 		schema.Name,
-		"",
 		delBat,
 	)
 	err = handle.HandlePreCommit(
@@ -896,8 +902,9 @@ func TestHandle_HandlePreCommit2PCForCoordinator(t *testing.T) {
 
 	//DML::insert batch into table
 	moBat := containers.ToCNBatch(catalog.MockBatch(schema, 100))
-	insertEntry, err := makePBEntry(INSERT, dbTestId,
-		tbTestId, dbName, schema.Name, "", moBat)
+	insertEntry, err := makePBEntry(
+		disttae.WS_DATA_ROWS, dbTestId,
+		tbTestId, dbName, schema.Name, moBat)
 	assert.NoError(t, err)
 	txnCmds = []txnCommand{
 		{
@@ -923,8 +930,9 @@ func TestHandle_HandlePreCommit2PCForCoordinator(t *testing.T) {
 	//FIXME::??
 	//batch.SetLength(moBat, 20)
 	moBat = containers.ToCNBatch(catalog.MockBatch(schema, 20))
-	insertEntry, err = makePBEntry(INSERT, dbTestId,
-		tbTestId, dbName, schema.Name, "", moBat)
+	insertEntry, err = makePBEntry(
+		disttae.WS_DATA_ROWS, dbTestId,
+		tbTestId, dbName, schema.Name, moBat)
 	assert.NoError(t, err)
 	txnCmds = []txnCommand{
 		{
@@ -982,12 +990,11 @@ func TestHandle_HandlePreCommit2PCForCoordinator(t *testing.T) {
 	//delete 20 rows by 2PC txn
 	//batch.SetLength(hideBats[0], 20)
 	deleteEntry, err := makePBEntry(
-		DELETE,
+		disttae.WS_TOMBSTONE_ROWS,
 		dbId,
 		tbTestId,
 		dbName,
 		schema.Name,
-		"",
 		hideBats[0],
 	)
 	assert.Nil(t, err)
@@ -1012,12 +1019,11 @@ func TestHandle_HandlePreCommit2PCForCoordinator(t *testing.T) {
 	//start a 2PC txn ,rollback it after prepared.
 	rollbackTxn = mock2PCTxn(handle.db)
 	deleteEntry, _ = makePBEntry(
-		DELETE,
+		disttae.WS_TOMBSTONE_ROWS,
 		dbId,
 		tbTestId,
 		dbName,
 		schema.Name,
-		"",
 		hideBats[1],
 	)
 	txnCmds = []txnCommand{
@@ -1193,8 +1199,9 @@ func TestHandle_HandlePreCommit2PCForParticipant(t *testing.T) {
 
 	//DML::insert batch into table
 	moBat := containers.ToCNBatch(catalog.MockBatch(schema, 100))
-	insertEntry, err := makePBEntry(INSERT, dbTestId,
-		tbTestId, dbName, schema.Name, "", moBat)
+	insertEntry, err := makePBEntry(
+		disttae.WS_DATA_ROWS, dbTestId,
+		tbTestId, dbName, schema.Name, moBat)
 	assert.NoError(t, err)
 	txnCmds = []txnCommand{
 		{
@@ -1219,8 +1226,9 @@ func TestHandle_HandlePreCommit2PCForParticipant(t *testing.T) {
 	//FIXME::??
 	//batch.SetLength(moBat, 20)
 	moBat = containers.ToCNBatch(catalog.MockBatch(schema, 20))
-	insertEntry, err = makePBEntry(INSERT, dbTestId,
-		tbTestId, dbName, schema.Name, "", moBat)
+	insertEntry, err = makePBEntry(
+		disttae.WS_DATA_ROWS, dbTestId,
+		tbTestId, dbName, schema.Name, moBat)
 	assert.NoError(t, err)
 	txnCmds = []txnCommand{
 		{
@@ -1243,8 +1251,9 @@ func TestHandle_HandlePreCommit2PCForParticipant(t *testing.T) {
 	//insert 10 rows ,then rollback
 	//batch.SetLength(moBat, 10)
 	moBat = containers.ToCNBatch(catalog.MockBatch(schema, 10))
-	insertEntry, err = makePBEntry(INSERT, dbTestId,
-		tbTestId, dbName, schema.Name, "", moBat)
+	insertEntry, err = makePBEntry(
+		disttae.WS_DATA_ROWS, dbTestId,
+		tbTestId, dbName, schema.Name, moBat)
 	assert.NoError(t, err)
 	txnCmds = []txnCommand{
 		{
@@ -1300,12 +1309,11 @@ func TestHandle_HandlePreCommit2PCForParticipant(t *testing.T) {
 	//delete 20 rows by 2PC txn
 	//batch.SetLength(delBat, 20)
 	deleteEntry, err := makePBEntry(
-		DELETE,
+		disttae.WS_TOMBSTONE_ROWS,
 		dbId,
 		tbTestId,
 		dbName,
 		schema.Name,
-		"",
 		hideBats[0],
 	)
 	assert.Nil(t, err)
@@ -1331,12 +1339,11 @@ func TestHandle_HandlePreCommit2PCForParticipant(t *testing.T) {
 	// delete 20 rows ,then rollback
 	rollbackTxn = mock2PCTxn(handle.db)
 	deleteEntry, _ = makePBEntry(
-		DELETE,
+		disttae.WS_TOMBSTONE_ROWS,
 		dbId,
 		tbTestId,
 		dbName,
 		schema.Name,
-		"",
 		hideBats[1],
 	)
 	txnCmds = []txnCommand{
@@ -1566,8 +1573,9 @@ func TestHandle_MVCCVisibility(t *testing.T) {
 
 	//DML::insert batch into table
 	moBat := containers.ToCNBatch(catalog.MockBatch(schema, 100))
-	insertEntry, err := makePBEntry(INSERT, dbTestId,
-		tbTestId, dbName, schema.Name, "", moBat)
+	insertEntry, err := makePBEntry(
+		disttae.WS_DATA_ROWS, dbTestId,
+		tbTestId, dbName, schema.Name, moBat)
 	assert.NoError(t, err)
 	txnCmds = []txnCommand{
 		{
@@ -1651,12 +1659,11 @@ func TestHandle_MVCCVisibility(t *testing.T) {
 	deleteTxn := mock2PCTxn(handle.db)
 	//batch.SetLength(delBat, 20)
 	deleteEntry, err := makePBEntry(
-		DELETE,
+		disttae.WS_TOMBSTONE_ROWS,
 		dbTestId,
 		tbTestId,
 		dbName,
 		schema.Name,
-		"",
 		hideBats[0],
 	)
 	assert.Nil(t, err)
@@ -1793,7 +1800,8 @@ func TestApplyDeltaloc(t *testing.T) {
 		bat := containers.NewBatch()
 		bat.AddVector(objectio.TombstoneAttr_Rowid_Attr, rowIDVec)
 		bat.AddVector(schema.GetPrimaryKey().GetName(), pkVec)
-		insertEntry, err := makePBEntry(DELETE, dbID, tid, "db", schema.Name, "", containers.ToCNBatch(bat))
+		insertEntry, err := makePBEntry(
+			disttae.WS_TOMBSTONE_ROWS, dbID, tid, "db", schema.Name, containers.ToCNBatch(bat))
 		assert.NoError(t, err)
 
 		txn := mock1PCTxn(h.db)
@@ -1841,7 +1849,8 @@ func TestApplyDeltaloc(t *testing.T) {
 	assert.NoError(t, err)
 	require.False(t, stats.IsZero())
 	delLocBat.Vecs[0].Append(stats.Marshal(), false)
-	deleteS3Entry, err := makePBEntry(DELETE, dbID, tid, "db", schema.Name, "file", containers.ToCNBatch(delLocBat))
+	deleteS3Entry, err := makePBEntry(
+		disttae.WS_TOMBSTONE_OBJS, dbID, tid, "db", schema.Name, containers.ToCNBatch(delLocBat))
 	assert.NoError(t, err)
 	deleteS3Txn := mock1PCTxn(h.db)
 	err = h.HandlePreCommit(

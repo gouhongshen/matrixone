@@ -180,14 +180,14 @@ func (h *Handle) TryPrefetchTxn(ctx context.Context, meta *txn.TxnMeta) error {
 	}()
 
 	for _, e := range txnCtx.reqs {
-		if r, ok := e.(*cmd_util.WriteReq); ok && r.FileName != "" {
-			if r.Type == cmd_util.EntryDelete {
+		if r, ok := e.(*cmd_util.WriteReq); ok {
+			if r.Type == cmd_util.EntryTombstoneObjects {
 				// start to load deleted row ids
 				deltaLocCnt += len(r.TombstoneStats)
 				if err := h.prefetchDeleteRowID(ctx, r, meta); err != nil {
 					return err
 				}
-			} else if r.Type == cmd_util.EntryInsert {
+			} else if r.Type == cmd_util.EntryDataObjects {
 				metaLocCnt += len(r.DataObjectStats)
 				if err := h.prefetchMetadata(ctx, r, meta); err != nil {
 					return err
@@ -195,6 +195,7 @@ func (h *Handle) TryPrefetchTxn(ctx context.Context, meta *txn.TxnMeta) error {
 			}
 		}
 	}
+
 	return nil
 }
 

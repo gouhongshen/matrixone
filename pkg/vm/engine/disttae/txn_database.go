@@ -304,7 +304,8 @@ func (db *txnDatabase) deleteTable(ctx context.Context, name string, forAlter bo
 				note = noteForAlterDel(id, name)
 			}
 			if _, err := txn.WriteBatch(
-				DELETE, note, catalog.System_Account, catalog.MO_CATALOG_ID, catalog.MO_TABLES_ID,
+				WS_TOMBSTONE_ROWS, note,
+				catalog.System_Account, catalog.MO_CATALOG_ID, catalog.MO_TABLES_ID,
 				catalog.MO_CATALOG, catalog.MO_TABLES, bat, txn.tnStores[0]); err != nil {
 				bat.Clean(txn.proc.Mp())
 				return nil, err
@@ -332,7 +333,8 @@ func (db *txnDatabase) deleteTable(ctx context.Context, name string, forAlter bo
 				note = noteForAlterDel(id, name)
 			}
 			if _, err = txn.WriteBatch(
-				DELETE, note, catalog.System_Account, catalog.MO_CATALOG_ID, catalog.MO_COLUMNS_ID,
+				WS_TOMBSTONE_ROWS, note,
+				catalog.System_Account, catalog.MO_CATALOG_ID, catalog.MO_COLUMNS_ID,
 				catalog.MO_CATALOG, catalog.MO_COLUMNS, bat, txn.tnStores[0]); err != nil {
 				bat.Clean(txn.proc.Mp())
 				return nil, err
@@ -500,8 +502,11 @@ func (db *txnDatabase) createWithID(
 		if useAlterNote {
 			note = noteForAlterIns(tbl.tableId, tbl.tableName)
 		}
-		_, err = txn.WriteBatch(INSERT, note, catalog.System_Account, catalog.MO_CATALOG_ID, catalog.MO_TABLES_ID,
-			catalog.MO_CATALOG, catalog.MO_TABLES, bat, txn.tnStores[0])
+		_, err = txn.WriteBatch(WS_DATA_ROWS, note,
+			catalog.System_Account, catalog.MO_CATALOG_ID, catalog.MO_TABLES_ID,
+			catalog.MO_CATALOG, catalog.MO_TABLES,
+			bat, txn.tnStores[0])
+
 		if err != nil {
 			bat.Clean(m)
 			return err
@@ -518,8 +523,9 @@ func (db *txnDatabase) createWithID(
 			note = noteForAlterIns(tbl.tableId, tbl.tableName)
 		}
 		_, err = txn.WriteBatch(
-			INSERT, note, catalog.System_Account, catalog.MO_CATALOG_ID, catalog.MO_COLUMNS_ID,
+			WS_DATA_ROWS, note, catalog.System_Account, catalog.MO_CATALOG_ID, catalog.MO_COLUMNS_ID,
 			catalog.MO_CATALOG, catalog.MO_COLUMNS, bat, txn.tnStores[0])
+
 		if err != nil {
 			bat.Clean(m)
 			return err

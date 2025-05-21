@@ -171,10 +171,9 @@ func TestBigS3WorkspaceIterMissingData(t *testing.T) {
 		deletedBlocks: &deletedBlocks{},
 		writes: []Entry{
 			{
-				typ:        INSERT,
+				typ:        WS_DATA_OBJS,
 				databaseId: 11,
 				tableId:    22,
-				fileName:   "a-s3-file-name",
 				bat:        s3Bat,
 			},
 		},
@@ -186,7 +185,8 @@ func TestBigS3WorkspaceIterMissingData(t *testing.T) {
 	m := mpool.MustNewZero()
 	normalBat.SetRowCount(1)
 	vector.AppendFixed(normalBat.Vecs[0], int32(1), false, m)
-	txn.WriteBatch(INSERT, "", 0, 11, 23, "db", "t2", normalBat, DNStore{})
+	txn.WriteBatch(WS_DATA_ROWS, "",
+		0, 11, 23, "db", "t2", normalBat, DNStore{})
 
 	txnOp.AddWorkspace(txn)
 

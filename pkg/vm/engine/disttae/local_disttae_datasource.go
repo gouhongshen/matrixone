@@ -23,7 +23,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
@@ -452,10 +451,9 @@ func checkWorkspaceEntryType(
 	//
 	// Note that: some row have been deleted, but some left
 	if isInsert {
-		if entry.typ != INSERT ||
+		if entry.typ != WS_DATA_ROWS ||
 			entry.bat == nil ||
-			entry.bat.IsEmpty() ||
-			entry.bat.Attrs[0] == catalog.BlockMeta_MetaLoc {
+			entry.bat.IsEmpty() {
 			return false
 		}
 		if deleted, exist := tbl.getTxn().batchSelectList[entry.bat]; exist &&
@@ -467,7 +465,7 @@ func checkWorkspaceEntryType(
 	}
 
 	// handle delete entry
-	return (entry.typ == DELETE) && (entry.fileName == "")
+	return entry.typ == WS_TOMBSTONE_ROWS
 }
 
 func (ls *LocalDisttaeDataSource) filterInMemUnCommittedInserts(

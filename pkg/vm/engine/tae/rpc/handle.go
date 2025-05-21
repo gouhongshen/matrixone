@@ -183,9 +183,10 @@ func (h *Handle) tryLockMergeForBulkDelete(reqs []any, txn txnif.AsyncTxn) (rele
 		dbID uint64
 		rows uint64
 	})
+
 	for _, e := range reqs {
-		if req, ok := e.(*cmd_util.WriteReq); ok && req.Type == cmd_util.EntryDelete {
-			if req.FileName == "" && req.Batch == nil {
+		if req, ok := e.(*cmd_util.WriteReq); ok {
+			if req.Batch == nil || req.Type != cmd_util.EntryTombstoneObjects {
 				continue
 			}
 
@@ -194,11 +195,10 @@ func (h *Handle) tryLockMergeForBulkDelete(reqs []any, txn txnif.AsyncTxn) (rele
 				rows uint64
 			}{dbID: req.DatabaseId, rows: 0}
 
-			if req.FileName != "" {
-				for _, stats := range req.TombstoneStats {
-					delM[req.TableID].rows += uint64(stats.Rows())
-				}
+			for _, stats := range req.TombstoneStats {
+				delM[req.TableID].rows += uint64(stats.Rows())
 			}
+
 			if req.Batch != nil {
 				delM[req.TableID].rows += uint64(req.Batch.RowCount())
 			}
@@ -380,7 +380,7 @@ func (h *Handle) handleRequests(
 				wr = req.(*cmd_util.WriteReq)
 			}
 
-			if wr.Type == cmd_util.EntryDelete {
+			if wr.Type == cmd_util.EntryTombstoneObjects {
 				var f []func()
 				if f, err = h.tryLockMergeForBulkDelete([]any{req}, txn); err != nil {
 					logutil.Warn("failed to lock merging", zap.Error(err))
@@ -466,27 +466,27 @@ func (h *Handle) apiEntryToWriteEntry(
 		PkCheck:      cmd_util.PKCheckType(pe.GetPkCheckByTn()),
 	}
 
-	if req.FileName != "" {
+	if req.Type == cmd_util.EntryTombstoneObjects {
 		col := req.Batch.Vecs[0]
 		for i := 0; i < req.Batch.RowCount(); i++ {
 			stats := objectio.ObjectStats(col.GetBytesAt(i))
-			if req.Type == cmd_util.EntryInsert {
-				req.DataObjectStats = append(req.DataObjectStats, stats)
-			} else {
-				req.TombstoneStats = append(req.TombstoneStats, stats)
-			}
+			req.TombstoneStats = append(req.TombstoneStats, stats)
+		}
+	} else if req.Type == cmd_util.EntryDataObjects {
+		col := req.Batch.Vecs[0]
+		for i := 0; i < req.Batch.RowCount(); i++ {
+			stats := objectio.ObjectStats(col.GetBytesAt(i))
+			req.DataObjectStats = append(req.DataObjectStats, stats)
 		}
 	}
 
 	if prefetch {
-		if req.Type == cmd_util.EntryDelete {
-			if err = h.prefetchDeleteRowID(ctx, req, &meta); err != nil {
-				return nil
-			}
-		} else {
-			if err = h.prefetchMetadata(ctx, req, &meta); err != nil {
-				return nil
-			}
+		if err = h.prefetchDeleteRowID(ctx, req, &meta); err != nil {
+			return nil
+		}
+
+		if err = h.prefetchMetadata(ctx, req, &meta); err != nil {
+			return nil
 		}
 	}
 
@@ -908,23 +908,22 @@ func (h *Handle) HandleWrite(
 		return
 	}
 
-	if req.Type == cmd_util.EntryInsert {
+	if req.Type == cmd_util.EntryDataObjects {
 		//Add blocks which had been bulk-loaded into S3 into table.
-		if req.FileName != "" {
-			statsVec := req.Batch.Vecs[0]
-			for i := 0; i < statsVec.Length(); i++ {
-				s := objectio.ObjectStats(statsVec.GetBytesAt(i))
-				if !s.GetCNCreated() {
-					logutil.Fatalf("the `CNCreated` mask not set: %s", s.String())
-				}
-				persistedMemoryInsertRows += int(s.Rows())
+		statsVec := req.Batch.Vecs[0]
+		for i := 0; i < statsVec.Length(); i++ {
+			s := objectio.ObjectStats(statsVec.GetBytesAt(i))
+			if !s.GetCNCreated() {
+				logutil.Fatalf("the `CNCreated` mask not set: %s", s.String())
 			}
-			err = tb.AddDataFiles(
-				ctx,
-				containers.ToTNVector(statsVec, common.WorkspaceAllocator),
-			)
-			return
+			persistedMemoryInsertRows += int(s.Rows())
 		}
+		err = tb.AddDataFiles(
+			ctx,
+			containers.ToTNVector(statsVec, common.WorkspaceAllocator),
+		)
+
+	} else if req.Type == cmd_util.EntryDataRows {
 		//check the input batch passed by cn is valid.
 		for i, vec := range req.Batch.Vecs {
 			if vec == nil {
@@ -984,12 +983,8 @@ func (h *Handle) HandleWrite(
 			postFunc = append(postFunc, parse_merge_settings_set(req.Batch, h.db.MergeScheduler))
 		}
 		err = AppendDataToTable(ctx, tb, req.Batch)
-		return
-	}
 
-	//handle delete
-	if req.FileName != "" {
-		//wait for loading deleted row-id done.
+	} else if req.Type == cmd_util.EntryTombstoneObjects {
 		nctx := context.Background()
 		if deadline, ok := ctx.Deadline(); ok {
 			_, req.Cancel = context.WithTimeoutCause(nctx, time.Until(deadline), moerr.CauseHandleWrite)
@@ -1042,49 +1037,55 @@ func (h *Handle) HandleWrite(
 				closeFunc()
 			}
 		}
-		return
+
+	} else if req.Type == cmd_util.EntryTombstoneRows {
+		if len(req.Batch.Vecs) != 2 {
+			panic(fmt.Sprintf("req.Batch.Vecs length is %d, should be 2", len(req.Batch.Vecs)))
+		}
+		rowIDVec := containers.ToTNVector(req.Batch.GetVector(0), common.WorkspaceAllocator)
+		pkVec := containers.ToTNVector(req.Batch.GetVector(1), common.WorkspaceAllocator)
+		if req.DatabaseId == pkgcatalog.MO_CATALOG_ID && req.TableName == pkgcatalog.MO_MERGE_SETTINGS {
+			postFunc = append(postFunc, parse_merge_settings_unset(pkVec, h.db.MergeScheduler))
+		}
+		inMemoryTombstoneRows += rowIDVec.Length()
+		//defer pkVec.Close()
+		// TODO: debug for #13342, remove me later
+		//_, _, injected := fault.TriggerFault(objectio.FJ_CommitDelete)
+		//if h.IsInterceptTable(tb.Schema(false).(*catalog.Schema).Name) || injected {
+		//	schema := tb.Schema(false).(*catalog.Schema)
+		//	if schema.HasPK() {
+		//		rowids := vector.MustFixedColNoTypeCheck[types.Rowid](rowIDVec.GetDownstreamVector())
+		//		isCompositeKey := schema.GetSingleSortKey().IsCompositeColumn()
+		//		for i := 0; i < len(rowids); i++ {
+		//			if isCompositeKey {
+		//				pkbuf := req.Batch.Vecs[1].GetBytesAt(i)
+		//				tuple, _ := types.Unpack(pkbuf)
+		//				logutil.Info(
+		//					"op2",
+		//					zap.String("txn", txn.String()),
+		//					zap.String("pk", common.TypeStringValue(*req.Batch.Vecs[1].GetType(), pkbuf, false)),
+		//					zap.String("rowid", rowids[i].String()),
+		//					zap.Any("detail", tuple.SQLStrings(nil)),
+		//				)
+		//			} else {
+		//				logutil.Info(
+		//					"op2",
+		//					zap.String("txn", txn.String()),
+		//					zap.String("pk", common.MoVectorToString(req.Batch.Vecs[1], i)),
+		//					zap.String("rowid", rowids[i].String()),
+		//				)
+		//			}
+		//		}
+		//	}
+		//}
+		err = tb.DeleteByPhyAddrKeys(rowIDVec, pkVec, handle.DT_Normal)
+	} else {
+		panic(fmt.Sprintf(
+			"invalid req.Type: %v-%v-%v-%v, type=%v, batAttr: %v",
+			req.DatabaseName, req.DatabaseId, req.TableName, req.TableID,
+			req.Type, req.Batch.Attrs))
 	}
 
-	if len(req.Batch.Vecs) != 2 {
-		panic(fmt.Sprintf("req.Batch.Vecs length is %d, should be 2", len(req.Batch.Vecs)))
-	}
-	rowIDVec := containers.ToTNVector(req.Batch.GetVector(0), common.WorkspaceAllocator)
-	pkVec := containers.ToTNVector(req.Batch.GetVector(1), common.WorkspaceAllocator)
-	if req.DatabaseId == pkgcatalog.MO_CATALOG_ID && req.TableName == pkgcatalog.MO_MERGE_SETTINGS {
-		postFunc = append(postFunc, parse_merge_settings_unset(pkVec, h.db.MergeScheduler))
-	}
-	inMemoryTombstoneRows += rowIDVec.Length()
-	//defer pkVec.Close()
-	// TODO: debug for #13342, remove me later
-	//_, _, injected := fault.TriggerFault(objectio.FJ_CommitDelete)
-	//if h.IsInterceptTable(tb.Schema(false).(*catalog.Schema).Name) || injected {
-	//	schema := tb.Schema(false).(*catalog.Schema)
-	//	if schema.HasPK() {
-	//		rowids := vector.MustFixedColNoTypeCheck[types.Rowid](rowIDVec.GetDownstreamVector())
-	//		isCompositeKey := schema.GetSingleSortKey().IsCompositeColumn()
-	//		for i := 0; i < len(rowids); i++ {
-	//			if isCompositeKey {
-	//				pkbuf := req.Batch.Vecs[1].GetBytesAt(i)
-	//				tuple, _ := types.Unpack(pkbuf)
-	//				logutil.Info(
-	//					"op2",
-	//					zap.String("txn", txn.String()),
-	//					zap.String("pk", common.TypeStringValue(*req.Batch.Vecs[1].GetType(), pkbuf, false)),
-	//					zap.String("rowid", rowids[i].String()),
-	//					zap.Any("detail", tuple.SQLStrings(nil)),
-	//				)
-	//			} else {
-	//				logutil.Info(
-	//					"op2",
-	//					zap.String("txn", txn.String()),
-	//					zap.String("pk", common.MoVectorToString(req.Batch.Vecs[1], i)),
-	//					zap.String("rowid", rowids[i].String()),
-	//				)
-	//			}
-	//		}
-	//	}
-	//}
-	err = tb.DeleteByPhyAddrKeys(rowIDVec, pkVec, handle.DT_Normal)
 	return
 }
 

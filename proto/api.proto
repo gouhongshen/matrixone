@@ -237,7 +237,8 @@ message Entry {
     uint64 database_id   = 3;
     string table_name    = 4;
     string database_name = 5;
-    string file_name     = 6;
+    reserved 6;
+//    string file_name     = 6;
     Batch bat            = 7;
     // whether TN do the PK uniqueness check against txn's workspace or not.
     int32 pk_check_by_tn = 8;

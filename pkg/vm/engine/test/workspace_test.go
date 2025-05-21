@@ -1478,7 +1478,7 @@ func Test_DeleteUncommittedBlock(t *testing.T) {
 			table.GetDBID(ctx), table.GetTableID(ctx), 1, func(entry disttae.Entry) {
 				if entry.Bat() == nil ||
 					entry.Bat().RowCount() == 0 ||
-					entry.FileName() == "" {
+					disttae.IsWSInMemRows(entry.Type()) {
 					return
 				}
 				entryCnt++
@@ -1752,9 +1752,8 @@ func Test_CNTransferTombstoneObjects(t *testing.T) {
 
 		transaction := cnTxnOp.GetWorkspace().(*disttae.Transaction)
 		err = transaction.WriteFile(
-			disttae.DELETE,
+			disttae.WS_TOMBSTONE_OBJS,
 			0, rel.GetDBID(ctx), rel.GetTableID(ctx), databaseName, tableName,
-			ss[0].ObjectLocation().String(),
 			tbat,
 			p.D.Engine.GetTNServices()[0],
 		)

@@ -216,18 +216,16 @@ func (tbl *txnTable) Size(ctx context.Context, columnName string) (uint64, error
 		tbl.tableId,
 		tbl.getTxn().GetSnapshotWriteOffset(),
 		func(entry Entry) {
-			if entry.typ == INSERT {
+			if IsWSData(entry.typ) {
 				for i, s := range entry.bat.Attrs {
 					if _, ok := neededCols[s]; ok {
 						szInPart += uint64(entry.bat.Vecs[i].Size())
 					}
 				}
-			} else {
-				if entry.bat.GetVector(0).GetType().Oid == types.T_Rowid {
-					vs := vector.MustFixedColWithTypeCheck[types.Rowid](entry.bat.GetVector(0))
-					for _, v := range vs {
-						deletes[v] = struct{}{}
-					}
+			} else if entry.typ == WS_TOMBSTONE_ROWS {
+				vs := vector.MustFixedColWithTypeCheck[types.Rowid](entry.bat.GetVector(0))
+				for _, v := range vs {
+					deletes[v] = struct{}{}
 				}
 			}
 		})
@@ -526,26 +524,24 @@ func (tbl *txnTable) CollectTombstones(
 
 		tbl.getTxn().ForEachTableWrites(tbl.db.databaseId, tbl.tableId,
 			offset, func(entry Entry) {
-				if entry.typ == INSERT {
+				if entry.typ != WS_TOMBSTONE_ROWS {
 					return
 				}
-				//entry.typ == DELETE
-				if entry.bat.GetVector(0).GetType().Oid == types.T_Rowid {
-					/*
-						CASE:
-						create table t1(a int);
-						begin;
-						truncate t1; //txnDatabase.Truncate will DELETE mo_tables
-						show tables; // t1 must be shown
-					*/
-					//if entry.IsGeneratedByTruncate() {
-					//	return
-					//}
-					//deletes in txn.Write maybe comes from PartitionState.Rows ,
-					// PartitionReader need to skip them.
-					vs := vector.MustFixedColWithTypeCheck[types.Rowid](entry.bat.GetVector(0))
-					tombstone.AppendInMemory(vs...)
-				}
+
+				/*
+					CASE:
+					create table t1(a int);
+					begin;
+					truncate t1; //txnDatabase.Truncate will DELETE mo_tables
+					show tables; // t1 must be shown
+				*/
+				//if entry.IsGeneratedByTruncate() {
+				//	return
+				//}
+				//deletes in txn.Write maybe comes from PartitionState.Rows ,
+				// PartitionReader need to skip them.
+				vs := vector.MustFixedColWithTypeCheck[types.Rowid](entry.bat.GetVector(0))
+				tombstone.AppendInMemory(vs...)
 			})
 
 		//collect uncommitted in-memory tombstones belongs to blocks persisted by CN writing S3
@@ -994,11 +990,11 @@ func (tbl *txnTable) collectUnCommittedDataObjs(txnOffset int) ([]objectio.Objec
 			if entry.bat == nil || entry.bat.IsEmpty() {
 				return
 			}
-			if entry.typ != INSERT ||
-				len(entry.bat.Attrs) < 2 ||
-				entry.bat.Attrs[1] != catalog.ObjectMeta_ObjectStats {
+
+			if entry.typ != WS_DATA_OBJS {
 				return
 			}
+
 			for i := 0; i < entry.bat.Vecs[1].Length(); i++ {
 				stats.UnMarshal(entry.bat.Vecs[1].GetBytesAt(i))
 				unCommittedObjects = append(unCommittedObjects, stats)
@@ -1356,7 +1352,8 @@ func (tbl *txnTable) AlterTable(ctx context.Context, c *engine.ConstraintDef, re
 		if err != nil {
 			return err
 		}
-		if _, err = txn.WriteBatch(ALTER, "", tbl.accountId, tbl.db.databaseId, tbl.tableId,
+		if _, err = txn.WriteBatch(WS_ALTER, "",
+			tbl.accountId, tbl.db.databaseId, tbl.tableId,
 			tbl.db.databaseName, tbl.tableName, bat, txn.tnStores[0]); err != nil {
 			bat.Clean(txn.proc.Mp())
 			return err
@@ -1445,15 +1442,13 @@ func (tbl *txnTable) Write(ctx context.Context, bat *batch.Batch) error {
 	if bat.Attrs[0] == catalog.BlockMeta_BlockInfo {
 		tbl.getTxn().hasS3Op.Store(true)
 		//bocks maybe come from different S3 object, here we just need to make sure fileName is not Nil.
-		fileName := objectio.DecodeBlockInfo(bat.Vecs[0].GetBytesAt(0)).MetaLocation().Name().String()
 		return tbl.getTxn().WriteFile(
-			INSERT,
+			WS_DATA_OBJS,
 			tbl.accountId,
 			tbl.db.databaseId,
 			tbl.tableId,
 			tbl.db.databaseName,
 			tbl.tableName,
-			fileName,
 			bat,
 			tbl.getTxn().tnStores[0])
 	}
@@ -1462,7 +1457,7 @@ func (tbl *txnTable) Write(ctx context.Context, bat *batch.Batch) error {
 		return err
 	}
 	if _, err := tbl.getTxn().WriteBatch(
-		INSERT,
+		WS_DATA_ROWS,
 		"",
 		tbl.accountId,
 		tbl.db.databaseId,
@@ -1508,7 +1503,7 @@ func (tbl *txnTable) rewriteObjectByDeletion(
 	)
 
 	if fs, err = colexec.GetSharedFSFromProc(proc); err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	s3Writer := colexec.NewCNS3DataWriter(proc.Mp(), fs, tbl.tableDef, false)
@@ -1516,9 +1511,7 @@ func (tbl *txnTable) rewriteObjectByDeletion(
 	defer func() { s3Writer.Close(proc.Mp()) }()
 
 	var (
-		bat      *batch.Batch
-		stats    []objectio.ObjectStats
-		fileName string
+		bat *batch.Batch
 	)
 
 	defer func() {
@@ -1565,24 +1558,20 @@ func (tbl *txnTable) rewriteObjectByDeletion(
 	)
 
 	if err != nil {
-		return nil, fileName, err
+		return nil, err
 	}
 
-	if stats, err = s3Writer.Sync(ctx, proc.Mp()); err != nil {
-		return nil, fileName, err
+	if _, err = s3Writer.Sync(ctx, proc.Mp()); err != nil {
+		return nil, err
 	}
 
 	if bat, err = s3Writer.FillBlockInfoBat(proc.Mp()); err != nil {
-		return nil, fileName, err
-	}
-
-	if len(stats) != 0 {
-		fileName = stats[0].ObjectLocation().String()
+		return nil, err
 	}
 
 	ret, err := bat.Dup(proc.Mp())
 
-	return ret, fileName, err
+	return ret, err
 }
 
 func (tbl *txnTable) Delete(
@@ -1627,15 +1616,14 @@ func (tbl *txnTable) Delete(
 
 	case catalog.ObjectMeta_ObjectStats:
 		tbl.getTxn().hasS3Op.Store(true)
-		stats := objectio.ObjectStats(bat.Vecs[0].GetBytesAt(0))
-		fileName := stats.ObjectLocation().String()
 		copBat, err := util.CopyBatch(bat, tbl.getTxn().proc)
 		if err != nil {
 			return err
 		}
 
-		if err := tbl.getTxn().WriteFile(DELETE, tbl.accountId, tbl.db.databaseId, tbl.tableId,
-			tbl.db.databaseName, tbl.tableName, fileName, copBat, tbl.getTxn().tnStores[0]); err != nil {
+		if err := tbl.getTxn().WriteFile(WS_TOMBSTONE_OBJS,
+			tbl.accountId, tbl.db.databaseId, tbl.tableId,
+			tbl.db.databaseName, tbl.tableName, copBat, tbl.getTxn().tnStores[0]); err != nil {
 			return err
 		}
 
@@ -1657,7 +1645,8 @@ func (tbl *txnTable) writeTnPartition(_ context.Context, bat *batch.Batch) error
 	if err != nil {
 		return err
 	}
-	if _, err := tbl.getTxn().WriteBatch(DELETE, "", tbl.accountId, tbl.db.databaseId, tbl.tableId,
+	if _, err := tbl.getTxn().WriteBatch(WS_TOMBSTONE_ROWS, "",
+		tbl.accountId, tbl.db.databaseId, tbl.tableId,
 		tbl.db.databaseName, tbl.tableName, ibat, tbl.getTxn().tnStores[0]); err != nil {
 		ibat.Clean(tbl.getTxn().proc.Mp())
 		return err
@@ -2560,14 +2549,12 @@ func (tbl *txnTable) getUncommittedRows(
 		tbl.tableId,
 		tbl.getTxn().GetSnapshotWriteOffset(),
 		func(entry Entry) {
-			if entry.typ == INSERT {
+			if entry.typ == WS_DATA_ROWS {
 				rows = rows + uint64(entry.bat.RowCount())
-			} else {
-				if entry.bat.GetVector(0).GetType().Oid == types.T_Rowid {
-					vs := vector.MustFixedColWithTypeCheck[types.Rowid](entry.bat.GetVector(0))
-					for _, v := range vs {
-						deletes[v] = struct{}{}
-					}
+			} else if entry.typ == WS_TOMBSTONE_ROWS {
+				vs := vector.MustFixedColWithTypeCheck[types.Rowid](entry.bat.GetVector(0))
+				for _, v := range vs {
+					deletes[v] = struct{}{}
 				}
 			}
 		},

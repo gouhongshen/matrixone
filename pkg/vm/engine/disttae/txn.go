@@ -92,7 +92,9 @@ func (txn *Transaction) WriteBatch(
 	databaseName string,
 	tableName string,
 	bat *batch.Batch,
-	tnStore DNStore) (genRowidVec *vector.Vector, err error) {
+	tnStore DNStore,
+) (genRowidVec *vector.Vector, err error) {
+
 	start := time.Now()
 	seq := txn.op.NextSequence()
 	trace.GetService(txn.proc.GetService()).AddTxnDurationAction(
@@ -115,9 +117,10 @@ func (txn *Transaction) WriteBatch(
 	txn.readOnly.Store(false)
 	txn.Lock()
 	defer txn.Unlock()
+
 	// generate rowid for insert
 	// TODO(aptend): move this outside WriteBatch? Call twice for the same batch will generate different rowid
-	if typ == INSERT {
+	if typ == WS_DATA_ROWS {
 		if bat.Vecs[0].GetType().Oid == types.T_Rowid {
 			panic("rowid should not be generated in Insert WriteBatch")
 		}
@@ -155,7 +158,7 @@ func (txn *Transaction) WriteBatch(
 		}
 	}
 
-	if typ == DELETE && !catalog.IsSystemTable(tableId) {
+	if typ == WS_TOMBSTONE_ROWS && !catalog.IsSystemTable(tableId) {
 		txn.approximateInMemDeleteCnt += bat.RowCount()
 	}
 
@@ -197,7 +200,7 @@ func (txn *Transaction) WriteBatch(
 		}
 	}
 
-	if typ == DELETE && !catalog.IsSystemTable(tableId) &&
+	if typ == WS_TOMBSTONE_ROWS && !catalog.IsSystemTable(tableId) &&
 		bat != nil && bat.RowCount() > 1 {
 
 		// attr: row_id, pk
@@ -220,6 +223,7 @@ func (txn *Transaction) WriteBatch(
 		tnStore:      tnStore,
 		note:         note,
 	}
+
 	txn.writes = append(txn.writes, e)
 	txn.pkCount += bat.RowCount()
 	txn.workspaceSize += uint64(bat.Size())
@@ -374,9 +378,11 @@ func (txn *Transaction) checkDup() error {
 		if e.bat == nil || e.bat.RowCount() == 0 {
 			continue
 		}
-		if e.fileName != "" {
+
+		if IsWSPersistedObjs(e.typ) {
 			continue
 		}
+
 		if e.isCatalog() {
 			continue
 		}
@@ -390,6 +396,7 @@ func (txn *Transaction) checkDup() error {
 		if txn.tableOps.existAndDeleted(tableKey) {
 			continue
 		}
+
 		//build pk index for tables.
 		if _, ok := tablesDef[e.tableId]; !ok {
 			tbl, err := txn.getTable(e.accountId, e.databaseName, e.tableName)
@@ -398,6 +405,7 @@ func (txn *Transaction) checkDup() error {
 			}
 			tablesDef[e.tableId] = tbl.GetTableDef(txn.proc.Ctx)
 		}
+
 		tableDef := tablesDef[e.tableId]
 		if _, ok := pkIndex[e.tableId]; !ok {
 			for idx, colDef := range tableDef.Cols {
@@ -413,7 +421,7 @@ func (txn *Transaction) checkDup() error {
 			}
 		}
 
-		if e.typ == INSERT {
+		if IsWSData(e.typ) {
 			bat := e.bat
 			if index, ok := pkIndex[e.tableId]; ok && index != -1 {
 				if *bat.Vecs[0].GetType() == types.T_Rowid.ToType() {
@@ -443,8 +451,9 @@ func (txn *Transaction) checkDup() error {
 			}
 			continue
 		}
+
 		//if entry.tyep is DELETE, then e.bat.Vecs[0] is rowid,e.bat.Vecs[1] is PK
-		if e.typ == DELETE {
+		if IsWSTombstone(e.typ) {
 			if len(e.bat.Vecs) < 2 {
 				logutil.Warnf("delete has no pk, database:%s, table:%s",
 					e.databaseName, e.tableName)
@@ -471,6 +480,7 @@ func (txn *Transaction) checkDup() error {
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -507,7 +517,7 @@ func (txn *Transaction) dumpBatchLocked(ctx context.Context, offset int) error {
 			if txn.writes[i].bat == nil || txn.writes[i].bat.RowCount() == 0 {
 				continue
 			}
-			if txn.writes[i].typ == INSERT && txn.writes[i].fileName == "" {
+			if txn.writes[i].typ == WS_DATA_ROWS {
 				size += uint64(txn.writes[i].bat.Size())
 			}
 		}
@@ -611,7 +621,7 @@ func (txn *Transaction) dumpInsertBatchLocked(
 		if txn.writes[i].bat == nil || txn.writes[i].bat.RowCount() == 0 {
 			continue
 		}
-		if txn.writes[i].typ == INSERT && txn.writes[i].fileName == "" {
+		if txn.writes[i].typ == WS_DATA_ROWS {
 			tbSize[txn.writes[i].tableId] += txn.writes[i].bat.Size()
 			tbCount[txn.writes[i].tableId] += txn.writes[i].bat.RowCount()
 		}
@@ -657,7 +667,7 @@ func (txn *Transaction) dumpInsertBatchLocked(
 		}
 
 		keepElement := true
-		if txn.writes[i].typ == INSERT && txn.writes[i].fileName == "" {
+		if txn.writes[i].typ == WS_DATA_ROWS {
 			tbKey := tableKey{
 				accountId:  txn.writes[i].accountId,
 				databaseId: txn.writes[i].databaseId,
@@ -687,9 +697,7 @@ func (txn *Transaction) dumpInsertBatchLocked(
 	txn.writes = writes[:lastWriteIndex]
 
 	var (
-		stats    []objectio.ObjectStats
 		s3Writer *colexec.CNS3Writer
-		fileName string
 		bat      *batch.Batch
 	)
 
@@ -715,11 +723,10 @@ func (txn *Transaction) dumpInsertBatchLocked(
 			}
 		}
 
-		if stats, err = s3Writer.Sync(txn.proc.Ctx, txn.proc.Mp()); err != nil {
+		if _, err = s3Writer.Sync(txn.proc.Ctx, txn.proc.Mp()); err != nil {
 			return err
 		}
 
-		fileName = stats[0].ObjectLocation().String()
 		if bat, err = s3Writer.FillBlockInfoBat(txn.proc.GetMPool()); err != nil {
 			return err
 		}
@@ -732,13 +739,12 @@ func (txn *Transaction) dumpInsertBatchLocked(
 		}
 
 		if err = table.getTxn().WriteFileLocked(
-			INSERT,
+			WS_DATA_OBJS,
 			table.accountId,
 			table.db.databaseId,
 			table.tableId,
 			table.db.databaseName,
 			table.tableName,
-			fileName,
 			bat,
 			table.getTxn().tnStores[0],
 		); err != nil {
@@ -777,7 +783,7 @@ func (txn *Transaction) dumpDeleteBatchLocked(
 		}
 
 		keepElement := true
-		if txn.writes[i].typ == DELETE && txn.writes[i].fileName == "" {
+		if txn.writes[i].typ == WS_TOMBSTONE_ROWS {
 			tbKey := tableKey{
 				accountId:  txn.writes[i].accountId,
 				databaseId: txn.writes[i].databaseId,
@@ -811,9 +817,7 @@ func (txn *Transaction) dumpDeleteBatchLocked(
 		pkCol    *plan.ColDef
 		s3Writer *colexec.CNS3Writer
 
-		stats    []objectio.ObjectStats
-		fileName string
-		bat      *batch.Batch
+		bat *batch.Batch
 	)
 
 	defer func() {
@@ -839,11 +843,9 @@ func (txn *Transaction) dumpDeleteBatchLocked(
 			}
 		}
 
-		if stats, err = s3Writer.Sync(txn.proc.Ctx, txn.proc.Mp()); err != nil {
+		if _, err = s3Writer.Sync(txn.proc.Ctx, txn.proc.Mp()); err != nil {
 			return err
 		}
-
-		fileName = stats[0].ObjectLocation().String()
 
 		if bat, err = s3Writer.FillBlockInfoBat(txn.proc.GetMPool()); err != nil {
 			return err
@@ -863,13 +865,12 @@ func (txn *Transaction) dumpDeleteBatchLocked(
 		}
 
 		if err = table.getTxn().WriteFileLocked(
-			DELETE,
+			WS_TOMBSTONE_OBJS,
 			table.accountId,
 			table.db.databaseId,
 			table.tableId,
 			table.db.databaseName,
 			table.tableName,
-			fileName,
 			bat2,
 			table.getTxn().tnStores[0],
 		); err != nil {
@@ -934,12 +935,12 @@ func (txn *Transaction) WriteFileLocked(
 	tableId uint64,
 	databaseName,
 	tableName string,
-	fileName string,
 	bat *batch.Batch,
 	tnStore DNStore) error {
 	txn.hasS3Op.Store(true)
 	bat2 := bat
-	if typ == INSERT {
+
+	if IsWSData(typ) {
 		bat2 = batch.NewWithSize(len(bat.Vecs))
 		bat2.SetAttributes([]string{catalog.BlockMeta_MetaLoc, catalog.ObjectMeta_ObjectStats})
 
@@ -969,6 +970,7 @@ func (txn *Transaction) WriteFileLocked(
 			databaseName,
 			tableName)
 	}
+
 	txn.readOnly.Store(false)
 	txn.workspaceSize += uint64(bat2.Size())
 	entry := Entry{
@@ -978,10 +980,10 @@ func (txn *Transaction) WriteFileLocked(
 		databaseId:   databaseId,
 		tableName:    tableName,
 		databaseName: databaseName,
-		fileName:     fileName,
 		bat:          bat2,
 		tnStore:      tnStore,
 	}
+
 	txn.writes = append(txn.writes, entry)
 	return nil
 }
@@ -995,14 +997,15 @@ func (txn *Transaction) WriteFile(
 	tableId uint64,
 	databaseName,
 	tableName string,
-	fileName string,
 	bat *batch.Batch,
-	tnStore DNStore) error {
+	tnStore DNStore,
+) error {
+
 	txn.Lock()
 	defer txn.Unlock()
-	return txn.WriteFileLocked(
-		typ, accountId, databaseId, tableId,
-		databaseName, tableName, fileName, bat, tnStore)
+
+	return txn.WriteFileLocked(typ, accountId,
+		databaseId, tableId, databaseName, tableName, bat, tnStore)
 }
 
 func (txn *Transaction) deleteBatch(
@@ -1028,7 +1031,8 @@ func (txn *Transaction) deleteBatch(
 			nil)
 	}()
 
-	trace.GetService(txn.proc.GetService()).TxnWrite(txn.op, tableId, typesNames[DELETE], bat)
+	trace.GetService(txn.proc.GetService()).TxnWrite(txn.op,
+		tableId, typesNames[WS_TOMBSTONE_ROWS], bat)
 
 	var (
 		mp             = make(map[types.Rowid]uint8)
@@ -1061,6 +1065,7 @@ func (txn *Transaction) deleteBatch(
 		}
 		// update workspace
 	}
+
 	// cn rowId antiShrink
 	bat.Shrink(cnRowIdOffsets, true)
 	if bat.RowCount() == 0 {
@@ -1077,6 +1082,7 @@ func (txn *Transaction) deleteBatch(
 			sels = append(sels, int64(k))
 		}
 	}
+
 	bat.Shrink(sels, true)
 	txn.proc.Mp().PutSels(sels)
 	return bat
@@ -1105,9 +1111,7 @@ func (txn *Transaction) deleteTableWrites(
 		}
 
 		// skip ALTER, DELETE, BlockMeta
-		if entry.typ == ALTER ||
-			entry.typ == DELETE ||
-			entry.bat.Attrs[0] == catalog.BlockMeta_MetaLoc {
+		if entry.typ != WS_DATA_ROWS {
 			continue
 		}
 
@@ -1234,9 +1238,7 @@ func (txn *Transaction) mergeTxnWorkspaceLocked(ctx context.Context) error {
 	}()
 
 	for i, e := range txn.writes {
-		if e.bat == nil || e.bat.IsEmpty() ||
-			e.bat.Attrs[0] == catalog.BlockMeta_MetaLoc || // inserts object
-			e.bat.Attrs[0] == catalog.ObjectMeta_ObjectStats { // deletes object
+		if e.bat == nil || e.bat.IsEmpty() || IsWSPersistedObjs(e.typ) {
 			continue
 		}
 
@@ -1248,9 +1250,9 @@ func (txn *Transaction) mergeTxnWorkspaceLocked(ctx context.Context) error {
 			continue
 		}
 
-		if e.typ == INSERT {
+		if IsWSData(e.typ) {
 			inserts.Add(uint64(i))
-		} else if e.typ == DELETE {
+		} else if IsWSTombstone(e.typ) {
 			deletes.Add(uint64(i))
 		}
 	}
@@ -1281,7 +1283,7 @@ func (txn *Transaction) mergeTxnWorkspaceLocked(ctx context.Context) error {
 				}
 			}
 
-			if merged && a.typ == INSERT {
+			if merged && IsWSData(a.typ) {
 				// rewrite rowIds.
 				// all the rowIds in the batch share one blkId.
 				rowIdVector, err := txn.batchAllocNewRowIds(a.bat.RowCount())
@@ -1337,7 +1339,7 @@ func (txn *Transaction) mergeTxnWorkspaceLocked(ctx context.Context) error {
 		txn.writes = txn.writes[:i]
 
 		for i = range txn.writes {
-			if txn.writes[i].typ == DELETE && txn.writes[i].bat.RowCount() > 1 {
+			if txn.writes[i].typ == WS_TOMBSTONE_ROWS && txn.writes[i].bat.RowCount() > 1 {
 				if err := mergeutil.SortColumnsByIndex(
 					txn.writes[i].bat.Vecs, 0, txn.proc.Mp()); err != nil {
 					return err
@@ -1433,7 +1435,7 @@ func (txn *Transaction) compactDeletionOnObjsLocked(ctx context.Context) error {
 		tbl.ensureSeqnumsAndTypesExpectRowid()
 		locker.Unlock()
 
-		bat, fileName, err := tbl.rewriteObjectByDeletion(ctx, stats, objBlkDeletion[*objId])
+		bat, err := tbl.rewriteObjectByDeletion(ctx, stats, objBlkDeletion[*objId])
 		if err != nil {
 			panicWhenFailed(err, "rewrite object by deletion failed")
 		}
@@ -1441,13 +1443,12 @@ func (txn *Transaction) compactDeletionOnObjsLocked(ctx context.Context) error {
 		locker.Lock()
 		defer locker.Unlock()
 		if err = txn.WriteFileLocked(
-			INSERT,
+			WS_DATA_OBJS,
 			tbl.accountId,
 			tbl.db.databaseId,
 			tbl.tableId,
 			tbl.db.databaseName,
 			tbl.tableName,
-			fileName,
 			bat,
 			txn.tnStores[0],
 		); err != nil {
@@ -1466,8 +1467,7 @@ func (txn *Transaction) compactDeletionOnObjsLocked(ctx context.Context) error {
 			continue
 		}
 
-		if entry.typ != INSERT ||
-			entry.bat.Attrs[0] != catalog.BlockMeta_MetaLoc {
+		if entry.typ != WS_DATA_OBJS {
 			continue
 		}
 
@@ -1496,13 +1496,12 @@ func (txn *Transaction) compactDeletionOnObjsLocked(ctx context.Context) error {
 				}
 
 				if err := txn.WriteFileLocked(
-					INSERT,
+					WS_DATA_OBJS,
 					entry.accountId,
 					entry.databaseId,
 					entry.tableId,
 					entry.databaseName,
 					entry.tableName,
-					stats.ObjectName().String(),
 					bat,
 					entry.tnStore,
 				); err != nil {
@@ -1563,14 +1562,16 @@ func (txn *Transaction) forEachTableHasDeletesLocked(
 	tables := make(map[uint64]*txnTable)
 	for i := 0; i < len(txn.writes); i++ {
 		e := txn.writes[i]
-		if e.typ != DELETE || e.bat == nil || e.bat.RowCount() == 0 ||
-			(!isObject && e.fileName != "" || isObject && e.fileName == "") {
+
+		if e.bat == nil || e.bat.RowCount() == 0 ||
+			(isObject && e.typ != WS_TOMBSTONE_OBJS || !isObject && e.typ != WS_TOMBSTONE_ROWS) {
 			continue
 		}
 
 		if _, ok := tables[e.tableId]; ok {
 			continue
 		}
+
 		ctx := context.WithValue(txn.proc.Ctx, defines.TenantIDKey{}, e.accountId)
 		// Database might craft a sql on the current txn to get the table,
 		// so we need to unlock the txn
@@ -1580,11 +1581,13 @@ func (txn *Transaction) forEachTableHasDeletesLocked(
 			txn.Lock()
 			return err
 		}
+
 		rel, err := db.Relation(ctx, e.tableName, nil)
 		if err != nil {
 			txn.Lock()
 			return err
 		}
+
 		txn.Lock()
 		if v, ok := rel.(*txnTableDelegate); ok {
 			tables[e.tableId] = v.origin
@@ -1593,11 +1596,13 @@ func (txn *Transaction) forEachTableHasDeletesLocked(
 		}
 
 	}
+
 	for _, tbl := range tables {
 		if err := f(tbl); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -1933,14 +1938,14 @@ func (c *dbOpsChain) addCreateDatabase(key databaseKey, statementId int, db *txn
 	c.Lock()
 	defer c.Unlock()
 	c.names[key] = append(c.names[key],
-		dbOp{kind: INSERT, statementId: statementId, databaseId: db.databaseId, payload: db})
+		dbOp{kind: WS_DATA_ROWS, statementId: statementId, databaseId: db.databaseId, payload: db})
 }
 
 func (c *dbOpsChain) addDeleteDatabase(key databaseKey, statementId int, did uint64) {
 	c.Lock()
 	defer c.Unlock()
 	c.names[key] = append(c.names[key],
-		dbOp{kind: DELETE, databaseId: did, statementId: statementId})
+		dbOp{kind: WS_TOMBSTONE_ROWS, databaseId: did, statementId: statementId})
 }
 
 func (c *dbOpsChain) existAndDeleted(key databaseKey) bool {
@@ -1950,13 +1955,13 @@ func (c *dbOpsChain) existAndDeleted(key databaseKey) bool {
 	if !exist {
 		return false
 	}
-	return x[len(x)-1].kind == DELETE
+	return x[len(x)-1].kind == WS_TOMBSTONE_ROWS
 }
 
 func (c *dbOpsChain) existAndActive(key databaseKey) *txnDatabase {
 	c.RLock()
 	defer c.RUnlock()
-	if x, exist := c.names[key]; exist && x[len(x)-1].kind == INSERT {
+	if x, exist := c.names[key]; exist && x[len(x)-1].kind == WS_DATA_ROWS {
 		return x[len(x)-1].payload
 	}
 	return nil
@@ -2005,14 +2010,14 @@ func (c *tableOpsChain) addCreateTable(key tableKey, statementId int, t *txnTabl
 	c.Lock()
 	defer c.Unlock()
 	c.names[key] = append(c.names[key],
-		tableOp{kind: INSERT, statementId: statementId, tableId: t.tableId, payload: t})
+		tableOp{kind: WS_DATA_ROWS, statementId: statementId, tableId: t.tableId, payload: t})
 }
 
 func (c *tableOpsChain) addDeleteTable(key tableKey, statementId int, tid uint64) {
 	c.Lock()
 	defer c.Unlock()
 	c.names[key] = append(c.names[key],
-		tableOp{kind: DELETE, tableId: tid, statementId: statementId})
+		tableOp{kind: WS_TOMBSTONE_ROWS, tableId: tid, statementId: statementId})
 }
 
 func (c *tableOpsChain) existAndDeleted(key tableKey) bool {
@@ -2022,13 +2027,13 @@ func (c *tableOpsChain) existAndDeleted(key tableKey) bool {
 	if !exist {
 		return false
 	}
-	return x[len(x)-1].kind == DELETE
+	return x[len(x)-1].kind == WS_TOMBSTONE_ROWS
 }
 
 func (c *tableOpsChain) existAndActive(key tableKey) *txnTable {
 	c.RLock()
 	defer c.RUnlock()
-	if x, exist := c.names[key]; exist && x[len(x)-1].kind == INSERT {
+	if x, exist := c.names[key]; exist && x[len(x)-1].kind == WS_DATA_ROWS {
 		return x[len(x)-1].payload
 	}
 	return nil
@@ -2043,7 +2048,7 @@ func (c *tableOpsChain) queryNameByTid(tid uint64) (dname, tname string, deleted
 	defer c.RUnlock()
 	for k, v := range c.names {
 		latest := v[len(v)-1]
-		if latest.kind == INSERT && latest.tableId == tid {
+		if latest.kind == WS_DATA_ROWS && latest.tableId == tid {
 			dname = k.dbName
 			tname = k.name
 			return
@@ -2098,7 +2103,7 @@ func (c *tableOpsChain) string() string {
 		k := a1.(tableKey)
 		return fmt.Sprintf("%v-%v-%v-%v:%v", k.accountId, k.databaseId, k.dbName, k.name, stringifySlice(a2, func(a any) string {
 			op := a.(tableOp)
-			if op.kind == DELETE {
+			if op.kind == WS_TOMBSTONE_ROWS {
 				return fmt.Sprintf("DEL-%v@%v", op.tableId, op.statementId)
 			} else {
 				return fmt.Sprintf("INS-%v-%v@%v", op.payload.tableId, op.payload.tableName, op.statementId)

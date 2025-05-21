@@ -133,11 +133,14 @@ func (m *FaultPoint) UnmarshalBinary(data []byte) error {
 	return m.Unmarshal(data)
 }
 
+// refer to proto/api.proto Entry
 type EntryType int32
 
 const (
-	EntryInsert EntryType = 0
-	EntryDelete EntryType = 1
+	EntryDataRows         EntryType = 0
+	EntryTombstoneRows    EntryType = 1
+	EntryDataObjects      EntryType = 5
+	EntryTombstoneObjects EntryType = 6
 )
 
 type PKCheckType int32
@@ -166,8 +169,7 @@ type WriteReq struct {
 	//IncrementalDedup do not check uniqueness of PK before txn's snapshot TS.
 	//FullSkipWorkspaceDedup do not check uniqueness of PK against txn's workspace.
 	PkCheck PKCheckType
-	//S3 object file name
-	FileName string
+
 	// cn flushed data object stats
 	DataObjectStats []objectio.ObjectStats
 	//for delete on S3

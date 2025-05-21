@@ -17,6 +17,7 @@ package rpc
 import (
 	"context"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"runtime"
 	"testing"
 
@@ -33,6 +34,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/pb/txn"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/cmd_util"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/common"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/db"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/options"
@@ -199,11 +201,6 @@ func mock2PCTxn(db *db.DB) *txn.TxnMeta {
 	return txnMeta
 }
 
-const (
-	INSERT = iota
-	DELETE
-)
-
 type AccessInfo struct {
 	accountId uint32
 	userId    uint32
@@ -217,8 +214,6 @@ type Entry struct {
 	databaseId   uint64
 	tableName    string
 	databaseName string
-	//object name for s3 file
-	fileName string
 	// update or delete tuples
 	bat *batch.Batch
 }
@@ -228,8 +223,7 @@ func makePBEntry(
 	dbId,
 	tableId uint64,
 	dbName,
-	tbName,
-	file string,
+	tbName string,
 	bat *batch.Batch) (pe *api.Entry, err error) {
 	e := Entry{
 		typ:          typ,
@@ -237,9 +231,9 @@ func makePBEntry(
 		databaseId:   dbId,
 		tableName:    tbName,
 		tableId:      tableId,
-		fileName:     file,
 		bat:          bat,
 	}
+
 	return toPBEntry(e)
 }
 
@@ -268,12 +262,11 @@ func makeCreateDatabaseEntries(
 		return nil, err
 	}
 	createDbEntry, err := makePBEntry(
-		INSERT,
+		disttae.WS_DATA_ROWS,
 		catalog.MO_CATALOG_ID,
 		catalog.MO_DATABASE_ID,
 		catalog.MO_CATALOG,
 		catalog.MO_DATABASE,
-		"",
 		createDbBat,
 	)
 	if err != nil {
@@ -328,9 +321,10 @@ func makeCreateTableEntries(
 		if err != nil {
 			return nil, err
 		}
-		createTbEntry, err := makePBEntry(INSERT,
+		createTbEntry, err := makePBEntry(
+			disttae.WS_DATA_ROWS,
 			catalog.MO_CATALOG_ID, catalog.MO_TABLES_ID,
-			catalog.MO_CATALOG, catalog.MO_TABLES, "", bat)
+			catalog.MO_CATALOG, catalog.MO_TABLES, bat)
 		if err != nil {
 			return nil, err
 		}
@@ -342,9 +336,9 @@ func makeCreateTableEntries(
 			return nil, err
 		}
 		createColumnEntry, err := makePBEntry(
-			INSERT, catalog.MO_CATALOG_ID,
+			disttae.WS_DATA_ROWS, catalog.MO_CATALOG_ID,
 			catalog.MO_COLUMNS_ID, catalog.MO_CATALOG,
-			catalog.MO_COLUMNS, "", bat)
+			catalog.MO_COLUMNS, bat)
 		if err != nil {
 			return nil, err
 		}
@@ -358,10 +352,24 @@ func toPBEntry(e Entry) (*api.Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	typ := api.Entry_Insert
-	if e.typ == DELETE {
+
+	var (
+		typ api.Entry_EntryType
+	)
+
+	switch e.typ {
+	case disttae.WS_DATA_ROWS:
+		typ = api.Entry_Insert
+	case disttae.WS_DATA_OBJS:
+		typ = api.Entry_DataObject
+	case disttae.WS_TOMBSTONE_ROWS:
 		typ = api.Entry_Delete
+	case disttae.WS_TOMBSTONE_OBJS:
+		typ = api.Entry_TombstoneObject
+	default:
+		logutil.Panicf("unknown entry type: %v", e.typ)
 	}
+
 	return &api.Entry{
 		Bat:          bat,
 		EntryType:    typ,
@@ -369,7 +377,6 @@ func toPBEntry(e Entry) (*api.Entry, error) {
 		DatabaseId:   e.databaseId,
 		TableName:    e.tableName,
 		DatabaseName: e.databaseName,
-		FileName:     e.fileName,
 	}, nil
 }
 

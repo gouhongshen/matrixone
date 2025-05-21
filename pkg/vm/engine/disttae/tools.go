@@ -72,7 +72,7 @@ func genWriteReqs(
 		// the txn wrote a delete & insert batch due to alter, and the insert batch was cancelled by dropping.
 		// the table should be dropped in TN, so we need to reset the delete batch to normal delete.
 		isAlter, typ, id, name := noteSplitAlter(e.note)
-		if _, deleted := tablesInVain[id]; deleted && isAlter && typ == DELETE {
+		if _, deleted := tablesInVain[id]; deleted && isAlter && IsWSTombstone(typ) {
 			// reset to normal delete, this will lead to dropping table in TN
 			e.note = noteForDrop(id, name)
 		} else if isAlter {
@@ -117,54 +117,71 @@ func genWriteReqs(
 }
 
 func toPBEntry(e Entry) (*api.Entry, error) {
-	var ebat *batch.Batch
+	var (
+		ebat *batch.Batch
+		typ  api.Entry_EntryType
+	)
 
-	if e.typ == INSERT {
+	switch e.typ {
+	case WS_DATA_ROWS:
 		ebat = batch.NewWithSize(0)
-		if e.bat.Attrs[0] == catalog.BlockMeta_MetaLoc {
-			ebat.Vecs = e.bat.Vecs
-			ebat.Attrs = e.bat.Attrs
 
-			// no need to commit the blk info to tn
-			ebat.Vecs = ebat.Vecs[1:]
-			ebat.Attrs = e.bat.Attrs[1:]
-			ebat.SetRowCount(ebat.Vecs[0].Length())
-		} else {
-			//e.bat.Vecs[0] is rowid vector
-			ebat.Vecs = e.bat.Vecs[1:]
-			ebat.Attrs = e.bat.Attrs[1:]
-		}
-	} else {
+		//e.bat.Vecs[0] is rowid vector
+		ebat.Vecs = e.bat.Vecs[1:]
+		ebat.Attrs = e.bat.Attrs[1:]
+
+		typ = api.Entry_Insert
+
+	case WS_DATA_OBJS:
+		ebat = batch.NewWithSize(0)
+
+		ebat.Vecs = e.bat.Vecs
+		ebat.Attrs = e.bat.Attrs
+
+		// no need to commit the blk info to tn
+		ebat.Vecs = ebat.Vecs[1:]
+		ebat.Attrs = e.bat.Attrs[1:]
+		ebat.SetRowCount(ebat.Vecs[0].Length())
+
+		typ = api.Entry_DataObject
+
+	case WS_TOMBSTONE_ROWS:
 		ebat = e.bat
-	}
-	typ := api.Entry_Insert
-	if e.typ == DELETE {
-		typ = api.Entry_Delete
 		// ddl drop bat includes extra information to generate command in TN
-		if e.tableId != catalog.MO_TABLES_ID &&
-			e.tableId != catalog.MO_DATABASE_ID {
+		if e.tableId != catalog.MO_TABLES_ID && e.tableId != catalog.MO_DATABASE_ID {
 			ebat = batch.NewWithSize(0)
-			if e.fileName == "" {
-				if len(e.bat.Vecs) != 2 {
-					panic(fmt.Sprintf("e.bat should contain 2 vectors, "+
-						"one is rowid vector, the other is pk vector,"+
-						"database name = %s, table name = %s", e.databaseName, e.tableName))
-				}
-				ebat.Vecs = e.bat.Vecs[:2]
-				ebat.Attrs = e.bat.Attrs[:2]
-			} else {
-				ebat.Vecs = e.bat.Vecs[:1]
-				ebat.Attrs = e.bat.Attrs[:1]
+			if len(e.bat.Vecs) != 2 {
+				panic(fmt.Sprintf("e.bat should contain 2 vectors, "+
+					"one is rowid vector, the other is pk vector,"+
+					"database name = %s, table name = %s", e.databaseName, e.tableName))
 			}
+			ebat.Vecs = e.bat.Vecs[:2]
+			ebat.Attrs = e.bat.Attrs[:2]
 		}
 
-	} else if e.typ == ALTER {
+		typ = api.Entry_Delete
+
+	case WS_TOMBSTONE_OBJS:
+		ebat = e.bat
+		// ddl drop bat includes extra information to generate command in TN
+		if e.tableId != catalog.MO_TABLES_ID && e.tableId != catalog.MO_DATABASE_ID {
+			ebat = batch.NewWithSize(0)
+			ebat.Vecs = e.bat.Vecs[:1]
+			ebat.Attrs = e.bat.Attrs[:1]
+		}
+
+		typ = api.Entry_TombstoneObject
+
+	case WS_ALTER:
+		ebat = e.bat
 		typ = api.Entry_Alter
 	}
+
 	bat, err := toPBBatch(ebat)
 	if err != nil {
 		return nil, err
 	}
+
 	return &api.Entry{
 		Bat:          bat,
 		EntryType:    typ,
@@ -172,7 +189,6 @@ func toPBEntry(e Entry) (*api.Entry, error) {
 		DatabaseId:   e.databaseId,
 		TableName:    e.tableName,
 		DatabaseName: e.databaseName,
-		FileName:     e.fileName,
 		PkCheckByTn:  int32(e.pkChkByTN),
 	}, nil
 }

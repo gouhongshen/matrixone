@@ -90,7 +90,7 @@ func ConstructCNTombstoneObjectsTransferFlow(
 			continue
 		}
 
-		if e.fileName != "" && e.typ == DELETE {
+		if e.typ == WS_TOMBSTONE_OBJS {
 			for i := range e.bat.Vecs[0].Length() {
 				stats := objectio.ObjectStats(e.bat.Vecs[0].GetBytesAt(i))
 				tombstoneObjects = append(tombstoneObjects, stats)
