@@ -277,29 +277,60 @@ func (ls *LocalDisttaeDataSource) Next(
 	outBatch *batch.Batch,
 ) (info *objectio.BlockInfo, state engine.DataState, err error) {
 
-	//if ls.table.db.databaseName == "tpcc_bak" &&
-	//	strings.Contains(ls.table.tableName, "bmsql_stock") {
-	//	var checkRowId types.Rowid
-	//
-	//	if row := logutil.GetDebug(); row != nil {
-	//		x := row.(*interface{})
-	//		if x != nil && (*x) != nil {
-	//			checkRowId = (*x).(types.Rowid)
-	//			writes := ls.table.getTxn().writes
-	//			buf := bytes.NewBuffer(nil)
-	//			buf.WriteString(fmt.Sprintf("Next checkRowId: %s\n", checkRowId.String()))
-	//			buf.WriteString("inMemDeletes:\n")
-	//			for _, w := range writes {
-	//				if w.typ == DELETE && w.bat != nil && w.fileName == "" {
-	//					buf.WriteString(common.MoVectorToString(w.bat.Vecs[0], w.bat.Vecs[0].Length()))
-	//				}
-	//			}
-	//
-	//			fmt.Println(buf.String())
-	//		}
-	//	}
-	//
-	//}
+	if ls.table.db.databaseName == "tpcc_bak" &&
+		strings.Contains(ls.table.tableName, "bmsql_stock") {
+		var checkRowId types.Rowid
+
+		if row := logutil.GetDebug(); row != nil {
+			x := row.(*interface{})
+			if x != nil && (*x) != nil {
+				checkRowId = (*x).(types.Rowid)
+				writes := ls.table.getTxn().writes
+
+				buf := bytes.NewBuffer(nil)
+				buf.WriteString(fmt.Sprintf("Next checkRowId: %s\n", checkRowId.String()))
+
+				for _, w := range writes {
+					if w.typ == DELETE && w.bat != nil {
+						if w.fileName == "" {
+							rowIds := vector.MustFixedColNoTypeCheck[types.Rowid](w.bat.Vecs[0])
+							idx := slices.IndexFunc(rowIds, func(a types.Rowid) bool { return checkRowId.EQ(&a) })
+							if idx != -1 {
+								buf.WriteString(fmt.Sprintf("found in inMemDeletes: %s",
+									common.MoVectorToString(w.bat.Vecs[0], w.bat.Vecs[0].Length())))
+								buf.WriteString("\n")
+							}
+						} else {
+							attrs := objectio.GetTombstoneAttrs(objectio.HiddenColumnSelection_CommitTS)
+							cacheVectors := containers.NewVectors(len(attrs))
+
+							for i := range w.bat.Vecs[0].Length() {
+								s := objectio.ObjectStats(w.bat.Vecs[0].GetBytesAt(i))
+
+								for idx := range s.BlkCnt() {
+									location := s.BlockLocation(uint16(idx), objectio.BlockMaxRows)
+									_, release, _ := ioutil.ReadDeletes(ls.ctx, location, ls.fs, s.GetCNCreated(), cacheVectors)
+									rowIds := vector.MustFixedColWithTypeCheck[objectio.Rowid](&cacheVectors[0])
+
+									if slices.IndexFunc(rowIds, func(a types.Rowid) bool { return checkRowId.EQ(&a) }) != -1 {
+										buf.WriteString(fmt.Sprintf("found in tombstone object: %s, %s",
+											s.String(),
+											common.MoVectorToString(&cacheVectors[0], cacheVectors[0].Length())))
+										buf.WriteString("\n")
+									}
+
+									release()
+								}
+							}
+						}
+					}
+				}
+
+				buf.WriteString("\n")
+				logutil.Fatal(buf.String())
+			}
+		}
+	}
 
 	if ls.memPKFilter == nil {
 		ff := filter.(*readutil.MemPKFilter)
