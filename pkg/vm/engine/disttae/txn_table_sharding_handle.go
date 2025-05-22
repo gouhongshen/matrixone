@@ -290,6 +290,8 @@ func HandleShardingReadBuildReader(
 		return nil, err
 	}
 
+	rd.VisitRowIds = &tbl.db.getTxn().visitRowIds
+
 	uuid, err := types.BuildUuid()
 	if err != nil {
 		return nil, err
