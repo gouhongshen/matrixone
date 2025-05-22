@@ -1616,6 +1616,13 @@ func (tbl *txnTable) Delete(
 
 	switch deletionTyp {
 	case catalog.Row_ID:
+		if tbl.db.databaseName == "tpcc_bak" && tbl.tableName == "bmsql_stock" {
+			rowids := vector.MustFixedColWithTypeCheck[types.Rowid](bat.GetVector(0))
+			for _, rowid := range rowids {
+				tbl.getTxn().deletedRowIds.Store(rowid, struct{}{})
+			}
+		}
+
 		bat = tbl.getTxn().deleteBatch(bat, tbl.db.databaseId, tbl.tableId)
 		if bat.RowCount() == 0 {
 			return nil

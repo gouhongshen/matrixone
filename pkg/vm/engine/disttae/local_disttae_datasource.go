@@ -301,37 +301,57 @@ func (ls *LocalDisttaeDataSource) Next(
 								buf.WriteString("\n")
 							}
 						} else {
-							attrs := objectio.GetTombstoneAttrs(objectio.HiddenColumnSelection_CommitTS)
-							cacheVectors := containers.NewVectors(len(attrs))
-
-							for i := range w.bat.Vecs[0].Length() {
-								s := objectio.ObjectStats(w.bat.Vecs[0].GetBytesAt(i))
-
-								for idx := range s.BlkCnt() {
-									location := s.BlockLocation(uint16(idx), objectio.BlockMaxRows)
-									_, release, _ := ioutil.ReadDeletes(ls.ctx, location, ls.fs, s.GetCNCreated(), cacheVectors)
-									rowIds := vector.MustFixedColWithTypeCheck[objectio.Rowid](&cacheVectors[0])
-
-									if slices.IndexFunc(rowIds, func(a types.Rowid) bool { return checkRowId.EQ(&a) }) != -1 {
-										buf.WriteString(fmt.Sprintf("found in tombstone object: %s, %s",
-											s.String(),
-											common.MoVectorToString(&cacheVectors[0], cacheVectors[0].Length())))
-										buf.WriteString("\n")
-									}
-
-									release()
-								}
-							}
+							//attrs := objectio.GetTombstoneAttrs(objectio.HiddenColumnSelection_CommitTS)
+							//cacheVectors := containers.NewVectors(len(attrs))
+							//
+							//for i := range w.bat.Vecs[0].Length() {
+							//	s := objectio.ObjectStats(w.bat.Vecs[0].GetBytesAt(i))
+							//
+							//	for idx := range s.BlkCnt() {
+							//		location := s.BlockLocation(uint16(idx), objectio.BlockMaxRows)
+							//		_, release, _ := ioutil.ReadDeletes(ls.ctx, location, ls.fs, s.GetCNCreated(), cacheVectors)
+							//		rowIds := vector.MustFixedColWithTypeCheck[objectio.Rowid](&cacheVectors[0])
+							//
+							//		if slices.IndexFunc(rowIds, func(a types.Rowid) bool { return checkRowId.EQ(&a) }) != -1 {
+							//			buf.WriteString(fmt.Sprintf("found in tombstone object: %s, %s",
+							//				s.String(),
+							//				common.MoVectorToString(&cacheVectors[0], cacheVectors[0].Length())))
+							//			buf.WriteString("\n")
+							//		}
+							//
+							//		release()
+							//	}
+							//}
 						}
 					}
 				}
 
 				buf.WriteString("\n")
-				buf.WriteString("shrunk rowIds: ")
-				ls.table.getTxn().shrinkRowIds.Range(func(key, value any) bool {
-					buf.WriteString(fmt.Sprintf("%s; ", key.(types.Rowid).String()))
+				iter := ls.pState.NewRowsIter(ls.snapshotTS, checkRowId.BorrowBlockID(), true)
+				for iter.Next() {
+					e := iter.Entry()
+					if e.RowID.EQ(&checkRowId) {
+						buf.WriteString("found in PStateInMem")
+						break
+					}
+				}
+				iter.Close()
+
+				buf.WriteString("\n")
+				ls.table.getTxn().deletedRowIds.Range(func(key, value any) bool {
+					r := key.(types.Rowid)
+					if r.EQ(&checkRowId) {
+						buf.WriteString("this rowId have been deleted")
+						return false
+					}
 					return true
 				})
+
+				//buf.WriteString("shrunk rowIds: ")
+				//ls.table.getTxn().shrinkRowIds.Range(func(key, value any) bool {
+				//	buf.WriteString(fmt.Sprintf("%s; ", key.(types.Rowid).String()))
+				//	return true
+				//})
 
 				buf.WriteString("\n")
 				logutil.Fatal(buf.String())
