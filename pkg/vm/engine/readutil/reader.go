@@ -415,37 +415,6 @@ func (r *reader) Read(
 	start := time.Now()
 	defer func() {
 
-		if r.tableDef != nil {
-			if logutil.GetDebug() != nil && outBatch != nil && outBatch.RowCount() > 0 &&
-				r.tableDef.DbName == "tpcc_bak" && r.tableDef.Name == "bmsql_stock" {
-
-				buf := bytes.NewBuffer(nil)
-				buf.WriteString("READ START\n")
-
-				for i := range outBatch.Vecs {
-					if *outBatch.Vecs[i].GetType() == types.T_Rowid.ToType() {
-						buf.WriteString(common.MoVectorToString(outBatch.Vecs[i], outBatch.Vecs[i].Length()))
-						buf.WriteString("\n")
-					} else if strings.Contains(outBatch.Attrs[i], "cpkey") {
-						col, area := vector.MustVarlenaRawData(outBatch.Vecs[i])
-						for j := range col {
-							pk := col[j].GetByteSlice(area)
-							bb, _ := types.Unpack(pk)
-							buf.WriteString(fmt.Sprintf("%s, ", bb.SQLStrings(nil)))
-						}
-						buf.WriteString("\n")
-					}
-				}
-
-				buf.WriteString("\n")
-				if dataState == engine.End {
-					buf.WriteString("\n\nREAD END\n\n")
-				}
-
-				logutil.Fatal(buf.String())
-			}
-		}
-
 		v2.TxnBlockReaderDurationHistogram.Observe(time.Since(start).Seconds())
 		if err != nil || dataState == engine.End {
 			r.Close()
@@ -508,6 +477,49 @@ func (r *reader) Read(
 						blkInfo.String(), common.MoBatchToString(outBatch, 5)),
 					)
 				}
+			}
+		}
+
+		if r.tableDef != nil {
+			if outBatch != nil && outBatch.RowCount() > 0 &&
+				r.tableDef.DbName == "tpcc_bak" && r.tableDef.Name == "bmsql_stock" {
+
+				debug := false
+				if row := logutil.GetDebug(); row != nil {
+					x := row.(*interface{})
+					if x != nil && (*x) != nil {
+						debug = true
+					}
+				}
+
+				if !debug {
+					return
+				}
+
+				buf := bytes.NewBuffer(nil)
+				buf.WriteString("READ START\n")
+
+				for i := range outBatch.Vecs {
+					if *outBatch.Vecs[i].GetType() == types.T_Rowid.ToType() {
+						buf.WriteString(common.MoVectorToString(outBatch.Vecs[i], outBatch.Vecs[i].Length()))
+						buf.WriteString("\n")
+					} else if strings.Contains(outBatch.Attrs[i], "cpkey") {
+						col, area := vector.MustVarlenaRawData(outBatch.Vecs[i])
+						for j := range col {
+							pk := col[j].GetByteSlice(area)
+							bb, _ := types.Unpack(pk)
+							buf.WriteString(fmt.Sprintf("%s, ", bb.SQLStrings(nil)))
+						}
+						buf.WriteString("\n")
+					}
+				}
+
+				buf.WriteString("\n")
+				if dataState == engine.End {
+					buf.WriteString("\n\nREAD END\n\n")
+				}
+
+				logutil.Fatal(buf.String())
 			}
 		}
 
