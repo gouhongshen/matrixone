@@ -519,7 +519,7 @@ func (r *reader) Read(
 					buf.WriteString("\n\nREAD END\n\n")
 				}
 
-				logutil.Fatal(buf.String())
+				logutil.Info(buf.String())
 			}
 		}
 

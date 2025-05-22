@@ -277,29 +277,29 @@ func (ls *LocalDisttaeDataSource) Next(
 	outBatch *batch.Batch,
 ) (info *objectio.BlockInfo, state engine.DataState, err error) {
 
-	if ls.table.db.databaseName == "tpcc_bak" &&
-		strings.Contains(ls.table.tableName, "bmsql_stock") {
-		var checkRowId types.Rowid
-
-		if row := logutil.GetDebug(); row != nil {
-			x := row.(*interface{})
-			if x != nil && (*x) != nil {
-				checkRowId = (*x).(types.Rowid)
-				writes := ls.table.getTxn().writes
-				buf := bytes.NewBuffer(nil)
-				buf.WriteString(fmt.Sprintf("Next checkRowId: %s\n", checkRowId.String()))
-				buf.WriteString("inMemDeletes:\n")
-				for _, w := range writes {
-					if w.typ == DELETE && w.bat != nil && w.fileName == "" {
-						buf.WriteString(common.MoVectorToString(w.bat.Vecs[0], w.bat.Vecs[0].Length()))
-					}
-				}
-
-				fmt.Println(buf.String())
-			}
-		}
-
-	}
+	//if ls.table.db.databaseName == "tpcc_bak" &&
+	//	strings.Contains(ls.table.tableName, "bmsql_stock") {
+	//	var checkRowId types.Rowid
+	//
+	//	if row := logutil.GetDebug(); row != nil {
+	//		x := row.(*interface{})
+	//		if x != nil && (*x) != nil {
+	//			checkRowId = (*x).(types.Rowid)
+	//			writes := ls.table.getTxn().writes
+	//			buf := bytes.NewBuffer(nil)
+	//			buf.WriteString(fmt.Sprintf("Next checkRowId: %s\n", checkRowId.String()))
+	//			buf.WriteString("inMemDeletes:\n")
+	//			for _, w := range writes {
+	//				if w.typ == DELETE && w.bat != nil && w.fileName == "" {
+	//					buf.WriteString(common.MoVectorToString(w.bat.Vecs[0], w.bat.Vecs[0].Length()))
+	//				}
+	//			}
+	//
+	//			fmt.Println(buf.String())
+	//		}
+	//	}
+	//
+	//}
 
 	if ls.memPKFilter == nil {
 		ff := filter.(*readutil.MemPKFilter)
