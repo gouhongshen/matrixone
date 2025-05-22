@@ -375,6 +375,8 @@ type Transaction struct {
 	writeWorkspaceThreshold      uint64
 	commitWorkspaceThreshold     uint64
 	extraWriteWorkspaceThreshold uint64 // acquired from engine quota
+
+	shrinkRowIds sync.Map
 }
 
 type Pos struct {

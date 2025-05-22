@@ -338,10 +338,11 @@ func (hb *HashmapBuilder) BuildHashmap(hashOnPK bool, needAllocateSels bool, nee
 								vis := make(map[[2]int32]int)
 								dupIdx1 := -1
 								dupIdx2 := -1
+								gg := [2]int32{}
 
 								pkVec1 := hb.Batches.Buf[0].Vecs[0]
 								rowIdVec := hb.Batches.Buf[0].Vecs[1]
-								pkVec2 := hb.Batches.Buf[0].Vecs[len(hb.Batches.Buf[0].Vecs)-1]
+								//pkVec2 := hb.Batches.Buf[0].Vecs[len(hb.Batches.Buf[0].Vecs)-1]
 
 								buf := bytes.NewBuffer(nil)
 								buf.WriteString(fmt.Sprintf("buf len: %d\n", len(hb.Batches.Buf)))
@@ -352,7 +353,7 @@ func (hb *HashmapBuilder) BuildHashmap(hashOnPK bool, needAllocateSels bool, nee
 									val, _ := types.Unpack(bb)
 
 									if len(val) == 2 && dupIdx2 == -1 {
-										gg := [2]int32{val[0].(int32), val[1].(int32)}
+										gg = [2]int32{val[0].(int32), val[1].(int32)}
 
 										if _, ok := vis[gg]; !ok {
 											vis[gg] = j
@@ -362,16 +363,16 @@ func (hb *HashmapBuilder) BuildHashmap(hashOnPK bool, needAllocateSels bool, nee
 										}
 									}
 
-									buf.WriteString(fmt.Sprintf("%v; ", val.SQLStrings(nil)))
+									//buf.WriteString(fmt.Sprintf("%v; ", val.SQLStrings(nil)))
 								}
-								buf.WriteString("\n")
+								//buf.WriteString("\n")
 
 								rowIds := vector.MustFixedColWithTypeCheck[types.Rowid](rowIdVec)
-								buf.WriteString(fmt.Sprintf("[%d]: ", len(rowIds)))
-								for j := range rowIds {
-									buf.WriteString(fmt.Sprintf("%v; ", rowIds[j].String()))
-								}
-								buf.WriteString("\n")
+								//buf.WriteString(fmt.Sprintf("[%d]: ", len(rowIds)))
+								//for j := range rowIds {
+								//	buf.WriteString(fmt.Sprintf("%v; ", rowIds[j].String()))
+								//}
+								//buf.WriteString("\n")
 
 								if rowIds[dupIdx1].BorrowSegmentID().EQ(&colexec.TxnWorkspaceSegment) {
 									logutil.SetDebug(rowIds[dupIdx2])
@@ -379,17 +380,17 @@ func (hb *HashmapBuilder) BuildHashmap(hashOnPK bool, needAllocateSels bool, nee
 									logutil.SetDebug(rowIds[dupIdx1])
 								}
 
-								col, area = vector.MustVarlenaRawData(pkVec2)
-								buf.WriteString(fmt.Sprintf("[%d]: ", len(col)))
-								for j := range col {
-									bb := col[j].GetByteSlice(area)
-									val, _ := types.Unpack(bb)
-									buf.WriteString(fmt.Sprintf("%v; ", val.SQLStrings(nil)))
-								}
-								buf.WriteString("\n")
-
-								fmt.Println(buf.String())
-								fmt.Println(rowIds[dupIdx1].String(), rowIds[dupIdx2].String())
+								//col, area = vector.MustVarlenaRawData(pkVec2)
+								//buf.WriteString(fmt.Sprintf("[%d]: ", len(col)))
+								//for j := range col {
+								//	bb := col[j].GetByteSlice(area)
+								//	val, _ := types.Unpack(bb)
+								//	buf.WriteString(fmt.Sprintf("%v; ", val.SQLStrings(nil)))
+								//}
+								//buf.WriteString("\n")
+								//
+								//fmt.Println(buf.String())
+								fmt.Println(gg, rowIds[dupIdx1].String(), rowIds[dupIdx2].String())
 								fmt.Println("\nBuildHashMap END\n")
 							}
 						}

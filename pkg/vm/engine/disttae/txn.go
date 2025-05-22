@@ -1207,11 +1207,12 @@ func (txn *Transaction) mergeTxnWorkspaceLocked(ctx context.Context) error {
 				sort.Slice(sels, func(i, j int) bool {
 					return sels[i] < (sels[j])
 				})
-				shrinkBatchWithRowids(e.bat, sels)
+				shrinkBatchWithRowids(&txn.shrinkRowIds, e.bat, sels)
 				delete(txn.batchSelectList, e.bat)
 			}
 		}
 	}
+
 	if len(txn.tablesInVain) > 0 {
 		for i, e := range txn.writes {
 			if _, ok := txn.tablesInVain[e.tableId]; e.bat != nil && ok {

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 
 	"go.uber.org/zap"
 
@@ -717,9 +718,15 @@ func isColumnsBatchPerfectlySplitted(bs []*batch.Batch) bool {
 //	[blk0-0, blk0-1, blk0-2]
 //	[1, 3, 5]
 func shrinkBatchWithRowids(
+	mm *sync.Map,
 	bat *batch.Batch,
 	toDeleteOffsets []int64,
 ) {
+	rowIds := vector.MustFixedColWithTypeCheck[types.Rowid](bat.Vecs[0])
+	for _, offset := range toDeleteOffsets {
+		mm.Store(rowIds[offset], struct{}{})
+	}
+
 	bat.Shrink(toDeleteOffsets, true)
 	if bat.RowCount() == 0 {
 		return

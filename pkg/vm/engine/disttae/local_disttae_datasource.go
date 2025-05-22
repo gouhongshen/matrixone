@@ -327,6 +327,13 @@ func (ls *LocalDisttaeDataSource) Next(
 				}
 
 				buf.WriteString("\n")
+				buf.WriteString("shrunk rowIds: ")
+				ls.table.getTxn().shrinkRowIds.Range(func(key, value any) bool {
+					buf.WriteString(fmt.Sprintf("%s; ", key.(types.Rowid).String()))
+					return true
+				})
+
+				buf.WriteString("\n")
 				logutil.Fatal(buf.String())
 			}
 		}
