@@ -998,7 +998,7 @@ func (ls *LocalDisttaeDataSource) applyWorkspaceEntryDeletes(
 
 				defer func() {
 					buf.WriteString(fmt.Sprintf("leftRows: %v\n", leftRows))
-					logutil.Fatal(buf.String())
+					logutil.Infof(buf.String())
 				}()
 			}
 		}
