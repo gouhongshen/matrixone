@@ -281,6 +281,24 @@ func (ls *LocalDisttaeDataSource) Next(
 		strings.Contains(ls.table.tableName, "bmsql_stock") {
 		var checkRowId types.Rowid
 
+		defer func() {
+			if outBatch != nil && outBatch.RowCount() > 0 {
+				for i := range outBatch.Vecs {
+					if *outBatch.Vecs[i].GetType() == types.T_Rowid.ToType() {
+						rowIds := vector.MustFixedColNoTypeCheck[types.Rowid](outBatch.Vecs[i])
+						for _, rowId := range rowIds {
+							v, ok := ls.table.getTxn().visitRowIds.Load(rowId)
+							if ok {
+								ls.table.getTxn().visitRowIds.Store(rowId, v.(int)+1)
+							} else {
+								ls.table.getTxn().visitRowIds.Store(rowId, 1)
+							}
+						}
+					}
+				}
+			}
+		}()
+
 		if row := logutil.GetDebug(); row != nil {
 			x := row.(*interface{})
 			if x != nil && (*x) != nil {
@@ -346,6 +364,14 @@ func (ls *LocalDisttaeDataSource) Next(
 					}
 					return true
 				})
+
+				buf.WriteString("\n")
+				v, ok := ls.table.getTxn().visitRowIds.Load(checkRowId)
+				if ok {
+					buf.WriteString(fmt.Sprintf("this rowId have been visited: %v", v))
+				} else {
+					buf.WriteString(fmt.Sprintf("this rowId not visited"))
+				}
 
 				//buf.WriteString("shrunk rowIds: ")
 				//ls.table.getTxn().shrinkRowIds.Range(func(key, value any) bool {
