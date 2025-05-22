@@ -1907,6 +1907,16 @@ func (txn *Transaction) CloneSnapshotWS() client.Workspace {
 		writeWorkspaceThreshold:  txn.writeWorkspaceThreshold,
 	}
 
+	txn.visitRowIds.Range(func(key, value any) bool {
+		ws.visitRowIds.Store(key, value)
+		return true
+	})
+
+	txn.deletedRowIds.Range(func(key, value any) bool {
+		ws.deletedRowIds.Store(key, value)
+		return true
+	})
+
 	ws.readOnly.Store(true)
 
 	return ws

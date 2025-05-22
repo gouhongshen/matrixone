@@ -355,8 +355,10 @@ func (ls *LocalDisttaeDataSource) Next(
 				}
 				iter.Close()
 
+				cnt := 0
 				buf.WriteString("\n")
 				ls.table.getTxn().deletedRowIds.Range(func(key, value any) bool {
+					cnt++
 					r := key.(types.Rowid)
 					if r.EQ(&checkRowId) {
 						buf.WriteString("this rowId have been deleted")
@@ -364,13 +366,20 @@ func (ls *LocalDisttaeDataSource) Next(
 					}
 					return true
 				})
+				buf.WriteString(fmt.Sprintf("; deletedRowIds cnt: %v", cnt))
 
+				cnt = 0
 				buf.WriteString("\n")
+				ls.table.getTxn().visitRowIds.Range(func(key, value any) bool {
+					cnt++
+					return true
+				})
+
 				v, ok := ls.table.getTxn().visitRowIds.Load(checkRowId)
 				if ok {
-					buf.WriteString(fmt.Sprintf("this rowId have been visited: %v", v))
+					buf.WriteString(fmt.Sprintf("this rowId have been visited: %v, cnt: %d", v, cnt))
 				} else {
-					buf.WriteString(fmt.Sprintf("this rowId not visited"))
+					buf.WriteString(fmt.Sprintf("this rowId not visited, visitRowIds cnt: %v", cnt))
 				}
 
 				//buf.WriteString("shrunk rowIds: ")
