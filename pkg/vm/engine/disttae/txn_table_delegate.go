@@ -640,7 +640,7 @@ func (tbl *txnTableDelegate) BuildShardingReaders(
 			if err != nil {
 				return nil, err
 			}
-			lrd.VisitRowIds = &tbl.origin.getTxn().visitRowIds
+			//lrd.VisitRowIds = &tbl.origin.getTxn().visitRowIds
 			srd.lrd = lrd
 		}
 

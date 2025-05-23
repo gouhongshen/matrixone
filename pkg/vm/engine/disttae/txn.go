@@ -1207,7 +1207,7 @@ func (txn *Transaction) mergeTxnWorkspaceLocked(ctx context.Context) error {
 				sort.Slice(sels, func(i, j int) bool {
 					return sels[i] < (sels[j])
 				})
-				shrinkBatchWithRowids(&txn.shrinkRowIds, e.bat, sels)
+				shrinkBatchWithRowids(e.bat, sels)
 				delete(txn.batchSelectList, e.bat)
 			}
 		}
@@ -1906,16 +1906,6 @@ func (txn *Transaction) CloneSnapshotWS() client.Workspace {
 		commitWorkspaceThreshold: txn.commitWorkspaceThreshold,
 		writeWorkspaceThreshold:  txn.writeWorkspaceThreshold,
 	}
-
-	txn.visitRowIds.Range(func(key, value any) bool {
-		ws.visitRowIds.Store(key, value)
-		return true
-	})
-
-	txn.deletedRowIds.Range(func(key, value any) bool {
-		ws.deletedRowIds.Store(key, value)
-		return true
-	})
 
 	ws.readOnly.Store(true)
 

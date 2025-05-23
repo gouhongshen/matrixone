@@ -282,23 +282,23 @@ func (ls *LocalDisttaeDataSource) Next(
 		var rowIdPK logutil.ROWPK
 		var checkRowId types.Rowid
 
-		defer func() {
-			if outBatch != nil && outBatch.RowCount() > 0 {
-				for i := range outBatch.Vecs {
-					if *outBatch.Vecs[i].GetType() == types.T_Rowid.ToType() {
-						rowIds := vector.MustFixedColNoTypeCheck[types.Rowid](outBatch.Vecs[i])
-						for _, rowId := range rowIds {
-							v, ok := ls.table.getTxn().visitRowIds.Load(rowId)
-							if ok {
-								ls.table.getTxn().visitRowIds.Store(rowId, v.(int)+1)
-							} else {
-								ls.table.getTxn().visitRowIds.Store(rowId, 1)
-							}
-						}
-					}
-				}
-			}
-		}()
+		//defer func() {
+		//	if outBatch != nil && outBatch.RowCount() > 0 {
+		//		for i := range outBatch.Vecs {
+		//			if *outBatch.Vecs[i].GetType() == types.T_Rowid.ToType() {
+		//				rowIds := vector.MustFixedColNoTypeCheck[types.Rowid](outBatch.Vecs[i])
+		//				for _, rowId := range rowIds {
+		//					v, ok := ls.table.getTxn().visitRowIds.Load(rowId)
+		//					if ok {
+		//						ls.table.getTxn().visitRowIds.Store(rowId, v.(int)+1)
+		//					} else {
+		//						ls.table.getTxn().visitRowIds.Store(rowId, 1)
+		//					}
+		//				}
+		//			}
+		//		}
+		//	}
+		//}()
 
 		if row := logutil.GetDebug(); row != nil {
 			x := row.(*interface{})
@@ -357,32 +357,32 @@ func (ls *LocalDisttaeDataSource) Next(
 				}
 				iter.Close()
 
+				//cnt := 0
+				//buf.WriteString("\n")
+				//ls.table.getTxn().deletedRowIds.Range(func(key, value any) bool {
+				//	cnt++
+				//	r := key.(types.Rowid)
+				//	if r.EQ(&checkRowId) {
+				//		buf.WriteString("this rowId have been deleted")
+				//		return false
+				//	}
+				//	return true
+				//})
+				//buf.WriteString(fmt.Sprintf("; deletedRowIds cnt: %v", cnt))
+
 				cnt := 0
-				buf.WriteString("\n")
-				ls.table.getTxn().deletedRowIds.Range(func(key, value any) bool {
-					cnt++
-					r := key.(types.Rowid)
-					if r.EQ(&checkRowId) {
-						buf.WriteString("this rowId have been deleted")
-						return false
-					}
-					return true
-				})
-				buf.WriteString(fmt.Sprintf("; deletedRowIds cnt: %v", cnt))
+				//buf.WriteString("\n")
+				//ls.table.getTxn().visitRowIds.Range(func(key, value any) bool {
+				//	cnt++
+				//	return true
+				//})
 
-				cnt = 0
-				buf.WriteString("\n")
-				ls.table.getTxn().visitRowIds.Range(func(key, value any) bool {
-					cnt++
-					return true
-				})
-
-				v, ok := ls.table.getTxn().visitRowIds.Load(rowIdPK.RowId)
-				if ok {
-					buf.WriteString(fmt.Sprintf("this rowId have been visited: %v, cnt: %d", v, cnt))
-				} else {
-					buf.WriteString(fmt.Sprintf("this rowId not visited, visitRowIds cnt: %v", cnt))
-				}
+				//v, ok := ls.table.getTxn().visitRowIds.Load(rowIdPK.RowId)
+				//if ok {
+				//	buf.WriteString(fmt.Sprintf("this rowId have been visited: %v, cnt: %d", v, cnt))
+				//} else {
+				//	buf.WriteString(fmt.Sprintf("this rowId not visited, visitRowIds cnt: %v", cnt))
+				//}
 
 				buf.WriteString("\n")
 				cnt = 0
@@ -391,7 +391,7 @@ func (ls *LocalDisttaeDataSource) Next(
 					return true
 				})
 
-				v, ok = ls.table.getTxn().deletedPKs.Load(rowIdPK.PK)
+				v, ok := ls.table.getTxn().deletedPKs.Load(rowIdPK.PK)
 				if ok {
 					buf.WriteString(fmt.Sprintf("this pk(%v) has been deleted %v, %d", rowIdPK.PK, v.([]types.Rowid), cnt))
 				} else {

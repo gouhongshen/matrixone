@@ -1928,7 +1928,7 @@ func (tbl *txnTable) BuildReaders(
 			return nil, err
 		}
 
-		rd.VisitRowIds = &tbl.getTxn().visitRowIds
+		//rd.VisitRowIds = &tbl.getTxn().visitRowIds
 		rds = append(rds, rd)
 	}
 	return rds, nil

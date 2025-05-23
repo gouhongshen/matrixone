@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"slices"
 	"strings"
 	"sync"
@@ -483,25 +482,25 @@ func (r *reader) Read(
 			}
 		}
 
-		if r.tableDef != nil && r.VisitRowIds != nil {
-			if outBatch != nil && outBatch.RowCount() > 0 &&
-				r.tableDef.DbName == "tpcc_bak" && r.tableDef.Name == "bmsql_stock" {
-
-				for i := range outBatch.Vecs {
-					if *outBatch.Vecs[i].GetType() == types.T_Rowid.ToType() {
-						rowIds := vector.MustFixedColNoTypeCheck[types.Rowid](outBatch.Vecs[i])
-						for _, rowId := range rowIds {
-							v, ok := r.VisitRowIds.Load(rowId)
-							if ok {
-								r.VisitRowIds.Store(rowId, v.(int)+1)
-							} else {
-								r.VisitRowIds.Store(rowId, 1)
-							}
-						}
-					}
-				}
-			}
-		}
+		//if r.tableDef != nil && r.VisitRowIds != nil {
+		//	if outBatch != nil && outBatch.RowCount() > 0 &&
+		//		r.tableDef.DbName == "tpcc_bak" && r.tableDef.Name == "bmsql_stock" {
+		//
+		//		for i := range outBatch.Vecs {
+		//			if *outBatch.Vecs[i].GetType() == types.T_Rowid.ToType() {
+		//				rowIds := vector.MustFixedColNoTypeCheck[types.Rowid](outBatch.Vecs[i])
+		//				for _, rowId := range rowIds {
+		//					v, ok := r.VisitRowIds.Load(rowId)
+		//					if ok {
+		//						r.VisitRowIds.Store(rowId, v.(int)+1)
+		//					} else {
+		//						r.VisitRowIds.Store(rowId, 1)
+		//					}
+		//				}
+		//			}
+		//		}
+		//	}
+		//}
 		//
 		//		debug := false
 		//		if row := logutil.GetDebug(); row != nil {
