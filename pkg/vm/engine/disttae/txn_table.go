@@ -1618,10 +1618,6 @@ func (tbl *txnTable) Delete(
 	case catalog.Row_ID:
 		if tbl.db.databaseName == "tpcc_bak" && tbl.tableName == "bmsql_stock" {
 			rowids := vector.MustFixedColWithTypeCheck[types.Rowid](bat.GetVector(0))
-			for _, rowid := range rowids {
-				tbl.getTxn().deletedRowIds.Store(rowid, struct{}{})
-			}
-
 			col, area := vector.MustVarlenaRawData(bat.Vecs[1])
 			for i := range col {
 				bb := col[i].GetByteSlice(area)
@@ -1629,9 +1625,11 @@ func (tbl *txnTable) Delete(
 				gg := [2]int32{val[0].(int32), val[1].(int32)}
 				v, ok := tbl.getTxn().deletedPKs.Load(gg)
 				if ok {
-					tbl.getTxn().deletedPKs.Store(gg, v.(int)+1)
+					s := v.([]types.Rowid)
+					s = append(s, rowids[i])
+					tbl.getTxn().deletedPKs.Store(gg, s)
 				} else {
-					tbl.getTxn().deletedPKs.Store(gg, 1)
+					tbl.getTxn().deletedPKs.Store(gg, []types.Rowid{rowids[i]})
 				}
 			}
 		}

@@ -376,10 +376,11 @@ type Transaction struct {
 	commitWorkspaceThreshold     uint64
 	extraWriteWorkspaceThreshold uint64 // acquired from engine quota
 
-	deletedRowIds sync.Map
-	deletedPKs    sync.Map
-	visitRowIds   sync.Map
-	shrinkRowIds  sync.Map
+	deletedRowIds     sync.Map
+	deletedPKs        sync.Map
+	visitRowIds       sync.Map
+	shrinkRowIds      sync.Map
+	transferredRowIds sync.Map
 }
 
 type Pos struct {

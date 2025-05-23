@@ -393,12 +393,19 @@ func (ls *LocalDisttaeDataSource) Next(
 
 				v, ok = ls.table.getTxn().deletedPKs.Load(rowIdPK.PK)
 				if ok {
-					buf.WriteString(fmt.Sprintf("this pk(%v) has been deleted %d, %d", rowIdPK.PK, v.(int), cnt))
+					buf.WriteString(fmt.Sprintf("this pk(%v) has been deleted %v, %d", rowIdPK.PK, v.([]types.Rowid), cnt))
 				} else {
 					buf.WriteString(fmt.Sprintf("this pk(%v) not deleted, %d", rowIdPK.PK, cnt))
 				}
 
 				buf.WriteString("\n")
+				buf.WriteString("transferred RowIds: ")
+				ls.table.getTxn().transferredRowIds.Range(func(key, value any) bool {
+					buf.WriteString(fmt.Sprintf("(%v --> %v); ", key.(types.Rowid), value.(types.Rowid)))
+					return true
+				})
+				buf.WriteString("\n")
+
 				logutil.Fatal(buf.String())
 			}
 		}

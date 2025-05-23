@@ -432,10 +432,21 @@ func batchTransferToTombstones(
 		entryPosMask.Release()
 	}()
 
+	debug := false
+	if table.db.databaseName == "tpcc_bak" && table.tableName == "bmsql_stock" {
+		debug = true
+	}
+
 	for pos, endPos := 0, searchPKColumn.Length(); pos < endPos; pos++ {
 		entryIdx := entryPositions[pos]
 		entry := txnWrites[entryIdx]
 		entryPosMask.Add(uint64(entryIdx))
+
+		if debug {
+			table.getTxn().transferredRowIds.Store(
+				vector.GetFixedAtWithTypeCheck[types.Rowid](
+					entry.bat.GetVector(0), int(batPositions[pos])), rowids[pos])
+		}
 
 		if err = vector.SetFixedAtWithTypeCheck[types.Rowid](
 			entry.bat.GetVector(0),
