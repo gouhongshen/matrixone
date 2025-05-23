@@ -242,6 +242,11 @@ func transferTombstones(
 		}
 	}()
 
+	debug := false
+	if table.db.databaseName == "tpcc_bak" && table.tableName == "bmsql_stock" {
+		debug = true
+	}
+
 	// loop the transaction workspace to transfer all tombstones
 	for i, entry := range txnWrites {
 		// skip all entries not table-realted
@@ -257,10 +262,19 @@ func transferTombstones(
 		rowids := vector.MustFixedColWithTypeCheck[types.Rowid](entry.bat.GetVector(0))
 		pkColumn := entry.bat.GetVector(1)
 
+		ts := types.TimestampToTS(table.getTxn().op.SnapshotTS())
 		for j, rowid := range rowids {
 			blockId := rowid.BorrowBlockID()
 			// if the block of the rowid is not in the deleted objects, skip transfer
 			if _, deleted := deletedObjects[*objectio.ShortName(blockId)]; !deleted {
+				if debug {
+					table.getTxn().skippedTransfer.Store(rowid, struct{}{})
+				}
+
+				if state.CheckIfObjectDeletedBeforeTS(ts, false, rowid.BorrowObjectID()) {
+					logutil.Info("should transfer this rowId",
+						zap.String("rowid", rowid.String()))
+				}
 				continue
 			}
 			if transferIntents == nil {
@@ -432,21 +446,21 @@ func batchTransferToTombstones(
 		entryPosMask.Release()
 	}()
 
-	debug := false
-	if table.db.databaseName == "tpcc_bak" && table.tableName == "bmsql_stock" {
-		debug = true
-	}
+	//debug := false
+	//if table.db.databaseName == "tpcc_bak" && table.tableName == "bmsql_stock" {
+	//	debug = true
+	//}
 
 	for pos, endPos := 0, searchPKColumn.Length(); pos < endPos; pos++ {
 		entryIdx := entryPositions[pos]
 		entry := txnWrites[entryIdx]
 		entryPosMask.Add(uint64(entryIdx))
 
-		if debug {
-			table.getTxn().transferredRowIds.Store(
-				vector.GetFixedAtWithTypeCheck[types.Rowid](
-					entry.bat.GetVector(0), int(batPositions[pos])), rowids[pos])
-		}
+		//if debug {
+		//	table.getTxn().transferredRowIds.Store(
+		//		vector.GetFixedAtWithTypeCheck[types.Rowid](
+		//			entry.bat.GetVector(0), int(batPositions[pos])), rowids[pos])
+		//}
 
 		if err = vector.SetFixedAtWithTypeCheck[types.Rowid](
 			entry.bat.GetVector(0),

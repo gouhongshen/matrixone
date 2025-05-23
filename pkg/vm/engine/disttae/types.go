@@ -381,6 +381,7 @@ type Transaction struct {
 	//visitRowIds       sync.Map
 	//shrinkRowIds      sync.Map
 	transferredRowIds sync.Map
+	skippedTransfer   sync.Map
 }
 
 type Pos struct {

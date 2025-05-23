@@ -406,6 +406,12 @@ func (ls *LocalDisttaeDataSource) Next(
 				})
 				buf.WriteString("\n")
 
+				buf.WriteString("skipped transfer")
+				ls.table.getTxn().skippedTransfer.Range(func(key, value any) bool {
+					buf.WriteString(fmt.Sprintf("%v; ", key.(types.Rowid)))
+					return true
+				})
+
 				logutil.Fatal(buf.String())
 			}
 		}
