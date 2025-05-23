@@ -22,6 +22,11 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+type ROWPK struct {
+	RowId any
+	PK    [2]int32
+}
+
 var debug atomic.Pointer[any]
 
 func SetDebug(v any) {

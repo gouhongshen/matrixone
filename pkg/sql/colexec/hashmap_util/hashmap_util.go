@@ -375,9 +375,15 @@ func (hb *HashmapBuilder) BuildHashmap(hashOnPK bool, needAllocateSels bool, nee
 								//buf.WriteString("\n")
 
 								if rowIds[dupIdx1].BorrowSegmentID().EQ(&colexec.TxnWorkspaceSegment) {
-									logutil.SetDebug(rowIds[dupIdx2])
+									logutil.SetDebug(logutil.ROWPK{
+										RowId: rowIds[dupIdx2],
+										PK:    gg,
+									})
 								} else {
-									logutil.SetDebug(rowIds[dupIdx1])
+									logutil.SetDebug(logutil.ROWPK{
+										RowId: rowIds[dupIdx1],
+										PK:    gg,
+									})
 								}
 
 								//col, area = vector.MustVarlenaRawData(pkVec2)

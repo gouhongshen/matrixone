@@ -377,6 +377,7 @@ type Transaction struct {
 	extraWriteWorkspaceThreshold uint64 // acquired from engine quota
 
 	deletedRowIds sync.Map
+	deletedPKs    sync.Map
 	visitRowIds   sync.Map
 	shrinkRowIds  sync.Map
 }

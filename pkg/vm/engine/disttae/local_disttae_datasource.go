@@ -279,6 +279,7 @@ func (ls *LocalDisttaeDataSource) Next(
 
 	if ls.table.db.databaseName == "tpcc_bak" &&
 		strings.Contains(ls.table.tableName, "bmsql_stock") {
+		var rowIdPK logutil.ROWPK
 		var checkRowId types.Rowid
 
 		defer func() {
@@ -302,7 +303,8 @@ func (ls *LocalDisttaeDataSource) Next(
 		if row := logutil.GetDebug(); row != nil {
 			x := row.(*interface{})
 			if x != nil && (*x) != nil {
-				checkRowId = (*x).(types.Rowid)
+				rowIdPK = (*x).(logutil.ROWPK)
+				checkRowId = rowIdPK.RowId.(types.Rowid)
 				writes := ls.table.getTxn().writes
 
 				buf := bytes.NewBuffer(nil)
@@ -375,18 +377,26 @@ func (ls *LocalDisttaeDataSource) Next(
 					return true
 				})
 
-				v, ok := ls.table.getTxn().visitRowIds.Load(checkRowId)
+				v, ok := ls.table.getTxn().visitRowIds.Load(rowIdPK.RowId)
 				if ok {
 					buf.WriteString(fmt.Sprintf("this rowId have been visited: %v, cnt: %d", v, cnt))
 				} else {
 					buf.WriteString(fmt.Sprintf("this rowId not visited, visitRowIds cnt: %v", cnt))
 				}
 
-				//buf.WriteString("shrunk rowIds: ")
-				//ls.table.getTxn().shrinkRowIds.Range(func(key, value any) bool {
-				//	buf.WriteString(fmt.Sprintf("%s; ", key.(types.Rowid).String()))
-				//	return true
-				//})
+				buf.WriteString("\n")
+				cnt = 0
+				ls.table.getTxn().deletedPKs.Range(func(key, value any) bool {
+					cnt++
+					return true
+				})
+
+				v, ok = ls.table.getTxn().deletedPKs.Load(rowIdPK.PK)
+				if ok {
+					buf.WriteString(fmt.Sprintf("this pk(%v) has been deleted %d, %d", rowIdPK.PK, v.(int), cnt))
+				} else {
+					buf.WriteString(fmt.Sprintf("this pk(%v) not deleted, %d", rowIdPK.PK, cnt))
+				}
 
 				buf.WriteString("\n")
 				logutil.Fatal(buf.String())
@@ -1059,7 +1069,7 @@ func (ls *LocalDisttaeDataSource) applyWorkspaceEntryDeletes(
 		if row := logutil.GetDebug(); row != nil {
 			x := row.(*interface{})
 			if x != nil && (*x) != nil {
-				checkRowId = (*x).(types.Rowid)
+				checkRowId = (*x).(logutil.ROWPK).RowId.(types.Rowid)
 				debug = true
 			}
 		}
