@@ -1621,16 +1621,17 @@ func (tbl *txnTable) Delete(
 			for _, rowid := range rowids {
 				tbl.getTxn().deletedRowIds.Store(rowid, struct{}{})
 			}
+
 			col, area := vector.MustVarlenaRawData(bat.Vecs[1])
 			for i := range col {
 				bb := col[i].GetByteSlice(area)
 				val, _ := types.Unpack(bb)
 				gg := [2]int32{val[0].(int32), val[1].(int32)}
-				v, ok := tbl.getTxn().deletedRowIds.Load(gg)
+				v, ok := tbl.getTxn().deletedPKs.Load(gg)
 				if ok {
 					tbl.getTxn().deletedPKs.Store(gg, v.(int)+1)
 				} else {
-					tbl.getTxn().deletedRowIds.Store(gg, 1)
+					tbl.getTxn().deletedPKs.Store(gg, 1)
 				}
 			}
 		}
