@@ -461,7 +461,6 @@ func (h *Handle) apiEntryToWriteEntry(
 		TableID:      pe.GetTableId(),
 		DatabaseName: pe.GetDatabaseName(),
 		TableName:    pe.GetTableName(),
-		FileName:     pe.GetFileName(),
 		Batch:        moBat,
 		PkCheck:      cmd_util.PKCheckType(pe.GetPkCheckByTn()),
 	}

@@ -1493,7 +1493,7 @@ func (tbl *txnTable) rewriteObjectByDeletion(
 	ctx context.Context,
 	obj objectio.ObjectStats,
 	blockDeletes map[objectio.Blockid][]int64,
-) (*batch.Batch, string, error) {
+) (*batch.Batch, error) {
 
 	proc := tbl.proc.Load()
 
