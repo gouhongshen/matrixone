@@ -136,6 +136,9 @@ func (h *Handle) GetDB() *db.DB {
 }
 
 func (h *Handle) IsInterceptTable(name string) bool {
+	if name == "bmsql_warehouse" {
+		return true
+	}
 	printMatchRegexp := h.getInterceptMatchRegexp()
 	if printMatchRegexp == nil {
 		return false
