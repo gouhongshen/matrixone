@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"runtime/trace"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/RoaringBitmap/roaring"
@@ -521,8 +522,9 @@ func (tbl *txnTable) recurTransferDelete(
 			rowIDVec, pkVec, handle.DT_Normal); err != nil {
 			return err
 		}
-		common.DoIfDebugEnabled(func() {
-			logutil.Infof("depth-%d %s transfer delete from blk-%s row-%d to blk-%s row-%d, txn %x, val %v",
+		if strings.Contains(tbl.dataTable.schema.Name, "bmsql_warehouse") {
+			//common.DoIfInfoEnabled(func() {
+			logutil.Infof("WAREHOUSE-TRANS depth-%d %s transfer delete from blk-%s row-%d to blk-%s row-%d, txn %x, val %v",
 				depth,
 				tbl.dataTable.schema.Name,
 				id.BlockID.String(),
@@ -531,7 +533,9 @@ func (tbl *txnTable) recurTransferDelete(
 				offset,
 				tbl.store.txn.GetID(),
 				pk)
-		})
+			//})
+		}
+
 		return nil
 	}
 	tbl.store.warChecker.conflictSet[*newID.ObjectID()] = true

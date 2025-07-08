@@ -75,6 +75,7 @@ func transferInmemTombstones(
 					createObjs,
 					txn.proc.Mp(),
 					txn.engine.fs,
+					start, end,
 				); err != nil {
 					return err
 				}
@@ -182,6 +183,7 @@ func transferTombstones(
 	deletedObjects, createdObjects map[objectio.ObjectNameShort]struct{},
 	mp *mpool.MPool,
 	fs fileservice.FileService,
+	from, to types.TS,
 ) (err error) {
 	if len(deletedObjects) == 0 || len(createdObjects) == 0 {
 		return
@@ -329,6 +331,7 @@ func transferTombstones(
 					mp,
 					fs,
 					wantDetail,
+					from, to,
 				); err != nil {
 					return
 				}
@@ -352,6 +355,7 @@ func transferTombstones(
 			mp,
 			fs,
 			wantDetail,
+			from, to,
 		); err != nil {
 			return
 		}
@@ -387,6 +391,7 @@ func batchTransferToTombstones(
 	mp *mpool.MPool,
 	fs fileservice.FileService,
 	wantDetail bool,
+	from, to types.TS,
 ) (err error) {
 	if err = targetRowids.PreExtend(transferIntents.Length(), mp); err != nil {
 		return
@@ -412,6 +417,18 @@ func batchTransferToTombstones(
 		fs,
 	); err != nil {
 		return
+	}
+
+	if strings.Contains(table.tableName, "bmsql_warehouse") {
+		logutil.Info("WAREHOUSE-TRANS CN",
+			zap.String("tableName", table.tableName),
+			zap.String("from", from.ToString()),
+			zap.String("to", to.ToString()),
+			zap.Error(err),
+			zap.String("search pk", common.MoVectorToString(searchPKColumn, searchPKColumn.Length())),
+			zap.String("trans pk", common.MoVectorToString(readPKColumn, readPKColumn.Length())),
+			zap.String("intents", common.MoVectorToString(transferIntents, transferIntents.Length())),
+			zap.String("target rowid", common.MoVectorToString(targetRowids, targetRowids.Length())))
 	}
 
 	if err = mergeutil.SortColumnsByIndex(
