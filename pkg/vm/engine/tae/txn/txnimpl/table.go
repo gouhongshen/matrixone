@@ -524,15 +524,16 @@ func (tbl *txnTable) recurTransferDelete(
 		}
 		if strings.Contains(tbl.dataTable.schema.Name, "bmsql_warehouse") {
 			//common.DoIfInfoEnabled(func() {
-			logutil.Infof("WAREHOUSE-TRANS depth-%d %s transfer delete from blk-%s row-%d to blk-%s row-%d, txn %x, val %v",
+			logutil.Infof("WAREHOUSE-TRANS depth-%d %s transfer delete from blk-%s row-%d to blk-%s row-%d, txn %v, val %v, ts: %s",
 				depth,
 				tbl.dataTable.schema.Name,
 				id.BlockID.String(),
 				row,
 				blockID.String(),
 				offset,
-				tbl.store.txn.GetID(),
-				pk)
+				tbl.store.txn.String(),
+				pk,
+				ts.ToString())
 			//})
 		}
 

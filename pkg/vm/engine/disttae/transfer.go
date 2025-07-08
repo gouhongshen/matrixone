@@ -425,6 +425,7 @@ func batchTransferToTombstones(
 			zap.String("from", from.ToString()),
 			zap.String("to", to.ToString()),
 			zap.Error(err),
+			zap.String("txn", table.getTxn().op.Txn().DebugString()),
 			zap.String("search pk", common.MoVectorToString(searchPKColumn, searchPKColumn.Length())),
 			zap.String("trans pk", common.MoVectorToString(readPKColumn, readPKColumn.Length())),
 			zap.String("intents", common.MoVectorToString(transferIntents, transferIntents.Length())),
