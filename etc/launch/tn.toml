@@ -13,7 +13,7 @@ check-fraction = 65536
 enable-metrics = true
 
 [tn.Ckp]
-flush-interval = "60s"
+flush-interval = "6000000s"
 min-count = 100
 scan-interval = "5000000s"
 incremental-interval = "180s"
