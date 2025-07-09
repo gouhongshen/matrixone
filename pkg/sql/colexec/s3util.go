@@ -151,11 +151,16 @@ func NewCNS3DataWriter(
 
 	factor := ioutil.NewFSinkerImplFactory(sequms, sortKeyIdx, isPrimaryKey, false, tableDef.Version)
 
+	x := int(WriteS3Threshold)
+	if tableDef.DbName == "test" {
+		x = mpool.KB
+	}
+
 	writer.sinker = ioutil.NewSinker(
 		sortKeyIdx, attrs, attrTypes,
 		factor, mp, fs,
 		ioutil.WithTailSizeCap(0),
-		ioutil.WithMemorySizeThreshold(int(WriteS3Threshold)))
+		ioutil.WithMemorySizeThreshold(x))
 
 	writer.ResetBlockInfoBat()
 
