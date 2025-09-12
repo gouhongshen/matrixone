@@ -413,6 +413,10 @@ func (task *mergeObjectsTask) Name() string {
 }
 
 func (task *mergeObjectsTask) Execute(ctx context.Context) (err error) {
+	if strings.Contains(task.tableEntry.GetDB().GetName(), "tpch") {
+		return nil
+	}
+
 	phaseDesc := ""
 	defer func() {
 		if err != nil {

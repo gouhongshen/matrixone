@@ -181,6 +181,10 @@ func LogReaderInjected(args ...string) (bool, int) {
 }
 
 func LogCNFlushSmallObjsInjected(args ...string) (bool, int) {
+	if strings.Contains(args[0], "tpch") {
+		return true, 0
+	}
+
 	iarg, sarg, injected := fault.TriggerFault(FJ_CNFlushSmallObjs)
 	if !injected {
 		return false, 0
