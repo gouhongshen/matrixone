@@ -42,7 +42,7 @@ const (
 )
 
 var (
-	defaultMaxBodyMessageSize = 1024 * 1024 * 100
+	defaultMaxBodyMessageSize = 1024 * 1024 * 100 * 100
 	checksumFieldBytes        = 8
 	totalSizeFieldBytes       = 4
 	payloadSizeFieldBytes     = 4
