@@ -132,6 +132,8 @@ func NewMessageCodec(
 	for _, opt := range options {
 		opt(c)
 	}
+
+	bc.maxBodySize = defaultMaxBodyMessageSize
 	return c
 }
 
