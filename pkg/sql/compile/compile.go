@@ -3503,6 +3503,9 @@ func (c *Compile) compileMultiUpdate(_ []*plan.Node, n *plan.Node, ss []*Scope) 
 		}
 
 		for i := range ss {
+			if n.GetTableDef().DbName == "ann" {
+				fmt.Println("compileMultiUpdate", n.GetTableDef().Name, "updateWriteS3")
+			}
 			multiUpdateArg, err := constructMultiUpdate(n, c.e, c.proc, multi_update.UpdateWriteS3, ss[i].IsRemote)
 			if err != nil {
 				return nil, err
@@ -3525,6 +3528,9 @@ func (c *Compile) compileMultiUpdate(_ []*plan.Node, n *plan.Node, ss []*Scope) 
 		rs.setRootOperator(multiUpdateArg)
 		ss = []*Scope{rs}
 	} else {
+		if n.GetTableDef().DbName == "ann" {
+			fmt.Println("compileMultiUpdate", n.GetTableDef().Name, "UpdateWriteTable")
+		}
 		if !c.IsTpQuery() {
 			rs := c.newMergeScope(ss)
 			ss = []*Scope{rs}
