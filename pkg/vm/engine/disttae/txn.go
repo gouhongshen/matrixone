@@ -706,6 +706,11 @@ func (txn *Transaction) dumpInsertBatchLocked(
 	}()
 
 	for tbKey := range mp {
+		debug := false
+		if tbKey.dbName == "ann" {
+			debug = true
+		}
+
 		// scenario 2 for cn write s3, more info in the comment of S3Writer
 		tbl, err := txn.getTable(tbKey.accountId, tbKey.dbName, tbKey.name)
 		if err != nil {
@@ -717,7 +722,10 @@ func (txn *Transaction) dumpInsertBatchLocked(
 			txn.proc.GetMPool(), fs, tableDef, -1, false,
 		)
 
+		t1 := time.Now()
+		ss := 0
 		for _, bat = range mp[tbKey] {
+			ss += bat.Size()
 			if err = s3Writer.Write(txn.proc.Ctx, bat); err != nil {
 				return err
 			}
@@ -726,6 +734,8 @@ func (txn *Transaction) dumpInsertBatchLocked(
 		if stats, err = s3Writer.Sync(txn.proc.Ctx); err != nil {
 			return err
 		}
+
+		t2 := time.Now()
 
 		fileName = stats[0].ObjectLocation().String()
 		if bat, err = s3Writer.FillBlockInfoBat(); err != nil {
@@ -737,10 +747,6 @@ func (txn *Transaction) dumpInsertBatchLocked(
 			table = v.origin
 		} else {
 			table = tbl.(*txnTable)
-		}
-
-		if table.db.databaseName == "ann" {
-			fmt.Println("dumpInsertBatchLocked", table.tableName, bat.Vecs[0].Length(), bat.Vecs[1].Length())
 		}
 
 		if err = table.getTxn().WriteFileLocked(
@@ -755,6 +761,14 @@ func (txn *Transaction) dumpInsertBatchLocked(
 			table.getTxn().tnStores[0],
 		); err != nil {
 			return err
+		}
+
+		if debug {
+			fmt.Println(
+				"dumpInsertBatchLocked",
+				tbKey.dbName, tbKey.name, time.Since(t1), time.Since(t2), common.HumanReadableBytes(ss),
+				len(mp[tbKey]), len(mp), len(stats), bat.Vecs[0].Length(),
+			)
 		}
 
 		s3Writer.Close()
