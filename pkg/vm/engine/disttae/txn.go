@@ -545,9 +545,15 @@ func (txn *Transaction) dumpBatchLocked(ctx context.Context, offset int) error {
 		return err
 	}
 
+	t := time.Now()
 	if err := txn.dumpInsertBatchLocked(ctx, fs, offset, &size, &pkCount); err != nil {
 		return err
 	}
+
+	if d := time.Since(t); d > time.Second {
+		fmt.Println("dumpBatchLocked", d, common.HumanReadableBytes(int(size)), txn.op.Txn().DebugString())
+	}
+
 	// release the extra quota
 	if txn.extraWriteWorkspaceThreshold > 0 {
 		remaining := txn.engine.ReleaseQuota(int64(txn.extraWriteWorkspaceThreshold))
@@ -731,6 +737,10 @@ func (txn *Transaction) dumpInsertBatchLocked(
 			table = v.origin
 		} else {
 			table = tbl.(*txnTable)
+		}
+
+		if table.db.databaseName == "ann" {
+			fmt.Println("dumpInsertBatchLocked", table.tableName, bat.Vecs[0].Length(), bat.Vecs[1].Length())
 		}
 
 		if err = table.getTxn().WriteFileLocked(
