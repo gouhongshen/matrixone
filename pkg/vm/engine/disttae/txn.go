@@ -21,6 +21,7 @@ import (
 	"math"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -207,6 +208,10 @@ func (txn *Transaction) WriteBatch(
 
 		bat.Vecs[0].SetSorted(true)
 		bat.Vecs[1].SetSorted(true)
+	}
+
+	if databaseName == "ann" && strings.HasPrefix(tableName, "__") {
+		fmt.Println("write batch", time.Now(), tableName, bat.RowCount(), common.HumanReadableBytes(bat.Size()))
 	}
 
 	e := Entry{
@@ -551,7 +556,7 @@ func (txn *Transaction) dumpBatchLocked(ctx context.Context, offset int) error {
 	}
 
 	if d := time.Since(t); d > time.Second {
-		fmt.Println("dumpBatchLocked", d, common.HumanReadableBytes(int(size)), txn.op.Txn().DebugString())
+		fmt.Println("dumpBatchLocked", time.Now(), d, common.HumanReadableBytes(int(size)), txn.op.Txn().DebugString())
 	}
 
 	// release the extra quota
@@ -768,6 +773,7 @@ func (txn *Transaction) dumpInsertBatchLocked(
 		if debug {
 			fmt.Println(
 				"dumpInsertBatchLocked",
+				time.Now(),
 				tbKey.dbName, tbKey.name, time.Since(t1), time.Since(t2), common.HumanReadableBytes(ss),
 				len(mp[tbKey]), len(mp), len(stats), bat.Vecs[0].Length(), rr,
 			)

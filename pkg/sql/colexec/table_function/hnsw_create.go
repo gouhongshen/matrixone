@@ -58,11 +58,13 @@ func (u *hnswCreateState) end(tf *TableFunction, proc *process.Process) error {
 	}
 
 	for _, s := range sqls {
+		t := time.Now()
 		res, err := hnsw_runSql(proc, s)
 		if err != nil {
 			return err
 		}
 		res.Close()
+		fmt.Println("hnsw create end", time.Now(), u.tblcfg.SrcTable, u.tblcfg.IndexTable, time.Since(t), len(s))
 	}
 
 	return nil
