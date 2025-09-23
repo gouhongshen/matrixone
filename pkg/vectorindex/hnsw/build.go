@@ -158,7 +158,7 @@ func (idx *HnswBuildIndex) ToSql(cfg vectorindex.IndexTableConfig) ([]string, er
 
 	sqls := make([]string, 0, 5)
 
-	sql := fmt.Sprintf("INSERT INTO `%s`.`%s` VALUES ", cfg.DbName, cfg.IndexTable)
+	sql := fmt.Sprintf("REPLACE INTO `%s`.`%s` VALUES ", cfg.DbName, cfg.IndexTable)
 	values := make([]string, 0, int64(math.Ceil(float64(filesz)/float64(vectorindex.MaxChunkSize))))
 	n := 0
 	for offset = 0; offset < filesz; {
@@ -466,7 +466,7 @@ func (h *HnswBuild) ToInsertSql(ts int64) ([]string, error) {
 		metas = append(metas, fmt.Sprintf("('%s', '%s', %d, %d)", idx.Id, chksum, ts, fs))
 	}
 
-	metasql := fmt.Sprintf("INSERT INTO `%s`.`%s` VALUES %s", h.tblcfg.DbName, h.tblcfg.MetadataTable, strings.Join(metas, ", "))
+	metasql := fmt.Sprintf("REPLACE INTO `%s`.`%s` VALUES %s", h.tblcfg.DbName, h.tblcfg.MetadataTable, strings.Join(metas, ", "))
 
 	sqls = append(sqls, metasql)
 	return sqls, nil
