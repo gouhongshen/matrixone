@@ -724,8 +724,10 @@ func (txn *Transaction) dumpInsertBatchLocked(
 
 		t1 := time.Now()
 		ss := 0
+		rr := 0
 		for _, bat = range mp[tbKey] {
 			ss += bat.Size()
+			rr += bat.RowCount()
 			if err = s3Writer.Write(txn.proc.Ctx, bat); err != nil {
 				return err
 			}
@@ -767,7 +769,7 @@ func (txn *Transaction) dumpInsertBatchLocked(
 			fmt.Println(
 				"dumpInsertBatchLocked",
 				tbKey.dbName, tbKey.name, time.Since(t1), time.Since(t2), common.HumanReadableBytes(ss),
-				len(mp[tbKey]), len(mp), len(stats), bat.Vecs[0].Length(),
+				len(mp[tbKey]), len(mp), len(stats), bat.Vecs[0].Length(), rr,
 			)
 		}
 

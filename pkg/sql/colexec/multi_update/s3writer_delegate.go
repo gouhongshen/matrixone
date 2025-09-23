@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -39,6 +40,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/deletion"
 	plan2 "github.com/matrixorigin/matrixone/pkg/sql/plan"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/common"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/containers"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/options"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
@@ -503,7 +505,10 @@ func (writer *s3WriterDelegate) sortAndSyncOneTable(
 	counterSet := analyzer.GetOpCounterSet()
 	writeCtx := perfcounter.AttachS3RequestKey(proc.Ctx, counterSet)
 
+	ss := 0
+	t := time.Now()
 	for i := range bats {
+		ss += bats[i].Size()
 		rowCount += bats[i].RowCount()
 		if err = s3Writer.Write(writeCtx, bats[i]); err != nil {
 			return
@@ -517,6 +522,10 @@ func (writer *s3WriterDelegate) sortAndSyncOneTable(
 
 	if _, err = s3Writer.Sync(writeCtx); err != nil {
 		return
+	}
+
+	if tblDef.DbName == "ann" {
+		fmt.Println("sortAndSyncOneTable", tblDef.Name, rowCount, common.HumanReadableBytes(ss), time.Since(t))
 	}
 
 	analyzer.AddS3RequestCount(counterSet)
