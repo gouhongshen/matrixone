@@ -98,7 +98,12 @@ func (insert *Insert) Call(proc *process.Process) (vm.CallResult, error) {
 		analyzer.AddInsertTime(t)
 	}()
 
-	if insert.ToWriteS3 {
+	debug := false
+	if insert.InsertCtx != nil && insert.InsertCtx.TableDef != nil && insert.InsertCtx.TableDef.DbName == "ann" {
+		debug = true
+	}
+
+	if insert.ToWriteS3 || debug {
 		return insert.insert_s3(proc, analyzer)
 	}
 	return insert.insert_table(proc, analyzer)
