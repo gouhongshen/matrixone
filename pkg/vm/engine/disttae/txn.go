@@ -505,6 +505,8 @@ func (txn *Transaction) dumpBatchLocked(ctx context.Context, offset int) error {
 		offset = 0
 	}
 
+	ddd := false
+
 	if !dumpAll {
 		for i := offset; i < len(txn.writes); i++ {
 			if txn.writes[i].isCatalog() {
@@ -514,10 +516,20 @@ func (txn *Transaction) dumpBatchLocked(ctx context.Context, offset int) error {
 				continue
 			}
 			if txn.writes[i].typ == INSERT && txn.writes[i].fileName == "" {
+				if txn.writes[i].databaseName == "ann" {
+					ddd = true
+				}
 				size += uint64(txn.writes[i].bat.Size())
 			}
 		}
+
 		if size < txn.writeWorkspaceThreshold {
+			if ddd {
+				fmt.Println("AAA",
+					common.HumanReadableBytes(int(size)),
+					common.HumanReadableBytes(int(txn.writeWorkspaceThreshold)),
+				)
+			}
 			return nil
 		}
 
@@ -535,6 +547,15 @@ func (txn *Transaction) dumpBatchLocked(ctx context.Context, offset int) error {
 				)
 				txn.writeWorkspaceThreshold += quota
 				txn.extraWriteWorkspaceThreshold += quota
+
+				if ddd {
+					fmt.Println("BBB",
+						common.HumanReadableBytes(int(size)),
+						common.HumanReadableBytes(int(quota)),
+						common.HumanReadableBytes(int(txn.writeWorkspaceThreshold)),
+						common.HumanReadableBytes(int(txn.engine.config.writeWorkspaceThreshold)),
+					)
+				}
 				return nil
 			}
 		}
