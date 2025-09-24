@@ -22,10 +22,14 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/vectorindex"
+	"github.com/matrixorigin/matrixone/pkg/vectorindex/sqlexec"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
+	"github.com/panjf2000/ants/v2"
 	usearch "github.com/unum-cloud/usearch/golang"
 )
 
@@ -51,6 +55,8 @@ type HnswBuild struct {
 	once     sync.Once
 	mutex    sync.Mutex
 	count    atomic.Int64
+
+	flushTableWorker *ants.Pool
 }
 
 type AddItem struct {
@@ -245,6 +251,8 @@ func NewHnswBuild(proc *process.Process, uid string, nworker int32,
 		nthread: int(nthread),
 	}
 
+	info.flushTableWorker, err = ants.NewPool(1)
+
 	if nthread > 1 {
 		info.add_chan = make(chan AddItem, nthread*4)
 		info.err_chan = make(chan error, nthread)
@@ -285,7 +293,7 @@ func (h *HnswBuild) addFromChannel(proc *process.Process) (stream_closed bool, e
 	}
 
 	// add
-	err = h.addVectorSync(res.key, res.vec)
+	err = h.addVectorSync(proc, res.key, res.vec)
 	if err != nil {
 		return false, err
 	}
@@ -319,7 +327,7 @@ func (h *HnswBuild) Destroy() error {
 	return errs
 }
 
-func (h *HnswBuild) Add(key int64, vec []float32) error {
+func (h *HnswBuild) Add(proc *process.Process, key int64, vec []float32) error {
 	if h.nthread > 1 {
 
 		select {
@@ -331,7 +339,7 @@ func (h *HnswBuild) Add(key int64, vec []float32) error {
 		h.add_chan <- AddItem{key, append(make([]float32, 0, len(vec)), vec...)}
 		return nil
 	} else {
-		return h.addVector(key, vec)
+		return h.addVector(proc, key, vec)
 	}
 }
 
@@ -339,13 +347,13 @@ func (h *HnswBuild) createIndexUniqueKey(id int64) string {
 	return fmt.Sprintf("%s:%d", h.uid, id)
 }
 
-func (h *HnswBuild) getIndexForAddSync() (idx *HnswBuildIndex, save_idx *HnswBuildIndex, err error) {
+func (h *HnswBuild) getIndexForAddSync(proc *process.Process) (idx *HnswBuildIndex, save_idx *HnswBuildIndex, err error) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
-	return h.getIndexForAdd()
+	return h.getIndexForAdd(proc)
 }
 
-func (h *HnswBuild) getIndexForAdd() (idx *HnswBuildIndex, save_idx *HnswBuildIndex, err error) {
+func (h *HnswBuild) getIndexForAdd(proc *process.Process) (idx *HnswBuildIndex, save_idx *HnswBuildIndex, err error) {
 
 	save_idx = nil
 	nidx := int64(len(h.indexes))
@@ -372,6 +380,9 @@ func (h *HnswBuild) getIndexForAdd() (idx *HnswBuildIndex, save_idx *HnswBuildIn
 			h.indexes = append(h.indexes, idx)
 			// reset count for next index
 			h.count.Store(0)
+
+			// flush last index
+			h.flushIndexToTable(proc, h.indexes[nidx-1])
 		}
 	}
 	h.count.Add(1)
@@ -382,12 +393,12 @@ func (h *HnswBuild) getIndexForAdd() (idx *HnswBuildIndex, save_idx *HnswBuildIn
 // add vector to the build
 // it will check the current index is full and add the vector to available index
 // sync version for multi-thread
-func (h *HnswBuild) addVectorSync(key int64, vec []float32) error {
+func (h *HnswBuild) addVectorSync(proc *process.Process, key int64, vec []float32) error {
 	var err error
 	var idx *HnswBuildIndex
 	var save_idx *HnswBuildIndex
 
-	idx, save_idx, err = h.getIndexForAddSync()
+	idx, save_idx, err = h.getIndexForAddSync(proc)
 	if err != nil {
 		return err
 	}
@@ -406,14 +417,14 @@ func (h *HnswBuild) addVectorSync(key int64, vec []float32) error {
 // add vector to the build
 // it will check the current index is full and add the vector to available index
 // single-threaded version.
-func (h *HnswBuild) addVector(key int64, vec []float32) error {
+func (h *HnswBuild) addVector(proc *process.Process, key int64, vec []float32) error {
 	var err error
 	var idx *HnswBuildIndex
 	var save_idx *HnswBuildIndex
 
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
-	idx, save_idx, err = h.getIndexForAdd()
+	idx, save_idx, err = h.getIndexForAdd(proc)
 	if err != nil {
 		return err
 	}
@@ -444,12 +455,12 @@ func (h *HnswBuild) ToInsertSql(ts int64) ([]string, error) {
 
 	metas := make([]string, 0, len(h.indexes))
 	for _, idx := range h.indexes {
-		indexsqls, err := idx.ToSql(h.tblcfg)
-		if err != nil {
-			return nil, err
-		}
-
-		sqls = append(sqls, indexsqls...)
+		//indexsqls, err := idx.ToSql(h.tblcfg)
+		//if err != nil {
+		//	return nil, err
+		//}
+		//
+		//sqls = append(sqls, indexsqls...)
 
 		//os.Stderr.WriteString(fmt.Sprintf("Sql: %s\n", sql))
 		chksum, err := vectorindex.CheckSum(idx.Path)
@@ -474,4 +485,21 @@ func (h *HnswBuild) ToInsertSql(ts int64) ([]string, error) {
 
 func (h *HnswBuild) GetIndexes() []*HnswBuildIndex {
 	return h.indexes
+}
+
+func (h *HnswBuild) flushIndexToTable(proc *process.Process, idx *HnswBuildIndex) {
+	t := time.Now()
+	defer func() {
+		fmt.Println(time.Now(), "flushIndexToTable", time.Since(t))
+	}()
+	h.flushTableWorker.Submit(func() {
+		sqls, _ := idx.ToSql(h.tblcfg)
+		for _, s := range sqls {
+			res, err := sqlexec.RunSql(proc, s)
+			if err != nil {
+				logutil.Fatal("")
+			}
+			res.Close()
+		}
+	})
 }

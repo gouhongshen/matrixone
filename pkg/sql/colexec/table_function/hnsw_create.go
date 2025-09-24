@@ -227,7 +227,7 @@ func (u *hnswCreateState) start(tf *TableFunction, proc *process.Process, nthRow
 		return moerr.NewInternalError(proc.Ctx, "vector dimension mismatch")
 	}
 
-	err = u.build.Add(id, f32a)
+	err = u.build.Add(proc, id, f32a)
 	if err != nil {
 		return err
 	}
