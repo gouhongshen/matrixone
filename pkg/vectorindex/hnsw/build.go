@@ -396,20 +396,20 @@ func (h *HnswBuild) getIndexForAdd(proc *process.Process) (idx *HnswBuildIndex, 
 func (h *HnswBuild) addVectorSync(proc *process.Process, key int64, vec []float32) error {
 	var err error
 	var idx *HnswBuildIndex
-	var save_idx *HnswBuildIndex
+	//var save_idx *HnswBuildIndex
 
-	idx, save_idx, err = h.getIndexForAddSync(proc)
+	idx, _, err = h.getIndexForAddSync(proc)
 	if err != nil {
 		return err
 	}
 
-	if save_idx != nil {
-		// save the current index to file
-		err = save_idx.SaveToFile()
-		if err != nil {
-			return err
-		}
-	}
+	//if save_idx != nil {
+	//	// save the current index to file
+	//	err = save_idx.SaveToFile()
+	//	if err != nil {
+	//		return err
+	//	}
+	//}
 
 	return idx.Add(key, vec)
 }
@@ -420,22 +420,22 @@ func (h *HnswBuild) addVectorSync(proc *process.Process, key int64, vec []float3
 func (h *HnswBuild) addVector(proc *process.Process, key int64, vec []float32) error {
 	var err error
 	var idx *HnswBuildIndex
-	var save_idx *HnswBuildIndex
+	//var save_idx *HnswBuildIndex
 
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
-	idx, save_idx, err = h.getIndexForAdd(proc)
+	idx, _, err = h.getIndexForAdd(proc)
 	if err != nil {
 		return err
 	}
 
-	if save_idx != nil {
-		// save the current index to file
-		err = save_idx.SaveToFile()
-		if err != nil {
-			return err
-		}
-	}
+	//if save_idx != nil {
+	//	// save the current index to file
+	//	err = save_idx.SaveToFile()
+	//	if err != nil {
+	//		return err
+	//	}
+	//}
 
 	return idx.Add(key, vec)
 }
@@ -493,8 +493,8 @@ func (h *HnswBuild) flushIndexToTable(proc *process.Process, idx *HnswBuildIndex
 		fmt.Println(time.Now(), "flushIndexToTable", time.Since(t))
 	}()
 
-	sqls, _ := idx.ToSql(h.tblcfg)
 	h.flushTableWorker.Submit(func() {
+		sqls, _ := idx.ToSql(h.tblcfg)
 		for _, s := range sqls {
 			res, err := sqlexec.RunSql(proc, s)
 			if err != nil {

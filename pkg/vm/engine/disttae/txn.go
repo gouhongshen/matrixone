@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"math"
 	"runtime"
-	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -212,7 +211,7 @@ func (txn *Transaction) WriteBatch(
 	}
 
 	if databaseName == "ann" && strings.HasPrefix(tableName, "__") {
-		fmt.Println("write batch", time.Now(), tableName, bat.RowCount(), common.HumanReadableBytes(bat.Size()), string(debug.Stack()))
+		fmt.Println("write batch", time.Now(), tableName, bat.RowCount(), common.HumanReadableBytes(bat.Size()))
 	}
 
 	e := Entry{
