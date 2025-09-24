@@ -947,12 +947,6 @@ func constructInsert(
 		Attrs:           attrs,
 		TableDef:        oldCtx.TableDef,
 	}
-
-	if newCtx.TableDef != nil && newCtx.TableDef.DbName == "ann" {
-		toS3 = true
-		fmt.Println("toS3", toS3, newCtx.TableDef.Name)
-	}
-
 	arg := insert.NewArgument()
 	arg.InsertCtx = newCtx
 	arg.ToWriteS3 = toS3
