@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"runtime/debug"
 	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/buffer"
@@ -140,6 +141,7 @@ func (s *sqlExecutor) ExecTxn(
 			zap.Error(err),
 			zap.String("sql", opts.SQL()),
 			zap.String("txn", exec.Txn().Txn().DebugString()),
+			zap.String("stack", string(debug.Stack())),
 		)
 		return exec.rollback(err)
 	}
