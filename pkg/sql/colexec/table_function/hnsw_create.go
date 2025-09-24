@@ -52,6 +52,8 @@ func (u *hnswCreateState) end(tf *TableFunction, proc *process.Process) error {
 		return nil
 	}
 
+	u.build.WaitFlush()
+
 	sqls, err := u.build.ToInsertSql(time.Now().UnixMicro())
 	if err != nil {
 		return err

@@ -56,7 +56,13 @@ type HnswBuild struct {
 	mutex    sync.Mutex
 	count    atomic.Int64
 
+	workerWg         sync.WaitGroup
 	flushTableWorker *ants.Pool
+}
+
+func (h *HnswBuild) WaitFlush() {
+	h.workerWg.Wait()
+	return
 }
 
 type AddItem struct {
@@ -494,6 +500,9 @@ func (h *HnswBuild) flushIndexToTable(proc *process.Process, idx *HnswBuildIndex
 	}()
 
 	h.flushTableWorker.Submit(func() {
+		h.workerWg.Add(1)
+		defer h.workerWg.Done()
+
 		sqls, _ := idx.ToSql(h.tblcfg)
 		for _, s := range sqls {
 			res, err := sqlexec.RunSql(proc, s)
