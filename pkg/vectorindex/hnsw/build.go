@@ -388,7 +388,7 @@ func (h *HnswBuild) getIndexForAdd(proc *process.Process) (idx *HnswBuildIndex, 
 			h.count.Store(0)
 
 			// flush last index
-			h.flushIndexToTable(proc, h.indexes[nidx-1])
+			h.flushIndexToTable(proc, save_idx)
 		}
 	}
 	h.count.Add(1)
@@ -461,12 +461,14 @@ func (h *HnswBuild) ToInsertSql(ts int64) ([]string, error) {
 
 	metas := make([]string, 0, len(h.indexes))
 	for _, idx := range h.indexes {
-		//indexsqls, err := idx.ToSql(h.tblcfg)
-		//if err != nil {
-		//	return nil, err
-		//}
-		//
-		//sqls = append(sqls, indexsqls...)
+		if len(idx.Path) == 0 {
+			indexsqls, err := idx.ToSql(h.tblcfg)
+			if err != nil {
+				return nil, err
+			}
+
+			sqls = append(sqls, indexsqls...)
+		}
 
 		//os.Stderr.WriteString(fmt.Sprintf("Sql: %s\n", sql))
 		chksum, err := vectorindex.CheckSum(idx.Path)
