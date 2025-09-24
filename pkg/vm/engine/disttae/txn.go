@@ -523,7 +523,7 @@ func (txn *Transaction) dumpBatchLocked(ctx context.Context, offset int) error {
 			}
 		}
 
-		if size < txn.writeWorkspaceThreshold {
+		if size <= 64*mpool.MB && size < txn.writeWorkspaceThreshold {
 			if ddd {
 				fmt.Println("AAA",
 					common.HumanReadableBytes(int(size)),
@@ -538,7 +538,7 @@ func (txn *Transaction) dumpBatchLocked(ctx context.Context, offset int) error {
 			// acquire 5M more than we need
 			quota := size - txn.writeWorkspaceThreshold + txn.engine.config.writeWorkspaceThreshold
 			remaining, acquired := txn.engine.AcquireQuota(int64(quota))
-			if acquired {
+			if size <= 64*mpool.MB && acquired {
 				logutil.Info(
 					"WORKSPACE-QUOTA-ACQUIRE",
 					zap.Uint64("quota", quota),

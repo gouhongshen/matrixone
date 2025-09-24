@@ -492,8 +492,9 @@ func (h *HnswBuild) flushIndexToTable(proc *process.Process, idx *HnswBuildIndex
 	defer func() {
 		fmt.Println(time.Now(), "flushIndexToTable", time.Since(t))
 	}()
+
+	sqls, _ := idx.ToSql(h.tblcfg)
 	h.flushTableWorker.Submit(func() {
-		sqls, _ := idx.ToSql(h.tblcfg)
 		for _, s := range sqls {
 			res, err := sqlexec.RunSql(proc, s)
 			if err != nil {
