@@ -59,6 +59,8 @@ func TestBuildMulti(t *testing.T) {
 	require.Nil(t, err)
 	defer build.Destroy()
 
+	build.insertWorker.pendingSql = true
+
 	// fix the seek
 	r := rand.New(rand.NewSource(99))
 
@@ -83,7 +85,7 @@ func TestBuildMulti(t *testing.T) {
 
 			for i := 0; i < nitem; i++ {
 				key := tid*nitem + i
-				err := build.Add(int64(key), sample[key])
+				err := build.Add(proc, int64(key), sample[key])
 				require.Nil(t, err)
 			}
 		}(j)
@@ -95,7 +97,8 @@ func TestBuildMulti(t *testing.T) {
 	fmt.Printf("Build Time %f sec\n", end.Sub(start).Seconds())
 
 	fmt.Printf("model built\n")
-	_, err = build.ToInsertSql(time.Now().UnixMicro())
+
+	_, err = build.ToInsertMetaSql(proc, time.Now().UnixMicro())
 	require.Nil(t, err)
 	indexes := build.GetIndexes()
 
@@ -215,6 +218,8 @@ func TestBuildSingleThread(t *testing.T) {
 	require.Nil(t, err)
 	defer build.Destroy()
 
+	build.insertWorker.pendingSql = true
+	
 	// fix the seek
 	r := rand.New(rand.NewSource(99))
 
@@ -236,7 +241,7 @@ func TestBuildSingleThread(t *testing.T) {
 
 			for i := 0; i < nitem; i++ {
 				key := tid*nitem + i
-				err := build.Add(int64(key), sample[key])
+				err := build.Add(proc, int64(key), sample[key])
 				require.Nil(t, err)
 			}
 		}(j)
@@ -244,7 +249,8 @@ func TestBuildSingleThread(t *testing.T) {
 	wg.Wait()
 
 	fmt.Printf("model built\n")
-	sqls, err := build.ToInsertSql(time.Now().UnixMicro())
+
+	sqls, err := build.ToInsertMetaSql(proc, time.Now().UnixMicro())
 	require.Nil(t, err)
 	require.Equal(t, 3, len(sqls))
 	//fmt.Println(sqls[0])

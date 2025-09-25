@@ -27,7 +27,7 @@ import (
 func RunSql(proc *process.Process, sql string) (executor.Result, error) {
 	v, ok := moruntime.ServiceRuntime(proc.GetService()).GetGlobalVariables(moruntime.InternalSQLExecutor)
 	if !ok {
-		panic("missing lock service")
+		panic("missing internal SQL executor")
 	}
 
 	//-------------------------------------------------------

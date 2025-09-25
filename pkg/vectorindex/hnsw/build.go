@@ -24,8 +24,11 @@ import (
 	"sync/atomic"
 
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
+	"github.com/matrixorigin/matrixone/pkg/util/executor"
 	"github.com/matrixorigin/matrixone/pkg/vectorindex"
+	"github.com/matrixorigin/matrixone/pkg/vectorindex/sqlexec"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
+	"github.com/panjf2000/ants/v2"
 	usearch "github.com/unum-cloud/usearch/golang"
 )
 
@@ -51,6 +54,15 @@ type HnswBuild struct {
 	once     sync.Once
 	mutex    sync.Mutex
 	count    atomic.Int64
+
+	insertWorker struct {
+		worker *ants.Pool
+		wg     sync.WaitGroup
+		errs   chan error
+
+		pendingSql bool
+		sqls       []string
+	}
 }
 
 type AddItem struct {
@@ -220,8 +232,13 @@ func (idx *HnswBuildIndex) Add(key int64, vec []float32) error {
 }
 
 // create HsnwBuild struct
-func NewHnswBuild(proc *process.Process, uid string, nworker int32,
-	cfg vectorindex.IndexConfig, tblcfg vectorindex.IndexTableConfig) (info *HnswBuild, err error) {
+func NewHnswBuild(
+	proc *process.Process,
+	uid string,
+	nworker int32,
+	cfg vectorindex.IndexConfig,
+	tblcfg vectorindex.IndexTableConfig,
+) (info *HnswBuild, err error) {
 
 	// estimate the number of worker threads
 	nthread := 0
@@ -244,6 +261,12 @@ func NewHnswBuild(proc *process.Process, uid string, nworker int32,
 		indexes: make([]*HnswBuildIndex, 0, 16),
 		nthread: int(nthread),
 	}
+
+	if info.insertWorker.worker, err = ants.NewPool(1); err != nil {
+		return nil, err
+	}
+
+	info.insertWorker.errs = make(chan error, 100)
 
 	if nthread > 1 {
 		info.add_chan = make(chan AddItem, nthread*4)
@@ -285,7 +308,7 @@ func (h *HnswBuild) addFromChannel(proc *process.Process) (stream_closed bool, e
 	}
 
 	// add
-	err = h.addVectorSync(res.key, res.vec)
+	err = h.addVectorSync(proc, res.key, res.vec)
 	if err != nil {
 		return false, err
 	}
@@ -309,17 +332,23 @@ func (h *HnswBuild) Destroy() error {
 
 	h.CloseAndWait()
 
+	if h.insertWorker.worker != nil {
+		h.insertWorker.worker.Release()
+		close(h.insertWorker.errs)
+	}
+
 	for _, idx := range h.indexes {
 		err := idx.Destroy()
 		if err != nil {
 			errs = errors.Join(errs, err)
 		}
 	}
+
 	h.indexes = nil
 	return errs
 }
 
-func (h *HnswBuild) Add(key int64, vec []float32) error {
+func (h *HnswBuild) Add(proc *process.Process, key int64, vec []float32) error {
 	if h.nthread > 1 {
 
 		select {
@@ -331,7 +360,7 @@ func (h *HnswBuild) Add(key int64, vec []float32) error {
 		h.add_chan <- AddItem{key, append(make([]float32, 0, len(vec)), vec...)}
 		return nil
 	} else {
-		return h.addVector(key, vec)
+		return h.addVector(proc, key, vec)
 	}
 }
 
@@ -382,7 +411,7 @@ func (h *HnswBuild) getIndexForAdd() (idx *HnswBuildIndex, save_idx *HnswBuildIn
 // add vector to the build
 // it will check the current index is full and add the vector to available index
 // sync version for multi-thread
-func (h *HnswBuild) addVectorSync(key int64, vec []float32) error {
+func (h *HnswBuild) addVectorSync(proc *process.Process, key int64, vec []float32) error {
 	var err error
 	var idx *HnswBuildIndex
 	var save_idx *HnswBuildIndex
@@ -393,9 +422,7 @@ func (h *HnswBuild) addVectorSync(key int64, vec []float32) error {
 	}
 
 	if save_idx != nil {
-		// save the current index to file
-		err = save_idx.SaveToFile()
-		if err != nil {
+		if err = h.insertIntoIndexTable(proc, save_idx); err != nil {
 			return err
 		}
 	}
@@ -406,7 +433,7 @@ func (h *HnswBuild) addVectorSync(key int64, vec []float32) error {
 // add vector to the build
 // it will check the current index is full and add the vector to available index
 // single-threaded version.
-func (h *HnswBuild) addVector(key int64, vec []float32) error {
+func (h *HnswBuild) addVector(proc *process.Process, key int64, vec []float32) error {
 	var err error
 	var idx *HnswBuildIndex
 	var save_idx *HnswBuildIndex
@@ -419,9 +446,7 @@ func (h *HnswBuild) addVector(key int64, vec []float32) error {
 	}
 
 	if save_idx != nil {
-		// save the current index to file
-		err = save_idx.SaveToFile()
-		if err != nil {
+		if err = h.insertIntoIndexTable(proc, save_idx); err != nil {
 			return err
 		}
 	}
@@ -432,7 +457,7 @@ func (h *HnswBuild) addVector(key int64, vec []float32) error {
 // generate SQL to update the secondary index tables
 // 1. sync the metadata table
 // 2. sync the index file to index table
-func (h *HnswBuild) ToInsertSql(ts int64) ([]string, error) {
+func (h *HnswBuild) ToInsertMetaSql(proc *process.Process, ts int64) ([]string, error) {
 
 	h.CloseAndWait()
 
@@ -440,17 +465,21 @@ func (h *HnswBuild) ToInsertSql(ts int64) ([]string, error) {
 		return []string{}, nil
 	}
 
+	if !h.indexes[len(h.indexes)-1].Saved {
+		if err := h.insertIntoIndexTable(proc, h.indexes[len(h.indexes)-1]); err != nil {
+			return nil, err
+		}
+	}
+
 	sqls := make([]string, 0, len(h.indexes)+1)
+	if pendingSqls, err := h.waitInsertWorker(); err != nil {
+		return nil, err
+	} else {
+		sqls = append(sqls, pendingSqls...)
+	}
 
 	metas := make([]string, 0, len(h.indexes))
 	for _, idx := range h.indexes {
-		indexsqls, err := idx.ToSql(h.tblcfg)
-		if err != nil {
-			return nil, err
-		}
-
-		sqls = append(sqls, indexsqls...)
-
 		//os.Stderr.WriteString(fmt.Sprintf("Sql: %s\n", sql))
 		chksum, err := vectorindex.CheckSum(idx.Path)
 		if err != nil {
@@ -474,4 +503,83 @@ func (h *HnswBuild) ToInsertSql(ts int64) ([]string, error) {
 
 func (h *HnswBuild) GetIndexes() []*HnswBuildIndex {
 	return h.indexes
+}
+
+func (h *HnswBuild) insertIntoIndexTable(
+	proc *process.Process,
+	idx *HnswBuildIndex,
+) error {
+
+	if idx == nil {
+		return nil
+	}
+
+	var (
+		err1 error
+	)
+
+	if err1 = h.getInsertWorkError(); err1 != nil {
+		return err1
+	}
+
+	h.insertWorker.wg.Add(1)
+
+	err1 = h.insertWorker.worker.Submit(func() {
+		var (
+			sqls []string
+			err2 error
+			res  executor.Result
+		)
+
+		defer func() {
+			if r := recover(); r != nil {
+				err2 = moerr.ConvertPanicError(proc.Ctx, r)
+				h.insertWorker.errs <- err2
+			}
+			h.insertWorker.wg.Done()
+		}()
+
+		if sqls, err2 = idx.ToSql(h.tblcfg); err2 != nil {
+			h.insertWorker.errs <- err2
+			return
+		}
+
+		if h.insertWorker.pendingSql {
+			h.insertWorker.sqls = append(h.insertWorker.sqls, sqls...)
+			return
+		}
+
+		for _, sql := range sqls {
+			if res, err2 = sqlexec.RunSql(proc, sql); err2 != nil {
+				h.insertWorker.errs <- err2
+				res.Close()
+				return
+			}
+			res.Close()
+		}
+	})
+
+	if err1 != nil {
+		h.insertWorker.wg.Done()
+	}
+
+	return err1
+}
+
+func (h *HnswBuild) getInsertWorkError() error {
+	select {
+	case err := <-h.insertWorker.errs:
+		return err
+	default:
+		return nil
+	}
+}
+
+func (h *HnswBuild) waitInsertWorker() ([]string, error) {
+	h.insertWorker.wg.Wait()
+
+	err := h.getInsertWorkError()
+	sqls := h.insertWorker.sqls
+
+	return sqls, err
 }

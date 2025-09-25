@@ -52,7 +52,7 @@ func (u *hnswCreateState) end(tf *TableFunction, proc *process.Process) error {
 		return nil
 	}
 
-	sqls, err := u.build.ToInsertSql(time.Now().UnixMicro())
+	sqls, err := u.build.ToInsertMetaSql(proc, time.Now().UnixMicro())
 	if err != nil {
 		return err
 	}
@@ -225,7 +225,7 @@ func (u *hnswCreateState) start(tf *TableFunction, proc *process.Process, nthRow
 		return moerr.NewInternalError(proc.Ctx, "vector dimension mismatch")
 	}
 
-	err = u.build.Add(id, f32a)
+	err = u.build.Add(proc, id, f32a)
 	if err != nil {
 		return err
 	}
