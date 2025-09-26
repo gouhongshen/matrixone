@@ -150,7 +150,7 @@ func (txn *Transaction) WriteBatch(
 		bat.InsertVector(0, objectio.PhysicalAddr_Attr, genRowidVec)
 
 		if !catalog.IsSystemTable(tableId) {
-			txn.approximateInMemInsertSize += uint64(bat.Size())
+			txn.newWrittenInmemoryDataSize += int64(bat.Size())
 			txn.approximateInMemInsertCnt += bat.RowCount()
 		}
 	}
@@ -478,62 +478,30 @@ func (txn *Transaction) checkDup() error {
 // start from write offset.   Pass in offset -1 to dump all.   Note that dump all will
 // modify txn.writes, so it can only be called right before txn.commit.
 func (txn *Transaction) dumpBatchLocked(ctx context.Context, offset int) error {
-	var size uint64
-	var pkCount int
-
-	//offset < 0 indicates commit.
-	if offset < 0 {
-		if txn.approximateInMemInsertSize < txn.commitWorkspaceThreshold &&
-			txn.approximateInMemInsertCnt < txn.engine.config.insertEntryMaxCount &&
-			txn.approximateInMemDeleteCnt < txn.engine.config.insertEntryMaxCount {
-			return nil
-		}
-	} else {
-		if txn.approximateInMemInsertSize < txn.writeWorkspaceThreshold {
-			return nil
-		}
-	}
+	var (
+		size    uint64
+		pkCount int
+	)
 
 	dumpAll := offset < 0
 	if dumpAll {
 		offset = 0
 	}
 
-	if !dumpAll {
-		for i := offset; i < len(txn.writes); i++ {
-			if txn.writes[i].isCatalog() {
-				continue
-			}
-			if txn.writes[i].bat == nil || txn.writes[i].bat.RowCount() == 0 {
-				continue
-			}
-			if txn.writes[i].typ == INSERT && txn.writes[i].fileName == "" {
-				size += uint64(txn.writes[i].bat.Size())
-			}
-		}
-		if size < txn.writeWorkspaceThreshold {
-			return nil
-		}
+	defer func() {
+		txn.newWrittenInmemoryDataSize = 0
+	}()
 
-		if size < txn.engine.config.extraWorkspaceThreshold {
-			// try to increase the write threshold from quota, if failed, then dump all
-			// acquire 5M more than we need
-			quota := size - txn.writeWorkspaceThreshold + txn.engine.config.writeWorkspaceThreshold
-			remaining, acquired := txn.engine.AcquireQuota(int64(quota))
-			if acquired {
-				logutil.Info(
-					"WORKSPACE-QUOTA-ACQUIRE",
-					zap.Uint64("quota", quota),
-					zap.Uint64("remaining", uint64(remaining)),
-					zap.String("txn", txn.op.Txn().DebugString()),
-				)
-				txn.writeWorkspaceThreshold += quota
-				txn.extraWriteWorkspaceThreshold += quota
-				return nil
-			}
-		}
-		size = 0
+	if txn.newWrittenInmemoryDataSize < 0 {
+		txn.newWrittenInmemoryDataSize = 0
 	}
+
+	if _, ok := txn.engine.AcquireQuota(txn.newWrittenInmemoryDataSize); ok {
+		// acquire success, keep in-memory
+		txn.newWrittenInmemoryDataSize = 0
+		return nil
+	}
+
 	txn.hasS3Op.Store(true)
 
 	var (
@@ -548,18 +516,8 @@ func (txn *Transaction) dumpBatchLocked(ctx context.Context, offset int) error {
 	if err := txn.dumpInsertBatchLocked(ctx, fs, offset, &size, &pkCount); err != nil {
 		return err
 	}
-	// release the extra quota
-	if txn.extraWriteWorkspaceThreshold > 0 {
-		remaining := txn.engine.ReleaseQuota(int64(txn.extraWriteWorkspaceThreshold))
-		logutil.Info(
-			"WORKSPACE-QUOTA-RELEASE",
-			zap.Uint64("quota", txn.extraWriteWorkspaceThreshold),
-			zap.Uint64("remaining", remaining),
-			zap.String("txn", txn.op.Txn().DebugString()),
-		)
-		txn.extraWriteWorkspaceThreshold = 0
-		txn.writeWorkspaceThreshold = txn.engine.config.writeWorkspaceThreshold
-	}
+
+	txn.engine.ReleaseQuota(int64(size))
 
 	if dumpAll {
 		if txn.approximateInMemDeleteCnt >= txn.engine.config.insertEntryMaxCount {
@@ -572,8 +530,8 @@ func (txn *Transaction) dumpBatchLocked(ctx context.Context, offset int) error {
 				return err
 			}
 		}
+
 		txn.approximateInMemDeleteCnt = 0
-		txn.approximateInMemInsertSize = 0
 		txn.pkCount -= pkCount
 		// modifies txn.writes.
 		writes := txn.writes[:0]
@@ -584,7 +542,6 @@ func (txn *Transaction) dumpBatchLocked(ctx context.Context, offset int) error {
 		}
 		txn.writes = writes
 	} else {
-		txn.approximateInMemInsertSize -= size
 		txn.pkCount -= pkCount
 	}
 
@@ -621,17 +578,19 @@ func (txn *Transaction) dumpInsertBatchLocked(
 	for k := range tbSize {
 		keys = append(keys, k)
 	}
-	sort.Slice(keys, func(i, j int) bool {
-		return tbSize[keys[i]] < tbSize[keys[j]]
-	})
+
+	sort.Slice(keys, func(i, j int) bool { return tbSize[keys[i]] < tbSize[keys[j]] })
+
 	sum := 0
 	for _, k := range keys {
 		if tbCount[k] >= txn.engine.config.insertEntryMaxCount {
 			continue
 		}
+
 		if uint64(sum+tbSize[k]) >= txn.commitWorkspaceThreshold {
 			break
 		}
+
 		sum += tbSize[k]
 		skipTable[k] = true
 	}
@@ -665,7 +624,6 @@ func (txn *Transaction) dumpInsertBatchLocked(
 				name:       txn.writes[i].tableName,
 			}
 			bat := txn.writes[i].bat
-			*size += uint64(bat.Size())
 			*pkCount += bat.RowCount()
 			// skip rowid
 			newBatch := batch.NewWithSize(len(bat.Vecs) - 1)
@@ -712,6 +670,7 @@ func (txn *Transaction) dumpInsertBatchLocked(
 		)
 
 		for _, bat = range mp[tbKey] {
+			*size += uint64(bat.Size())
 			if err = s3Writer.Write(txn.proc.Ctx, bat); err != nil {
 				return err
 			}
@@ -1213,7 +1172,11 @@ func (txn *Transaction) mergeTxnWorkspaceLocked(ctx context.Context) error {
 				sort.Slice(sels, func(i, j int) bool {
 					return sels[i] < (sels[j])
 				})
+
+				txn.newWrittenInmemoryDataSize -= int64(e.bat.Size())
 				shrinkBatchWithRowids(e.bat, sels)
+				txn.newWrittenInmemoryDataSize += int64(e.bat.Size())
+
 				delete(txn.batchSelectList, e.bat)
 			}
 		}
@@ -1225,6 +1188,8 @@ func (txn *Transaction) mergeTxnWorkspaceLocked(ctx context.Context) error {
 				// if the entry contains objects, need to clean it from the disk.
 				if len(e.fileName) != 0 {
 					_ = txn.GCObjsByIdxRange(i, i)
+				} else {
+					txn.newWrittenInmemoryDataSize -= int64(e.bat.Size())
 				}
 				e.bat.Clean(txn.proc.GetMPool())
 				txn.writes[i].bat = nil

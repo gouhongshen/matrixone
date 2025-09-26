@@ -219,7 +219,7 @@ func TestBuildSingleThread(t *testing.T) {
 	defer build.Destroy()
 
 	build.insertWorker.pendingSql = true
-	
+
 	// fix the seek
 	r := rand.New(rand.NewSource(99))
 

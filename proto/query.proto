@@ -646,13 +646,13 @@ message CtlMoTableStatsResponse {
 }
 
 message WorkspaceThresholdRequest {
-  uint64 CommitThreshold = 1;
-  uint64 WriteThreshold = 2;
+  double SingleEntrySizeThreshold = 1;
+  double AccumulatedSizeThreshold = 2;
 }
 
 message WorkspaceThresholdResponse {
-  uint64 CommitThreshold = 1;
-  uint64 WriteThreshold = 2;
+  double SingleEntrySizeThreshold = 1;
+  double AccumulatedSizeThreshold = 2;
 }
 
 message MinTimestampResponse {

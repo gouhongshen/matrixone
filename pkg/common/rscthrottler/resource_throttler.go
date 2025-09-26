@@ -63,6 +63,7 @@ type memThrottler struct {
 	options struct {
 		acquirePolicy func(*memThrottler, int64) (int64, bool)
 
+		config     any
 		constLimit int64
 
 		// if false, the acquiring fails if
@@ -299,6 +300,14 @@ func WithAcquirePolicy(
 	}
 }
 
+func WithConfig(
+	config any,
+) MemThrottlerOption {
+	return func(throttler *memThrottler) {
+		throttler.options.config = config
+	}
+}
+
 func defaultAcquirePolicy(m *memThrottler, ask int64) (int64, bool) {
 	for {
 		avail := m.Available()
@@ -336,6 +345,34 @@ func AcquirePolicyForCNFlushS3(
 			return 0, false
 		}
 		return defaultAcquirePolicy(throttler, ask)
+	}
+
+	return defaultAcquirePolicy(throttler, ask)
+}
+
+func AcquirePolicyForWorkspace(
+	throttler *memThrottler,
+	ask int64,
+) (int64, bool) {
+
+	if throttler.options.config == nil {
+		return defaultAcquirePolicy(throttler, ask)
+	}
+
+	config := throttler.options.config.(WorkspaceRSCConfig)
+
+	// unlimit if equals 0
+	if config.MaxSingleAcquire > 0 {
+		if ask >= config.MaxSingleAcquire {
+			return 0, false
+		}
+	}
+
+	// unlimit if equals 0
+	if config.MaxAccumulatedSize > 0 {
+		if ask+throttler.reserved.Load() >= config.MaxAccumulatedSize {
+			return 0, false
+		}
 	}
 
 	return defaultAcquirePolicy(throttler, ask)

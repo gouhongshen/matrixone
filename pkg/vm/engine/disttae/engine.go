@@ -149,11 +149,15 @@ func New(
 				"Workspace",
 				5.0/100.0,
 				rscthrottler.WithConstLimit(int64(e.config.quota.Load())),
+				rscthrottler.WithConfig(e.config.rscConfig),
+				rscthrottler.WithAcquirePolicy(rscthrottler.AcquirePolicyForWorkspace),
 			)
 		} else {
 			e.config.memThrottler = rscthrottler.NewMemThrottler(
 				"Workspace",
 				5.0/100.0,
+				rscthrottler.WithConfig(e.config.rscConfig),
+				rscthrottler.WithAcquirePolicy(rscthrottler.AcquirePolicyForWorkspace),
 			)
 		}
 
@@ -165,8 +169,8 @@ func New(
 	logutil.Info(
 		"INIT-ENGINE-CONFIG",
 		zap.Int("InsertEntryMaxCount", e.config.insertEntryMaxCount),
-		zap.Uint64("CommitWorkspaceThreshold", e.config.commitWorkspaceThreshold),
-		zap.Uint64("WriteWorkspaceThreshold", e.config.writeWorkspaceThreshold),
+		zap.Int64("MaxSingleEntrySizeThreshold", e.config.rscConfig.MaxSingleAcquire),
+		zap.Int64("MaxAccumulatedSizeThreshold", e.config.rscConfig.MaxAccumulatedSize),
 		zap.Int64("ExtraWorkspaceThresholdQuota", e.config.memThrottler.Available()),
 		zap.Duration("CNTransferTxnLifespanThreshold", e.config.cnTransferTxnLifespanThreshold),
 	)
@@ -189,15 +193,15 @@ func (e *Engine) fillDefaults() {
 	if e.config.insertEntryMaxCount <= 0 {
 		e.config.insertEntryMaxCount = InsertEntryThreshold
 	}
-	if e.config.commitWorkspaceThreshold <= 0 {
-		e.config.commitWorkspaceThreshold = CommitWorkspaceThreshold
+
+	if e.config.rscConfig.MaxSingleAcquire <= 0 {
+		e.config.rscConfig.MaxSingleAcquire = WorkspaceSingleEntrySizeThreshold
 	}
-	if e.config.writeWorkspaceThreshold <= 0 {
-		e.config.writeWorkspaceThreshold = WriteWorkspaceThreshold
+
+	if e.config.rscConfig.MaxAccumulatedSize <= 0 {
+		e.config.rscConfig.MaxAccumulatedSize = WorkspaceAccumulatedEntrySizeThreshold
 	}
-	if e.config.extraWorkspaceThreshold <= 0 {
-		e.config.extraWorkspaceThreshold = ExtraWorkspaceThreshold
-	}
+
 	if e.config.cnTransferTxnLifespanThreshold <= 0 {
 		e.config.cnTransferTxnLifespanThreshold = CNTransferTxnLifespanThreshold
 	}
@@ -206,15 +210,23 @@ func (e *Engine) fillDefaults() {
 // SetWorkspaceThreshold updates the commit and write workspace thresholds (in MB).
 // Non-zero values override the current thresholds, while zero keeps them unchanged.
 // Returns the previous thresholds (in MB).
-func (e *Engine) SetWorkspaceThreshold(commitThreshold, writeThreshold uint64) (commit, write uint64) {
-	commit = e.config.commitWorkspaceThreshold / mpool.MB
-	write = e.config.writeWorkspaceThreshold / mpool.MB
-	if commitThreshold != 0 {
-		e.config.commitWorkspaceThreshold = commitThreshold * mpool.MB
+func (e *Engine) SetWorkspaceThreshold(
+	newSing, newAccumulated float64,
+) (oldSingle, oldAccumulated float64) {
+
+	oldSingle = float64(e.config.rscConfig.MaxSingleAcquire) / mpool.MB
+	oldAccumulated = float64(e.config.rscConfig.MaxAccumulatedSize) / mpool.MB
+
+	// keeping the old if less than 0
+	if newSing >= 0 {
+		e.config.rscConfig.MaxSingleAcquire = int64(newSing) * mpool.MB
 	}
-	if writeThreshold != 0 {
-		e.config.writeWorkspaceThreshold = writeThreshold * mpool.MB
+
+	// keeping the old if less than 0
+	if newAccumulated >= 0 {
+		e.config.rscConfig.MaxAccumulatedSize = int64(newAccumulated) * mpool.MB
 	}
+
 	return
 }
 

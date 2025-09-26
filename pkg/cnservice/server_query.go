@@ -643,21 +643,30 @@ func (s *service) handleWorkspaceThresholdRequest(
 	ctx context.Context, req *query.Request, resp *query.Response, _ *morpc.Buffer,
 ) error {
 
-	logutil.Info(
-		"WORKSPACE-THRESHOLD-CHANGED",
-		zap.Uint64("commit-threshold", req.WorkspaceThresholdRequest.CommitThreshold),
-		zap.Uint64("write-threshold", req.WorkspaceThresholdRequest.WriteThreshold),
+	var (
+		oldSingle      float64
+		oldAccumulated float64
+
+		newSingle      = req.WorkspaceThresholdRequest.SingleEntrySizeThreshold
+		newAccumulated = req.WorkspaceThresholdRequest.AccumulatedSizeThreshold
 	)
+
+	defer func() {
+		logutil.Info(
+			"WORKSPACE-THRESHOLD-CTL",
+			zap.Float64("new single-entry-size-threshold (mb)", newSingle),
+			zap.Float64("new accumulated-size-threshold (mb)", newAccumulated),
+			zap.Float64("old single-entry-size-threshold (mb)", oldSingle),
+			zap.Float64("old accumulated-size-threshold (mb)", oldAccumulated),
+		)
+	}()
 
 	e := s.storeEngine.(*disttae.Engine)
-	commit, write := e.SetWorkspaceThreshold(
-		req.WorkspaceThresholdRequest.CommitThreshold,
-		req.WorkspaceThresholdRequest.WriteThreshold,
-	)
+	oldSingle, oldAccumulated = e.SetWorkspaceThreshold(newSingle, newAccumulated)
 
 	resp.WorkspaceThresholdResponse = &query.WorkspaceThresholdResponse{
-		CommitThreshold: commit,
-		WriteThreshold:  write,
+		SingleEntrySizeThreshold: oldSingle,
+		AccumulatedSizeThreshold: oldAccumulated,
 	}
 
 	return nil

@@ -1546,10 +1546,12 @@ func (tbl *txnTable) Write(ctx context.Context, bat *batch.Batch) error {
 			bat,
 			tbl.getTxn().tnStores[0])
 	}
+
 	ibat, err := util.CopyBatch(bat, tbl.getTxn().proc)
 	if err != nil {
 		return err
 	}
+
 	if _, err := tbl.getTxn().WriteBatch(
 		INSERT,
 		"",
@@ -1564,6 +1566,7 @@ func (tbl *txnTable) Write(ctx context.Context, bat *batch.Batch) error {
 		ibat.Clean(tbl.getTxn().proc.Mp())
 		return err
 	}
+
 	return tbl.getTxn().dumpBatch(ctx, tbl.getTxn().GetSnapshotWriteOffset())
 }
 

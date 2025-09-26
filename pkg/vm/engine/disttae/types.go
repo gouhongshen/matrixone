@@ -136,13 +136,13 @@ const (
 )
 
 const (
-	CommitWorkspaceThreshold       uint64 = 1 * mpool.MB
-	WriteWorkspaceThreshold        uint64 = 5 * mpool.MB
-	ExtraWorkspaceThreshold        uint64 = 500 * mpool.MB
-	InsertEntryThreshold                  = 5000
-	GCBatchOfFileCount             int    = 1000
-	GCPoolSize                     int    = 5
-	CNTransferTxnLifespanThreshold        = time.Second * 5
+	WorkspaceSingleEntrySizeThreshold      int64 = mpool.MB * 64
+	WorkspaceAccumulatedEntrySizeThreshold int64 = mpool.GB
+
+	InsertEntryThreshold               = 5000
+	GCBatchOfFileCount             int = 1000
+	GCPoolSize                     int = 5
+	CNTransferTxnLifespanThreshold     = time.Second * 5
 )
 
 var (
@@ -225,13 +225,10 @@ type Engine struct {
 	tnID     string
 
 	config struct {
-		insertEntryMaxCount      int
-		commitWorkspaceThreshold uint64
-		writeWorkspaceThreshold  uint64
-		extraWorkspaceThreshold  uint64
-		quota                    atomic.Uint64
-
-		memThrottler rscthrottler.RSCThrottler
+		insertEntryMaxCount int
+		quota               atomic.Uint64
+		rscConfig           rscthrottler.WorkspaceRSCConfig
+		memThrottler        rscthrottler.RSCThrottler
 
 		cnTransferTxnLifespanThreshold time.Duration
 
@@ -311,8 +308,8 @@ type Transaction struct {
 	writes []Entry
 	// txn workspace size, includes in memory entries and persisted entries.
 	workspaceSize uint64
-	// the approximation of total size for insert entries
-	approximateInMemInsertSize uint64
+	// inmemory data size
+	newWrittenInmemoryDataSize int64
 	// the approximation of total row count for insert entries
 	approximateInMemInsertCnt int
 	// the approximation of total row count for delete entries
@@ -384,10 +381,6 @@ type Transaction struct {
 
 	haveDDL    atomic.Bool
 	isCloneTxn bool
-
-	writeWorkspaceThreshold      uint64
-	commitWorkspaceThreshold     uint64
-	extraWriteWorkspaceThreshold uint64 // acquired from engine quota
 }
 
 func (txn *Transaction) SetCloneTxn(snapshot int64) {
@@ -471,9 +464,6 @@ func NewTxnWorkSpace(eng *Engine, proc *process.Process) *Transaction {
 		batchSelectList:      make(map[*batch.Batch][]int64),
 		syncCommittedTSCount: eng.cli.GetSyncLatestCommitTSTimes(),
 		cn_flushed_s3_tombstone_object_stats_list: new(sync.Map),
-
-		commitWorkspaceThreshold: eng.config.commitWorkspaceThreshold,
-		writeWorkspaceThreshold:  eng.config.writeWorkspaceThreshold,
 	}
 
 	txn.readOnly.Store(true)
