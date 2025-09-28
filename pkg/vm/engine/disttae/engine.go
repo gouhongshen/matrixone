@@ -168,10 +168,11 @@ func New(
 
 	logutil.Info(
 		"INIT-ENGINE-CONFIG",
-		zap.Int("InsertEntryMaxCount", e.config.insertEntryMaxCount),
-		zap.Int64("MaxSingleEntrySizeThreshold", e.config.rscConfig.MaxSingleAcquire),
-		zap.Int64("MaxAccumulatedSizeThreshold", e.config.rscConfig.MaxAccumulatedSize),
-		zap.Int64("ExtraWorkspaceThresholdQuota", e.config.memThrottler.Available()),
+		zap.String("MaxAccumulatedRows", common.HumanReadableBytes(int(e.config.rscConfig.MaxAccumulatedRows))),
+		zap.String("TinyTableThreshold", common.HumanReadableBytes(int(e.config.rscConfig.TinyTableThreshold))),
+		zap.String("MaxSingleEntrySizeThreshold", common.HumanReadableBytes(int(e.config.rscConfig.MaxSingleAcquire))),
+		zap.String("MaxAccumulatedSizeThreshold", common.HumanReadableBytes(int(e.config.rscConfig.MaxAccumulatedSize))),
+		zap.String("ExtraWorkspaceThresholdQuota", common.HumanReadableBytes(int(e.config.memThrottler.Available()))),
 		zap.Duration("CNTransferTxnLifespanThreshold", e.config.cnTransferTxnLifespanThreshold),
 	)
 
@@ -190,16 +191,20 @@ func (e *Engine) Close() error {
 }
 
 func (e *Engine) fillDefaults() {
-	if e.config.insertEntryMaxCount <= 0 {
-		e.config.insertEntryMaxCount = InsertEntryThreshold
+	if e.config.rscConfig.TinyTableThreshold <= 0 {
+		e.config.rscConfig.TinyTableThreshold = WorkspaceTinyTableSizeThreshold
+	}
+
+	if e.config.rscConfig.MaxAccumulatedRows <= 0 {
+		e.config.rscConfig.MaxAccumulatedRows = WorkspaceAccumulatedRowsThreshold
 	}
 
 	if e.config.rscConfig.MaxSingleAcquire <= 0 {
-		e.config.rscConfig.MaxSingleAcquire = WorkspaceSingleEntrySizeThreshold
+		e.config.rscConfig.MaxSingleAcquire = WorkspaceSingleSizeThreshold
 	}
 
 	if e.config.rscConfig.MaxAccumulatedSize <= 0 {
-		e.config.rscConfig.MaxAccumulatedSize = WorkspaceAccumulatedEntrySizeThreshold
+		e.config.rscConfig.MaxAccumulatedSize = WorkspaceAccumulatedSizeThreshold
 	}
 
 	if e.config.cnTransferTxnLifespanThreshold <= 0 {

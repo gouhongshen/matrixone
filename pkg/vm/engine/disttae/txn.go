@@ -45,6 +45,7 @@ import (
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/disttae/cache"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/readutil"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/common"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/options"
 	"github.com/panjf2000/ants/v2"
@@ -150,13 +151,14 @@ func (txn *Transaction) WriteBatch(
 		bat.InsertVector(0, objectio.PhysicalAddr_Attr, genRowidVec)
 
 		if !catalog.IsSystemTable(tableId) {
-			txn.newWrittenInmemoryDataSize += int64(bat.Size())
-			txn.approximateInMemInsertCnt += bat.RowCount()
+			txn.stats.newlyInMemDataSize += int64(bat.Size())
+			txn.stats.newlyInMemDataRows += int64(bat.RowCount())
 		}
 	}
 
 	if typ == DELETE && !catalog.IsSystemTable(tableId) {
-		txn.approximateInMemDeleteCnt += bat.RowCount()
+		txn.stats.totalInMemTombstoneSize += int64(bat.Size())
+		txn.stats.totalInMemTombstoneRows += int64(bat.RowCount())
 	}
 
 	if injected, logLevel := objectio.LogWorkspaceInjected(
@@ -221,8 +223,7 @@ func (txn *Transaction) WriteBatch(
 		note:         note,
 	}
 	txn.writes = append(txn.writes, e)
-	txn.pkCount += bat.RowCount()
-	txn.workspaceSize += uint64(bat.Size())
+	txn.stats.totalSize += int64(bat.Size())
 
 	trace.GetService(txn.proc.GetService()).TxnWrite(txn.op, tableId, typesNames[typ], bat)
 	return
@@ -479,176 +480,146 @@ func (txn *Transaction) checkDup() error {
 // modify txn.writes, so it can only be called right before txn.commit.
 func (txn *Transaction) dumpBatchLocked(ctx context.Context, offset int) error {
 	var (
-		size    uint64
-		pkCount int
+		dumpAll bool
+		// if decide to flush, will flush at least atLeastFlush size
+		atLeastFlush     int64
+		atLeastFlushRate = 0.75
 	)
 
-	dumpAll := offset < 0
-	if dumpAll {
+	if offset < 0 {
 		offset = 0
+		dumpAll = true
 	}
 
 	defer func() {
-		txn.newWrittenInmemoryDataSize = 0
+		txn.stats.newlyInMemDataSize = 0
+		txn.stats.newlyInMemDataRows = 0
+		if txn.stats.acquiredSize < 0 {
+			txn.stats.acquiredSize = 0
+		}
 	}()
 
-	if txn.newWrittenInmemoryDataSize < 0 {
-		txn.newWrittenInmemoryDataSize = 0
-	}
+	// if too big ==> flush
+	//      (not) ==> if too many rows ==> flush
+	//                           (not) ==> keep in memory
+	if dumpAll {
+		// if dump all, we should check inserts and deletes both.
+		// because this is one-time check, so no need to acquire space.
+		pendingSize := txn.stats.newlyInMemDataSize + txn.stats.totalInMemTombstoneSize
+		pendingRows := txn.stats.newlyInMemDataRows + txn.stats.totalInMemTombstoneRows
 
-	if _, ok := txn.engine.AcquireQuota(txn.newWrittenInmemoryDataSize); ok {
-		// acquire success, keep in-memory
-		txn.newWrittenInmemoryDataSize = 0
-		return nil
-	}
+		if pendingSize < txn.engine.config.rscConfig.MaxSingleAcquire {
+			if pendingRows < txn.engine.config.rscConfig.MaxSingleAcquire {
+				return nil
+			}
+		}
+		atLeastFlush = int64(float64(pendingSize) * atLeastFlushRate)
+	} else {
+		// if not dump all, we only check the inserts.
+		// why not check the deletes here?
+		// if so, we must merge the workspace first.
+		if _, ok := txn.engine.AcquireQuota(txn.stats.newlyInMemDataSize); ok {
+			txn.stats.acquiredSize += txn.stats.newlyInMemDataRows
+			// acquire success, keep in-memory
+			if txn.stats.newlyInMemDataRows < txn.engine.config.rscConfig.MaxAccumulatedRows {
+				return nil
+			}
+		}
 
-	txn.hasS3Op.Store(true)
+		atLeastFlush = int64(float64(txn.stats.newlyInMemDataSize) * atLeastFlushRate)
+	}
 
 	var (
 		err error
 		fs  fileservice.FileService
+
+		flushedSize int64
 	)
+
+	txn.hasS3Op.Store(true)
 
 	if fs, err = colexec.GetSharedFSFromProc(txn.proc); err != nil {
 		return err
 	}
 
-	if err := txn.dumpInsertBatchLocked(ctx, fs, offset, &size, &pkCount); err != nil {
+	if flushedSize, _, err = txn.doDumpBatchLocked(
+		ctx, fs, offset, atLeastFlush, INSERT,
+	); err != nil {
 		return err
 	}
 
-	txn.engine.ReleaseQuota(int64(size))
+	txn.engine.ReleaseQuota(flushedSize)
+	txn.stats.acquiredSize -= flushedSize
 
-	if dumpAll {
-		if txn.approximateInMemDeleteCnt >= txn.engine.config.insertEntryMaxCount {
-			if err := txn.dumpDeleteBatchLocked(ctx, fs, offset, &size); err != nil {
-				return err
-			}
-			//After flushing inserts/deletes in memory into S3, the entries in txn.writes will be unordered,
-			//should adjust the order to make sure deletes are in front of the inserts.
-			if err := txn.adjustUpdateOrderLocked(0); err != nil {
-				return err
-			}
+	if dumpAll && flushedSize < int64(float64(atLeastFlush)*atLeastFlushRate) {
+		atLeastFlush -= flushedSize
+		if _, _, err = txn.doDumpBatchLocked(ctx, fs, offset, atLeastFlush, DELETE); err != nil {
+			return err
 		}
-
-		txn.approximateInMemDeleteCnt = 0
-		txn.pkCount -= pkCount
-		// modifies txn.writes.
-		writes := txn.writes[:0]
-		for i, write := range txn.writes {
-			if write.bat != nil {
-				writes = append(writes, txn.writes[i])
-			}
+		//After flushing inserts/deletes in memory into S3, the entries in txn.writes will be unordered,
+		//should adjust the order to make sure deletes are in front of the inserts.
+		if err := txn.adjustUpdateOrderLocked(0); err != nil {
+			return err
 		}
-		txn.writes = writes
-	} else {
-		txn.pkCount -= pkCount
 	}
 
-	txn.workspaceSize -= size
+	txn.writes = readutil.RemoveIf(txn.writes, func(t Entry) bool {
+		return t.bat == nil
+	})
+
 	return nil
 }
 
-func (txn *Transaction) dumpInsertBatchLocked(
+// do not call this directly, call dumpBatchLocked instead.
+func (txn *Transaction) doDumpBatchLocked(
 	ctx context.Context,
 	fs fileservice.FileService,
 	offset int,
-	size *uint64,
-	pkCount *int,
-) error {
-
-	tbSize := make(map[uint64]int)
-	tbCount := make(map[uint64]int)
-	skipTable := make(map[uint64]bool)
-
-	for i := offset; i < len(txn.writes); i++ {
-		if txn.writes[i].isCatalog() {
-			continue
-		}
-		if txn.writes[i].bat == nil || txn.writes[i].bat.RowCount() == 0 {
-			continue
-		}
-		if txn.writes[i].typ == INSERT && txn.writes[i].fileName == "" {
-			tbSize[txn.writes[i].tableId] += txn.writes[i].bat.Size()
-			tbCount[txn.writes[i].tableId] += txn.writes[i].bat.RowCount()
-		}
-	}
-
-	keys := make([]uint64, 0, len(tbSize))
-	for k := range tbSize {
-		keys = append(keys, k)
-	}
-
-	sort.Slice(keys, func(i, j int) bool { return tbSize[keys[i]] < tbSize[keys[j]] })
-
-	sum := 0
-	for _, k := range keys {
-		if tbCount[k] >= txn.engine.config.insertEntryMaxCount {
-			continue
-		}
-
-		if uint64(sum+tbSize[k]) >= txn.commitWorkspaceThreshold {
-			break
-		}
-
-		sum += tbSize[k]
-		skipTable[k] = true
-	}
-
-	lastWriteIndex := offset
-	writes := txn.writes
-	mp := make(map[tableKey][]*batch.Batch)
-	for i := offset; i < len(txn.writes); i++ {
-		if skipTable[txn.writes[i].tableId] {
-			writes[lastWriteIndex] = writes[i]
-			lastWriteIndex++
-			continue
-		}
-		if txn.writes[i].isCatalog() {
-			writes[lastWriteIndex] = writes[i]
-			lastWriteIndex++
-			continue
-		}
-		if txn.writes[i].bat == nil || txn.writes[i].bat.RowCount() == 0 {
-			writes[lastWriteIndex] = writes[i]
-			lastWriteIndex++
-			continue
-		}
-
-		keepElement := true
-		if txn.writes[i].typ == INSERT && txn.writes[i].fileName == "" {
-			tbKey := tableKey{
-				accountId:  txn.writes[i].accountId,
-				databaseId: txn.writes[i].databaseId,
-				dbName:     txn.writes[i].databaseName,
-				name:       txn.writes[i].tableName,
-			}
-			bat := txn.writes[i].bat
-			*pkCount += bat.RowCount()
-			// skip rowid
-			newBatch := batch.NewWithSize(len(bat.Vecs) - 1)
-			newBatch.SetAttributes(bat.Attrs[1:])
-			newBatch.Vecs = bat.Vecs[1:]
-			newBatch.SetRowCount(bat.Vecs[0].Length())
-			mp[tbKey] = append(mp[tbKey], newBatch)
-			defer bat.Clean(txn.proc.GetMPool())
-
-			keepElement = false
-		}
-
-		if keepElement {
-			writes[lastWriteIndex] = writes[i]
-			lastWriteIndex++
-		}
-	}
-
-	txn.writes = writes[:lastWriteIndex]
+	atLeastFlush int64,
+	dumpType int,
+) (flushedSize int64, flushedRows int, err error) {
 
 	var (
-		stats    []objectio.ObjectStats
+		tblIds    []uint64
+		tblOffset = make(map[uint64][]int)
+		tblSize   = make(map[uint64]int64)
+	)
+
+	for i := offset; i < len(txn.writes); i++ {
+		if txn.writes[i].isCatalog() || txn.writes[i].bat == nil {
+			continue
+		}
+
+		if txn.writes[i].typ == dumpType && len(txn.writes[i].fileName) == 0 {
+			tblSize[txn.writes[i].tableId] += int64(txn.writes[i].bat.Size())
+			tblOffset[txn.writes[i].tableId] = append(tblOffset[txn.writes[i].tableId], i)
+		}
+	}
+
+	tblIds = make([]uint64, 0, len(tblSize))
+	for id := range tblSize {
+		tblIds = append(tblIds, id)
+	}
+
+	sort.Slice(tblIds, func(i, j int) bool { return tblSize[tblIds[i]] > tblSize[tblIds[j]] })
+
+	// flush big table first, skip the tiny table
+	for _, id := range tblIds {
+		if atLeastFlush > 0 && tblSize[id] >= txn.engine.config.rscConfig.TinyTableThreshold {
+			atLeastFlush -= tblSize[id]
+			continue
+		}
+
+		delete(tblSize, id)
+		delete(tblOffset, id)
+	}
+
+	var (
+		rel   engine.Relation
+		bat   *batch.Batch
+		stats []objectio.ObjectStats
+
 		s3Writer *colexec.CNS3Writer
-		fileName string
-		bat      *batch.Batch
 	)
 
 	defer func() {
@@ -657,187 +628,75 @@ func (txn *Transaction) dumpInsertBatchLocked(
 		}
 	}()
 
-	for tbKey := range mp {
-		// scenario 2 for cn write s3, more info in the comment of S3Writer
-		tbl, err := txn.getTable(tbKey.accountId, tbKey.dbName, tbKey.name)
-		if err != nil {
-			return err
-		}
-
-		tableDef := tbl.GetTableDef(txn.proc.Ctx)
-		s3Writer = colexec.NewCNS3DataWriter(
-			txn.proc.GetMPool(), fs, tableDef, -1, false,
-		)
-
-		for _, bat = range mp[tbKey] {
-			*size += uint64(bat.Size())
-			if err = s3Writer.Write(txn.proc.Ctx, bat); err != nil {
-				return err
-			}
-		}
-
-		if stats, err = s3Writer.Sync(txn.proc.Ctx); err != nil {
-			return err
-		}
-
-		fileName = stats[0].ObjectLocation().String()
-		if bat, err = s3Writer.FillBlockInfoBat(); err != nil {
-			return err
-		}
-
-		var table *txnTable
-		if v, ok := tbl.(*txnTableDelegate); ok {
-			table = v.origin
-		} else {
-			table = tbl.(*txnTable)
-		}
-
-		if err = table.getTxn().WriteFileLocked(
-			INSERT,
-			table.accountId,
-			table.db.databaseId,
-			table.tableId,
-			table.db.databaseName,
-			table.tableName,
-			fileName,
-			bat,
-			table.getTxn().tnStores[0],
+	for _, indexes := range tblOffset {
+		if rel, err = txn.getTable(
+			txn.writes[indexes[0]].accountId,
+			txn.writes[indexes[0]].databaseName,
+			txn.writes[indexes[0]].tableName,
 		); err != nil {
-			return err
+			return
+		}
+
+		if dumpType == INSERT {
+			s3Writer = colexec.NewCNS3DataWriter(
+				txn.proc.GetMPool(), fs,
+				rel.GetTableDef(ctx),
+				-1, false,
+			)
+		} else {
+			pkCol := plan2.PkColByTableDef(rel.GetTableDef(ctx))
+			s3Writer = colexec.NewCNS3TombstoneWriter(
+				txn.proc.GetMPool(), fs, plan2.ExprType2Type(&pkCol.Typ), -1,
+			)
+		}
+
+		for _, idx := range indexes {
+			if dumpType == INSERT {
+				// skip row id column
+				rowIdVec := txn.writes[idx].bat.Vecs[0]
+				rowIdVec.Free(txn.proc.GetMPool())
+				txn.writes[idx].bat.Vecs = txn.writes[idx].bat.Vecs[1:]
+				txn.writes[idx].bat.Attrs = txn.writes[idx].bat.Attrs[1:]
+				txn.writes[idx].bat.SetRowCount(txn.writes[idx].bat.Vecs[0].Length())
+			}
+
+			flushedRows += txn.writes[idx].bat.RowCount()
+			flushedSize += int64(txn.writes[idx].bat.Size())
+			if err = s3Writer.Write(ctx, txn.writes[idx].bat); err != nil {
+				return
+			}
+
+			txn.writes[idx].bat.Clean(txn.proc.GetMPool())
+			txn.writes[idx].bat = nil
+		}
+
+		if stats, err = s3Writer.Sync(ctx); err != nil {
+			return
+		}
+
+		if bat, err = s3Writer.FillBlockInfoBat(); err != nil {
+			return
+		}
+
+		if err = txn.WriteFileLocked(
+			dumpType,
+			txn.writes[indexes[0]].accountId,
+			txn.writes[indexes[0]].databaseId,
+			txn.writes[indexes[0]].tableId,
+			txn.writes[indexes[0]].databaseName,
+			txn.writes[indexes[0]].tableName,
+			stats[0].ObjectLocation().String(),
+			bat,
+			txn.tnStores[0],
+		); err != nil {
+			return
 		}
 
 		s3Writer.Close()
-
 		s3Writer = nil
 	}
 
-	return nil
-}
-
-func (txn *Transaction) dumpDeleteBatchLocked(
-	ctx context.Context,
-	fs fileservice.FileService,
-	offset int,
-	size *uint64,
-) error {
-
-	deleteCnt := 0
-	lastWriteIndex := offset
-	writes := txn.writes
-	mp := make(map[tableKey][]*batch.Batch)
-	for i := offset; i < len(txn.writes); i++ {
-		if txn.writes[i].isCatalog() {
-			writes[lastWriteIndex] = writes[i]
-			lastWriteIndex++
-			continue
-		}
-		if txn.writes[i].bat == nil || txn.writes[i].bat.RowCount() == 0 {
-			writes[lastWriteIndex] = writes[i]
-			lastWriteIndex++
-			continue
-		}
-
-		keepElement := true
-		if txn.writes[i].typ == DELETE && txn.writes[i].fileName == "" {
-			tbKey := tableKey{
-				accountId:  txn.writes[i].accountId,
-				databaseId: txn.writes[i].databaseId,
-				dbName:     txn.writes[i].databaseName,
-				name:       txn.writes[i].tableName,
-			}
-			bat := txn.writes[i].bat
-			deleteCnt += bat.RowCount()
-			*size += uint64(bat.Size())
-
-			newBat := batch.NewWithSize(len(bat.Vecs))
-			newBat.SetAttributes(bat.Attrs)
-			newBat.Vecs = bat.Vecs
-			newBat.SetRowCount(bat.Vecs[0].Length())
-
-			mp[tbKey] = append(mp[tbKey], newBat)
-			defer bat.Clean(txn.proc.GetMPool())
-
-			keepElement = false
-		}
-
-		if keepElement {
-			writes[lastWriteIndex] = writes[i]
-			lastWriteIndex++
-		}
-	}
-
-	txn.writes = writes[:lastWriteIndex]
-
-	var (
-		pkCol    *plan.ColDef
-		s3Writer *colexec.CNS3Writer
-
-		stats    []objectio.ObjectStats
-		fileName string
-		bat      *batch.Batch
-	)
-
-	defer func() {
-		if s3Writer != nil {
-			s3Writer.Close()
-		}
-	}()
-
-	for tbKey := range mp {
-		// scenario 2 for cn write s3, more info in the comment of S3Writer
-		tbl, err := txn.getTable(tbKey.accountId, tbKey.dbName, tbKey.name)
-		if err != nil {
-			return err
-		}
-
-		pkCol = plan2.PkColByTableDef(tbl.GetTableDef(txn.proc.Ctx))
-		s3Writer = colexec.NewCNS3TombstoneWriter(
-			txn.proc.GetMPool(), fs, plan2.ExprType2Type(&pkCol.Typ), -1,
-		)
-
-		for i := 0; i < len(mp[tbKey]); i++ {
-			if err = s3Writer.Write(txn.proc.Ctx, mp[tbKey][i]); err != nil {
-				return err
-			}
-		}
-
-		if stats, err = s3Writer.Sync(txn.proc.Ctx); err != nil {
-			return err
-		}
-
-		fileName = stats[0].ObjectLocation().String()
-
-		if bat, err = s3Writer.FillBlockInfoBat(); err != nil {
-			return err
-		}
-
-		var table *txnTable
-		if v, ok := tbl.(*txnTableDelegate); ok {
-			table = v.origin
-		} else {
-			table = tbl.(*txnTable)
-		}
-
-		if err = table.getTxn().WriteFileLocked(
-			DELETE,
-			table.accountId,
-			table.db.databaseId,
-			table.tableId,
-			table.db.databaseName,
-			table.tableName,
-			fileName,
-			bat,
-			table.getTxn().tnStores[0],
-		); err != nil {
-			return err
-		}
-
-		if err = s3Writer.Close(); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return
 }
 
 func (txn *Transaction) getTable(
@@ -913,7 +772,7 @@ func (txn *Transaction) WriteFileLocked(
 	}
 
 	txn.readOnly.Store(false)
-	txn.workspaceSize += uint64(copied.Size())
+	txn.stats.totalSize += int64(copied.Size())
 
 	if typ == DELETE {
 		col, area := vector.MustVarlenaRawData(copied.Vecs[0])
@@ -1168,14 +1027,14 @@ func (txn *Transaction) mergeTxnWorkspaceLocked(ctx context.Context) error {
 	if len(txn.batchSelectList) > 0 {
 		for _, e := range txn.writes {
 			if sels, ok := txn.batchSelectList[e.bat]; ok {
-				txn.approximateInMemInsertCnt -= len(sels)
 				sort.Slice(sels, func(i, j int) bool {
 					return sels[i] < (sels[j])
 				})
 
-				txn.newWrittenInmemoryDataSize -= int64(e.bat.Size())
+				txn.stats.newlyInMemDataSize -= int64(e.bat.Size())
 				shrinkBatchWithRowids(e.bat, sels)
-				txn.newWrittenInmemoryDataSize += int64(e.bat.Size())
+				txn.stats.newlyInMemDataRows += int64(e.bat.Size())
+				txn.stats.newlyInMemDataRows -= int64(len(sels))
 
 				delete(txn.batchSelectList, e.bat)
 			}
@@ -1189,7 +1048,8 @@ func (txn *Transaction) mergeTxnWorkspaceLocked(ctx context.Context) error {
 				if len(e.fileName) != 0 {
 					_ = txn.GCObjsByIdxRange(i, i)
 				} else {
-					txn.newWrittenInmemoryDataSize -= int64(e.bat.Size())
+					txn.stats.newlyInMemDataSize -= int64(e.bat.Size())
+					txn.stats.newlyInMemDataRows -= int64(e.bat.RowCount())
 				}
 				e.bat.Clean(txn.proc.GetMPool())
 				txn.writes[i].bat = nil
@@ -1657,15 +1517,15 @@ func (txn *Transaction) Commit(ctx context.Context) ([]txn.TxnRequest, error) {
 
 	txn.traceWorkspaceLocked(true)
 
-	if txn.workspaceSize > 10*mpool.MB {
+	if txn.stats.totalSize > 10*mpool.MB {
 		logutil.Info(
 			"BIG-TXN",
-			zap.Uint64("workspace-size", txn.workspaceSize),
+			zap.String("workspace-size", common.HumanReadableBytes(int(txn.stats.totalSize))),
 			zap.String("txn", txn.op.Txn().DebugString()),
 		)
 	}
 
-	if txn.workspaceSize > 100*mpool.MB {
+	if txn.stats.totalSize > 100*mpool.MB {
 		size := 0
 		for _, e := range txn.writes {
 			if e.bat == nil || e.bat.RowCount() == 0 {
@@ -1675,8 +1535,8 @@ func (txn *Transaction) Commit(ctx context.Context) ([]txn.TxnRequest, error) {
 		}
 		logutil.Warn(
 			"BIG-TXN",
-			zap.Uint64("statistical-size", txn.workspaceSize),
-			zap.Int("actual-size", size),
+			zap.String("statistical-size", common.HumanReadableBytes(int(txn.stats.totalSize))),
+			zap.String("actual-size", common.HumanReadableBytes(size)),
 			zap.String("txn", txn.op.Txn().DebugString()),
 		)
 	}
@@ -1828,14 +1688,14 @@ func (txn *Transaction) delTransaction() {
 		txn.compactWorker.Release()
 	}
 
-	if txn.extraWriteWorkspaceThreshold > 0 {
-		remaining := txn.engine.ReleaseQuota(int64(txn.extraWriteWorkspaceThreshold))
+	if txn.stats.acquiredSize > 0 {
+		remaining := txn.engine.ReleaseQuota(int64(txn.stats.acquiredSize))
 		logutil.Info(
 			"WORKSPACE-QUOTA-RELEASE",
-			zap.Uint64("quota", txn.extraWriteWorkspaceThreshold),
+			zap.String("quota", common.HumanReadableBytes(int(txn.stats.acquiredSize))),
 			zap.Uint64("remaining", remaining),
 		)
-		txn.extraWriteWorkspaceThreshold = 0
+		txn.stats.acquiredSize = 0
 	}
 }
 
@@ -1886,9 +1746,6 @@ func (txn *Transaction) CloneSnapshotWS() client.Workspace {
 		cnObjsSummary:   map[types.Objectid]Summary{},
 		batchSelectList: make(map[*batch.Batch][]int64),
 		cn_flushed_s3_tombstone_object_stats_list: new(sync.Map),
-
-		commitWorkspaceThreshold: txn.commitWorkspaceThreshold,
-		writeWorkspaceThreshold:  txn.writeWorkspaceThreshold,
 	}
 
 	ws.readOnly.Store(true)

@@ -136,10 +136,11 @@ const (
 )
 
 const (
-	WorkspaceSingleEntrySizeThreshold      int64 = mpool.MB * 64
-	WorkspaceAccumulatedEntrySizeThreshold int64 = mpool.GB
+	WorkspaceSingleSizeThreshold      int64 = mpool.MB * 64
+	WorkspaceAccumulatedSizeThreshold int64 = mpool.MB * 512
+	WorkspaceAccumulatedRowsThreshold       = objectio.BlockMaxRows
+	WorkspaceTinyTableSizeThreshold   int64 = mpool.MB * 10
 
-	InsertEntryThreshold               = 5000
 	GCBatchOfFileCount             int = 1000
 	GCPoolSize                     int = 5
 	CNTransferTxnLifespanThreshold     = time.Second * 5
@@ -163,27 +164,33 @@ type IDGenerator interface {
 
 type EngineOptions func(*Engine)
 
-func WithCommitWorkspaceThreshold(th uint64) EngineOptions {
+func WithWorkspaceSingleSizeThreshold(threshold int64) EngineOptions {
 	return func(e *Engine) {
-		e.config.commitWorkspaceThreshold = th
+		e.config.rscConfig.MaxSingleAcquire = threshold
 	}
 }
 
-func WithWriteWorkspaceThreshold(th uint64) EngineOptions {
+func WithWorkspaceAccumulatedSizeThreshold(threshold int64) EngineOptions {
 	return func(e *Engine) {
-		e.config.writeWorkspaceThreshold = th
+		e.config.rscConfig.MaxAccumulatedSize = threshold
+	}
+}
+
+func WithWorkspaceAccumulatedRowsThreshold(threshold int64) EngineOptions {
+	return func(e *Engine) {
+		e.config.rscConfig.MaxAccumulatedRows = threshold
+	}
+}
+
+func WithWorkspaceTinyTableSizeThreshold(threshold int64) EngineOptions {
+	return func(e *Engine) {
+		e.config.rscConfig.TinyTableThreshold = threshold
 	}
 }
 
 func WithExtraWorkspaceThresholdQuota(quota uint64) EngineOptions {
 	return func(e *Engine) {
 		e.config.quota.Store(quota)
-	}
-}
-
-func WithInsertEntryMaxCount(th int) EngineOptions {
-	return func(e *Engine) {
-		e.config.insertEntryMaxCount = th
 	}
 }
 
@@ -225,10 +232,9 @@ type Engine struct {
 	tnID     string
 
 	config struct {
-		insertEntryMaxCount int
-		quota               atomic.Uint64
-		rscConfig           rscthrottler.WorkspaceRSCConfig
-		memThrottler        rscthrottler.RSCThrottler
+		quota        atomic.Uint64
+		rscConfig    rscthrottler.WorkspaceRSCConfig
+		memThrottler rscthrottler.RSCThrottler
 
 		cnTransferTxnLifespanThreshold time.Duration
 
@@ -306,14 +312,21 @@ type Transaction struct {
 
 	// writes cache stores any writes done by txn
 	writes []Entry
-	// txn workspace size, includes in memory entries and persisted entries.
-	workspaceSize uint64
-	// inmemory data size
-	newWrittenInmemoryDataSize int64
-	// the approximation of total row count for insert entries
-	approximateInMemInsertCnt int
-	// the approximation of total row count for delete entries
-	approximateInMemDeleteCnt int
+
+	stats struct {
+		// for controlling each flush check
+		newlyInMemDataSize int64
+		newlyInMemDataRows int64
+		acquiredSize       int64
+
+		// for controlling flush when commit
+		totalInMemTombstoneSize int64
+		totalInMemTombstoneRows int64
+
+		totalSize int64
+		//totalRows int64
+	}
+
 	// the last snapshot write offset
 	snapshotWriteOffset int
 
@@ -375,7 +388,6 @@ type Transaction struct {
 	startStatementCalled bool
 	incrStatementCalled  bool
 	syncCommittedTSCount uint64
-	pkCount              int
 
 	adjustCount int
 
@@ -506,7 +518,7 @@ func (txn *Transaction) PPString() string {
 		return buf.String()
 	}
 
-	return fmt.Sprintf("Transaction{writes: %v, batchSelectList: %v, tableOps:%v, tablesInVain: %v,  tableCache: %v, insertCount: %v, snapshotWriteOffset: %v, rollbackCount: %v, statementID: %v, offsets: %v, timestamps: %v}",
+	return fmt.Sprintf("Transaction{writes: %v, batchSelectList: %v, tableOps:%v, tablesInVain: %v,  tableCache: %v, snapshotWriteOffset: %v, rollbackCount: %v, statementID: %v, offsets: %v, timestamps: %v}",
 		writesString,
 		stringifyMap(txn.batchSelectList, func(k, v any) string {
 			return fmt.Sprintf("%p:%v", k, len(v.([]int64)))
@@ -516,7 +528,6 @@ func (txn *Transaction) PPString() string {
 			return fmt.Sprintf("%v:%v", k.(uint64), v.(int))
 		}),
 		stringifySyncMap(txn.tableCache),
-		txn.approximateInMemInsertCnt,
 		txn.snapshotWriteOffset,
 		txn.rollbackCount,
 		txn.statementID,
@@ -848,7 +859,7 @@ func (txn *Transaction) RollbackLastStatement(ctx context.Context) error {
 			if txn.writes[i].bat == nil {
 				continue
 			}
-			txn.workspaceSize -= uint64(txn.writes[i].bat.Size())
+			txn.stats.totalSize -= int64(txn.writes[i].bat.Size())
 			txn.writes[i].bat.Clean(txn.proc.Mp())
 		}
 		txn.writes = txn.writes[:end]

@@ -309,6 +309,10 @@ func WithConfig(
 }
 
 func defaultAcquirePolicy(m *memThrottler, ask int64) (int64, bool) {
+	if ask <= 0 {
+		return m.Available(), true
+	}
+
 	for {
 		avail := m.Available()
 		if !m.options.allowOutOfMemoryAcquire && avail < ask {
