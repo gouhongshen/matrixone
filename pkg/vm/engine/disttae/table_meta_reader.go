@@ -458,6 +458,12 @@ func readWriteHelper(
 		}
 	}
 
+	if dataBatch != nil && dataBatch.RowCount() > 0 {
+		logutil.Info("AAA",
+			zap.Int("rowCnt", dataBatch.RowCount()),
+		)
+	}
+
 	if sl, err = s3Writer.Sync(ctx); err != nil {
 		return
 	}
