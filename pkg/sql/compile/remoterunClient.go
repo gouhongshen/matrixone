@@ -18,8 +18,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/matrixorigin/matrixone/pkg/logutil"
-	"math/rand"
 	"strings"
 	"time"
 
