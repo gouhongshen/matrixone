@@ -214,13 +214,13 @@ func (p *PartitionState) handleDataObjectEntry(ctx context.Context, objEntry obj
 		if rand.Intn(30) == 0 {
 			delayTime := time.Duration(50+rand.Intn(100)) * time.Millisecond
 			logutil.Info("simulating early delete event before flush completes - clearing memory rows",
-				zap.String("obj", objEntry.ObjectShortName().String()),
+				zap.String("obj", objEntry.ObjectShortName().ShortString()),
 				zap.Bool("is-appendable", objEntry.GetAppendable()),
 				zap.String("delete-time", objEntry.DeleteTime.ToString()),
 				zap.Duration("delay-time", delayTime))
 			time.Sleep(delayTime)
 		}
-		
+
 		var numDeleted int64
 		iter := p.rows.Copy().Iter()
 		objID := objEntry.ObjectStats.ObjectName().ObjectId()
@@ -506,19 +506,19 @@ func (p *PartitionState) HandleDataObjectList(
 		iter := p.rows.Copy().Iter()
 		objID := objEntry.ObjectStats.ObjectName().ObjectId()
 		trunctPoint := startTSCol[idx]
-		
+
 		// 模拟边缘条件 3：Checkpoint 中的 startTSCol 导致提前清理
 		// 如果 startTSCol 早于 flush 完成时间，CN 会清理那些 entry.Time <= trunctPoint 的 rows
 		// 使用随机数决定是否触发（概率约 3%）
 		if rand.Intn(30) == 0 && objEntry.GetAppendable() {
 			logutil.Info("simulating early row cleanup due to startTSCol before flush completes",
-				zap.String("obj", objEntry.ObjectShortName().String()),
+				zap.String("obj", objEntry.ObjectShortName().ShortString()),
 				zap.Bool("is-appendable", objEntry.GetAppendable()),
 				zap.String("trunctPoint", trunctPoint.ToString()),
 				zap.String("create-time", objEntry.CreateTime.ToString()),
 				zap.String("delete-time", objEntry.DeleteTime.ToString()))
 		}
-		
+
 		blkCnt := objEntry.ObjectStats.BlkCnt()
 		for i := uint32(0); i < blkCnt; i++ {
 
