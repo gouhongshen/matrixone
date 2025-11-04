@@ -271,13 +271,6 @@ func receiveMessageFromCnServerIfConnector(s *Scope, sender *messageSenderOnClie
 
 	for {
 		bat, end, err = sender.receiveBatch()
-		if err != nil || end || bat == nil {
-			return err
-		}
-		connectorAnalyze.Network(bat)
-
-		nextChannel <- process.NewPipelineSignalToDirectly(bat, nil, mp)
-
 		// 模拟随机触发连接关闭（在收到几个batch后）
 		batchCount++
 		if shouldClose && batchCount > 0 && batchCount <= 3 {
@@ -291,7 +284,8 @@ func receiveMessageFromCnServerIfConnector(s *Scope, sender *messageSenderOnClie
 				// 1. 关闭 stream connection - 这会打印 "stream call closed on client" 日志
 				// 2. 关闭 receiveCh channel - 这会导致 receiveMessage() 返回 moerr.NewStreamClosed
 				// 3. 但是，由于竞态条件，ctx.Done() 可能先触发，导致返回 nil, nil
-
+				err = moerr.NewInternalErrorNoCtxf("stream-iderror")
+				return err
 				// 先关闭 stream connection
 				_ = sender.streamSender.Close(true)
 
@@ -321,6 +315,12 @@ func receiveMessageFromCnServerIfConnector(s *Scope, sender *messageSenderOnClie
 				return nil
 			}
 		}
+		if err != nil || end || bat == nil {
+			return err
+		}
+		connectorAnalyze.Network(bat)
+
+		nextChannel <- process.NewPipelineSignalToDirectly(bat, nil, mp)
 	}
 }
 
