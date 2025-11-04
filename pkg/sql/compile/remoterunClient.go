@@ -266,7 +266,7 @@ func receiveMessageFromCnServerIfConnector(s *Scope, sender *messageSenderOnClie
 
 	// 模拟随机触发CN0延迟完成 - 用于复现bug
 	// 使用随机数决定是否延迟完成（概率约10%）
-	shouldDelayComplete := rand.Intn(20) == 0
+	shouldDelayComplete := rand.Intn(10) == 0
 	batchCount := 0
 
 	for {
@@ -275,7 +275,7 @@ func receiveMessageFromCnServerIfConnector(s *Scope, sender *messageSenderOnClie
 		batchCount++
 
 		// 如果收到EndMessage（end=true），模拟延迟完成
-		if shouldDelayComplete {
+		if shouldDelayComplete && end && err == nil && bat == nil {
 			// 随机延迟0.5-2秒，模拟CN0延迟完成
 			// 这会导致CN0在收到CN1的EndMessage后，延迟返回
 			// 如果其他CN也完成了，CN0可能误判所有CN都完成了
