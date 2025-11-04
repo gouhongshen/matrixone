@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"math/rand"
 	"strings"
 	"time"
@@ -262,12 +263,12 @@ func receiveMessageFromCnServerIfConnector(s *Scope, sender *messageSenderOnClie
 
 	mp := s.Proc.Mp()
 	nextChannel := s.RootOp.(*connector.Connector).Reg.Ch2
-	
+
 	// 模拟随机触发连接关闭 - 用于复现bug
 	// 使用随机数决定是否关闭连接（概率约10%）
 	shouldClose := rand.Intn(10) == 0
 	batchCount := 0
-	
+
 	for {
 		bat, end, err = sender.receiveBatch()
 		if err != nil || end || bat == nil {
@@ -276,24 +277,24 @@ func receiveMessageFromCnServerIfConnector(s *Scope, sender *messageSenderOnClie
 		connectorAnalyze.Network(bat)
 
 		nextChannel <- process.NewPipelineSignalToDirectly(bat, nil, mp)
-		
+
 		// 模拟随机触发连接关闭（在收到几个batch后）
 		batchCount++
-		if shouldClose && batchCount > 0 && batchCount <= 5 {
+		if shouldClose && batchCount > 0 && batchCount <= 3 {
 			// 随机触发关闭连接，模拟17:00:05.138的连接关闭场景
 			if rand.Intn(100) < 30 { // 30%概率触发
-				getLogger(s.Proc.GetService()).Info("simulating stream connection close (stream-id:2) - random trigger",
+				logutil.Info("simulating stream connection close (stream-id:2) - random trigger",
 					zap.Uint64("stream-id", sender.streamSender.ID()),
 					zap.Int("batch-count", batchCount))
-				
+
 				// 模拟连接突然关闭的场景：
 				// 1. 关闭 stream connection - 这会打印 "stream call closed on client" 日志
 				// 2. 关闭 receiveCh channel - 这会导致 receiveMessage() 返回 moerr.NewStreamClosed
 				// 3. 但是，由于竞态条件，ctx.Done() 可能先触发，导致返回 nil, nil
-				
+
 				// 先关闭 stream connection
 				_ = sender.streamSender.Close(true)
-				
+
 				// 然后关闭 receiveCh channel（模拟 backend 检测到连接关闭后关闭 receiveCh）
 				// 注意：需要确保 channel 没有被关闭过，使用 select 检查
 				if sender.receiveCh != nil {
@@ -309,11 +310,11 @@ func receiveMessageFromCnServerIfConnector(s *Scope, sender *messageSenderOnClie
 						close(ch)
 					}(sender.receiveCh)
 				}
-				
+
 				// 设置标志，表示连接已关闭
 				sender.safeToClose = true
 				sender.alreadyClose = true
-				
+
 				// 返回 nil，模拟竞态条件（ctx.Done() 先触发的情况）
 				// 这样会触发 receiveMessage() 返回 nil, nil，而不是 moerr.NewStreamClosed
 				// 这正是 SESSION-SUMMARY.md 中描述的 bug 场景
