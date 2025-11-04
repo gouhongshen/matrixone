@@ -16,11 +16,15 @@ package process
 
 import (
 	"context"
+	"math/rand"
+	"reflect"
+	"time"
+
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/pSpool"
-	"reflect"
-	"time"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
+	"go.uber.org/zap"
 )
 
 type PipelineActionType uint8
@@ -176,6 +180,28 @@ func (receiver *PipelineSignalReceiver) GetNextBatch(
 
 		content, info = msg.Action()
 		if content == nil {
+			// 模拟多 CN 查询时序问题：某个 CN 完成导致 Pipeline 误判数据收完
+			// 使用随机数决定是否延迟处理（概率约10%）
+			shouldDelay := rand.Intn(20) == 0
+			if shouldDelay && info == nil && receiver.alive > 1 {
+				// 随机延迟0.5-2秒，模拟CN0在计算时的延迟
+				// 这会导致在收到CN1的EndMessage后，延迟处理
+				// 延迟期间，如果其他CN也完成了，就会误判所有CN都完成了
+				delayTime := time.Duration(500+rand.Intn(5500)) * time.Millisecond
+				logutil.Info("simulating CN0 delayed processing after CN completion - random trigger",
+					zap.Int("alive-cn-count", receiver.alive),
+					zap.Int("chosen-cn", chosen),
+					zap.Duration("delay-time", delayTime))
+
+				// 随机延迟，模拟CN0在计算时的延迟
+				// 在这期间，如果其他CN也完成了，CN0可能误判数据收完
+				time.Sleep(delayTime)
+
+				// 延迟后，继续处理（移除这个CN）
+				// 如果延迟期间其他CN也完成了，receiver.alive可能已经变成0
+				// 导致Pipeline误判数据收完
+			}
+
 			receiver.removeIdxReceiver(chosen)
 
 			if info != nil {

@@ -264,36 +264,8 @@ func receiveMessageFromCnServerIfConnector(s *Scope, sender *messageSenderOnClie
 	mp := s.Proc.Mp()
 	nextChannel := s.RootOp.(*connector.Connector).Reg.Ch2
 
-	// 模拟随机触发CN0延迟完成 - 用于复现bug
-	// 使用随机数决定是否延迟完成（概率约10%）
-	shouldDelayComplete := rand.Intn(10) == 0
-	batchCount := 0
-
 	for {
 		bat, end, err = sender.receiveBatch()
-
-		batchCount++
-
-		// 如果收到EndMessage（end=true），模拟延迟完成
-		if shouldDelayComplete && end && err == nil && bat == nil {
-			// 随机延迟0.5-2秒，模拟CN0延迟完成
-			// 这会导致CN0在收到CN1的EndMessage后，延迟返回
-			// 如果其他CN也完成了，CN0可能误判所有CN都完成了
-			delayTime := time.Duration(500+rand.Intn(1500)) * time.Millisecond
-			logutil.Info("simulating CN0 delayed completion - random trigger",
-				zap.Uint64("stream-id", sender.streamSender.ID()),
-				zap.Int("batch-count", batchCount),
-				zap.Duration("delay-time", delayTime))
-
-			// 随机延迟，模拟CN0延迟完成
-			// 在这期间，如果其他CN也完成了，CN0可能误判数据收完
-			time.Sleep(delayTime)
-
-			// 返回nil，表示CN1已完成
-			// 这会导致CN0认为CN1已完成，但可能还有其他CN在发送数据
-			return nil
-		}
-
 		if err != nil || end || bat == nil {
 			return err
 		}
