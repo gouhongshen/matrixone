@@ -17,6 +17,8 @@ package disttae
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"time"
 
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -219,6 +221,21 @@ func (r *TableMetaReader) collect(
 
 	for iter.Next() {
 		obj := iter.Entry()
+
+		// 模拟 CN 在 flush 完成后读取数据时的延迟
+		// 如果对象是 appendable 状态，添加随机延迟，模拟 CN 在 flush 完成后立即读取数据
+		// 这样可以让 CN 在 logtail 同步对象状态变化之前就开始读取数据
+		if obj.GetAppendable() && obj.Size() > 0 {
+			// 使用随机数决定是否延迟（概率约 10%）
+			if rand.Intn(10) == 0 {
+				delayTime := time.Duration(50+rand.Intn(100)) * time.Millisecond
+				logutil.Info("simulating CN reading data delay after flush - appendable object",
+					zap.String("obj", obj.ObjectShortName().ShortString()),
+					zap.Bool("is-appendable", obj.GetAppendable()),
+					zap.Duration("delay-time", delayTime))
+				time.Sleep(delayTime)
+			}
+		}
 
 		// if the obj is created by CN, the data commit time equals to the obj.CreateTime
 		if obj.GetCNCreated() || !obj.GetAppendable() {

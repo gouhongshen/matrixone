@@ -72,6 +72,15 @@ func (p *rowsIter) Next() bool {
 			return false
 		}
 		if entry.Time.GT(&p.ts) {
+			// 模拟边缘条件 2：CN 在 flush 完成前读不到数据
+			// 如果 row 的 Time > snapshot，会被过滤掉
+			// 使用随机数决定是否记录日志（概率约 5%）
+			if rand.Intn(20) == 0 {
+				logutil.Info("simulating row filtered out before flush completes - row time > snapshot",
+					zap.String("row-time", entry.Time.ToString()),
+					zap.String("snapshot", p.ts.ToString()),
+					zap.Bool("row-time-gt-snapshot", entry.Time.GT(&p.ts)))
+			}
 			// not visible
 			continue
 		}

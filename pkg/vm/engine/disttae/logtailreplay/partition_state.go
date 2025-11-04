@@ -19,9 +19,11 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/rand"
 	"runtime/trace"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -151,6 +153,24 @@ func (p *PartitionState) handleDataObjectEntry(ctx context.Context, objEntry obj
 	}
 
 	old, exist := p.dataObjectsNameIndex.Get(objEntry)
+
+	// 模拟 flush 完成后对象状态变化同步延迟
+	// 当对象从 appendable 变为 non-appendable 时，添加随机延迟
+	// 这样可以让 CN 在 flush 完成后一段时间内仍然看到旧的 appendable 状态
+	if !objEntry.GetAppendable() && objEntry.Size() > 0 && exist && old.GetAppendable() {
+		// 这是一个从 appendable 变为 non-appendable 的状态变化
+		// 添加随机延迟，模拟 logtail 同步延迟
+		// 使用随机数决定是否延迟（概率约 5%）
+		if rand.Intn(20) == 0 {
+			delayTime := time.Duration(100+rand.Intn(200)) * time.Millisecond
+			logutil.Info("simulating logtail sync delay after flush - object state change",
+				zap.String("obj", objEntry.ObjectShortName().ShortString()),
+				zap.Bool("was-appendable", old.GetAppendable()),
+				zap.Bool("now-appendable", objEntry.GetAppendable()),
+				zap.Duration("delay-time", delayTime))
+			time.Sleep(delayTime)
+		}
+	}
 	if exist {
 		// why check the deleteTime here? consider this situation:
 		// 		1. insert on an object, then these insert operations recorded into a CKP.
@@ -189,6 +209,18 @@ func (p *PartitionState) handleDataObjectEntry(ctx context.Context, objEntry obj
 
 	// for appendable object, gc rows when delete object
 	if objEntry.GetAppendable() && !objEntry.DeleteTime.IsEmpty() {
+		// 模拟边缘条件 1：CN 在 flush 完成前收到删除事件，提前清理内存数据
+		// 使用随机数决定是否触发（概率约 3%）
+		if rand.Intn(30) == 0 {
+			delayTime := time.Duration(50+rand.Intn(100)) * time.Millisecond
+			logutil.Info("simulating early delete event before flush completes - clearing memory rows",
+				zap.String("obj", objEntry.ObjectShortName().String()),
+				zap.Bool("is-appendable", objEntry.GetAppendable()),
+				zap.String("delete-time", objEntry.DeleteTime.ToString()),
+				zap.Duration("delay-time", delayTime))
+			time.Sleep(delayTime)
+		}
+		
 		var numDeleted int64
 		iter := p.rows.Copy().Iter()
 		objID := objEntry.ObjectStats.ObjectName().ObjectId()
@@ -474,6 +506,19 @@ func (p *PartitionState) HandleDataObjectList(
 		iter := p.rows.Copy().Iter()
 		objID := objEntry.ObjectStats.ObjectName().ObjectId()
 		trunctPoint := startTSCol[idx]
+		
+		// 模拟边缘条件 3：Checkpoint 中的 startTSCol 导致提前清理
+		// 如果 startTSCol 早于 flush 完成时间，CN 会清理那些 entry.Time <= trunctPoint 的 rows
+		// 使用随机数决定是否触发（概率约 3%）
+		if rand.Intn(30) == 0 && objEntry.GetAppendable() {
+			logutil.Info("simulating early row cleanup due to startTSCol before flush completes",
+				zap.String("obj", objEntry.ObjectShortName().String()),
+				zap.Bool("is-appendable", objEntry.GetAppendable()),
+				zap.String("trunctPoint", trunctPoint.ToString()),
+				zap.String("create-time", objEntry.CreateTime.ToString()),
+				zap.String("delete-time", objEntry.DeleteTime.ToString()))
+		}
+		
 		blkCnt := objEntry.ObjectStats.BlkCnt()
 		for i := uint32(0); i < blkCnt; i++ {
 
