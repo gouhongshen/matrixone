@@ -1750,6 +1750,13 @@ func CalcQueryDOP(p *plan.Plan, ncpu int32, lencn int, typ ExecType) {
 }
 
 func GetExecType(qry *plan.Query, txnHaveDDL bool, isPrepare bool) ExecType {
+	// 强制AP查询走多CN - 用于模拟复现bug
+	// 检查是否是AP查询（有TABLE_SCAN节点）
+	for _, node := range qry.GetNodes() {
+		if node.NodeType == plan.Node_TABLE_SCAN {
+			return ExecTypeAP_MULTICN
+		}
+	}
 	if GetForceScanOnMultiCN() {
 		return ExecTypeAP_MULTICN
 	}
