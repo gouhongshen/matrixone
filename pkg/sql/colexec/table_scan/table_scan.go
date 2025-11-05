@@ -119,7 +119,7 @@ func (tableScan *TableScan) Call(proc *process.Process) (vm.CallResult, error) {
 		newCtx := perfcounter.AttachS3RequestKey(proc.Ctx, crs)
 		isEnd, err := tableScan.Reader.Read(newCtx, tableScan.Attrs, nil, proc.Mp(), tableScan.ctr.buf)
 		if err != nil {
-			logutil.Infof("[CN1-TABLESCAN] table_scan Read returned error, TableID=%d, err=%v, buf.RowCount()=%d", 
+			logutil.Infof("[CN1-TABLESCAN] table_scan Read returned error, TableID=%d, err=%v, buf.RowCount()=%d",
 				tableScan.TableID, err, tableScan.ctr.buf.RowCount())
 			e = err
 			return vm.CancelResult, err
@@ -129,17 +129,9 @@ func (tableScan *TableScan) Call(proc *process.Process) (vm.CallResult, error) {
 		analyzer.AddDiskIO(crs)
 
 		if isEnd {
-			logutil.Infof("[CN1-TABLESCAN] table_scan Read returned isEnd=true, TableID=%d, buf.RowCount()=%d, proc.Ctx.Err()=%v", 
-				tableScan.TableID, tableScan.ctr.buf.RowCount(), proc.Ctx.Err())
 			e = err
 			return vm.CancelResult, err
 		}
-		
-		if tableScan.ctr.buf.RowCount() > 0 {
-			logutil.Infof("[CN1-TABLESCAN] table_scan Read returned data, TableID=%d, buf.RowCount()=%d, isEnd=false", 
-				tableScan.TableID, tableScan.ctr.buf.RowCount())
-		}
-
 		if tableScan.ctr.buf.IsEmpty() {
 			continue
 		}

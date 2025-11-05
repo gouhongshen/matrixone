@@ -385,6 +385,7 @@ func execBackup(
 		return err
 	}
 
+	time.Sleep(20 * time.Minute)
 	// copy checkpoint and gc meta
 	sizeList, minTs, err := CopyCheckpointDir(ctx, srcFs, dstFs, "ckp", start)
 	if err != nil {
