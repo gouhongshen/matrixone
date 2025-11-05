@@ -100,6 +100,11 @@ services:
       - AWS_ACCESS_KEY_ID=minio
       - AWS_SECRET_ACCESS_KEY=minio123
       - mo_reuse_enable_checker=true
+    volumes:
+      - ../../etc/launch-tae-compose/config:/config
+      - ../../test:/test
+      - ../../docker-compose-log:/log
+      - ../../mo-data/logservice-data:/mo-data/logservice-data
     networks:
       monet:
         aliases:
