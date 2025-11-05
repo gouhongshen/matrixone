@@ -105,10 +105,19 @@ func CnServerMessageHandler(
 	if receiver.messageTyp != pipeline.Method_StopSending {
 		// stop message only close a running pipeline, there is no need to reply the finished-message.
 		if err != nil {
+			logutil.Infof("[CN1-CANCEL] handlePipelineMessage returned error, messageId=%d, sending ErrorMessage, err=%v", 
+				receiver.messageId, err)
 			err = receiver.sendError(err)
 		} else {
+			logutil.Infof("[CN1-CANCEL] handlePipelineMessage returned nil, messageId=%d, sending EndMessage", 
+				receiver.messageId)
 			err = receiver.sendEndMessage()
+			logutil.Infof("[CN1-CANCEL] EndMessage sent, messageId=%d, sendErr=%v", 
+				receiver.messageId, err)
 		}
+	} else {
+		logutil.Infof("[CN1-CANCEL] StopSending message, messageId=%d, skipping sendEndMessage", 
+			receiver.messageId)
 	}
 
 	// if this message is responsible for the execution of certain pipelines, they should be ended after message processing is completed.
@@ -213,40 +222,15 @@ func handlePipelineMessage(receiver *messageReceiverOnServer) error {
 			MarkQueryDone(runCompile, runCompile.proc.GetTxnOperator())
 		}()
 
-		// Check ctx status before MergeRun
-		if receiver.messageCtx.Err() != nil {
-			logutil.Infof("[CN1-CANCEL] messageCtx already canceled before MergeRun, messageId=%d, err=%v", 
-				receiver.messageId, receiver.messageCtx.Err())
-		}
-		if receiver.connectionCtx.Err() != nil {
-			logutil.Infof("[CN1-CANCEL] connectionCtx already canceled before MergeRun, messageId=%d, err=%v", 
-				receiver.messageId, receiver.connectionCtx.Err())
-		}
-		if runCompile.proc.Ctx.Err() != nil {
-			logutil.Infof("[CN1-CANCEL] proc.Ctx already canceled before MergeRun, messageId=%d, err=%v", 
-				receiver.messageId, runCompile.proc.Ctx.Err())
-		}
+		// Check ctx status before MergeRun - ALWAYS LOG
+		logutil.Infof("[CN1-CANCEL] before MergeRun, messageId=%d, messageCtx.Err()=%v, connectionCtx.Err()=%v, proc.Ctx.Err()=%v", 
+			receiver.messageId, receiver.messageCtx.Err(), receiver.connectionCtx.Err(), runCompile.proc.Ctx.Err())
 
 		err = s.MergeRun(runCompile)
 
-		// Check ctx status after MergeRun
-		if err == nil {
-			if receiver.messageCtx.Err() != nil {
-				logutil.Infof("[CN1-CANCEL] messageCtx canceled after MergeRun (err=nil), messageId=%d, err=%v", 
-					receiver.messageId, receiver.messageCtx.Err())
-			}
-			if receiver.connectionCtx.Err() != nil {
-				logutil.Infof("[CN1-CANCEL] connectionCtx canceled after MergeRun (err=nil), messageId=%d, err=%v", 
-					receiver.messageId, receiver.connectionCtx.Err())
-			}
-			if runCompile.proc.Ctx.Err() != nil {
-				logutil.Infof("[CN1-CANCEL] proc.Ctx canceled after MergeRun (err=nil), messageId=%d, err=%v", 
-					receiver.messageId, runCompile.proc.Ctx.Err())
-			}
-		} else {
-			logutil.Infof("[CN1-CANCEL] MergeRun returned error, messageId=%d, err=%v", 
-				receiver.messageId, err)
-		}
+		// Check ctx status after MergeRun - ALWAYS LOG
+		logutil.Infof("[CN1-CANCEL] after MergeRun, messageId=%d, err=%v, messageCtx.Err()=%v, connectionCtx.Err()=%v, proc.Ctx.Err()=%v", 
+			receiver.messageId, err, receiver.messageCtx.Err(), receiver.connectionCtx.Err(), runCompile.proc.Ctx.Err())
 
 		if err == nil {
 			runCompile.GenPhyPlan(runCompile)
