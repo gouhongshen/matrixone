@@ -16,6 +16,7 @@ package colexec
 
 import (
 	"github.com/matrixorigin/matrixone/pkg/common/morpc"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 )
 
@@ -78,8 +79,12 @@ func (srv *Server) CancelPipelineSending(
 	defer srv.receivedRunningPipeline.Unlock()
 
 	if v, ok := srv.receivedRunningPipeline.fromRpcClientToRelatedPipeline[key]; ok {
+		logutil.Infof("[CN1-CANCEL] CancelPipelineSending found pipeline, streamID=%d, session=%s, isDispatch=%v", 
+			streamID, session.RemoteAddress(), v.isDispatch)
 		v.cancelPipeline()
 	} else {
+		logutil.Infof("[CN1-CANCEL] CancelPipelineSending pipeline not found, streamID=%d, session=%s, creating canceled record", 
+			streamID, session.RemoteAddress())
 		srv.receivedRunningPipeline.fromRpcClientToRelatedPipeline[key] = generateCanceledRecord()
 	}
 }

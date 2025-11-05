@@ -351,7 +351,7 @@ func (flusher *flushImpl) fillDefaults() {
 		flusher.mutableCfg.Store(cfg)
 	}
 	if cfg.ForceFlushTimeout <= 0 {
-		cfg.ForceFlushTimeout = time.Second * 90
+		cfg.ForceFlushTimeout = time.Second * 300
 	}
 	if cfg.ForceFlushCheckInterval <= 0 {
 		cfg.ForceFlushCheckInterval = time.Millisecond * 500

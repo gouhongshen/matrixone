@@ -87,13 +87,18 @@ func (info *runningPipelineInfo) cancelPipeline() {
 	// If this was a pipeline responsible for distributing data, we cannot end this
 	// because we are just one of the receivers.
 	if info.isDispatch {
+		logutil.Infof("[CN1-CANCEL] cancelPipeline called for dispatch pipeline, setting ReceiverDone=true")
 		info.receiver.Lock()
 		info.receiver.ReceiverDone = true
 		info.receiver.Unlock()
 
 	} else {
 		if info.queryCancel != nil {
+			logutil.Infof("[CN1-CANCEL] cancelPipeline called, invoking queryCancel()")
 			info.queryCancel()
+			logutil.Infof("[CN1-CANCEL] queryCancel() invoked")
+		} else {
+			logutil.Warnf("[CN1-CANCEL] cancelPipeline called but queryCancel is nil")
 		}
 	}
 }

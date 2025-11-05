@@ -117,7 +117,11 @@ func CnServerMessageHandler(
 		// to prevent some strange handle order between 'stop sending message' and others.
 		// todo: it is tcp connection now. should be very careful, we should listen to stream context next day.
 		if err == nil {
+			logutil.Infof("[CN1-CANCEL] waiting for connectionCtx.Done(), messageId=%d, messageTyp=%v", 
+				receiver.messageId, receiver.messageTyp)
 			<-receiver.connectionCtx.Done()
+			logutil.Infof("[CN1-CANCEL] connectionCtx.Done() triggered, messageId=%d, err=%v", 
+				receiver.messageId, receiver.connectionCtx.Err())
 		}
 		colexec.Get().RemoveRelatedPipeline(receiver.clientSession, receiver.messageId)
 	}
@@ -154,7 +158,11 @@ func handlePipelineMessage(receiver *messageReceiverOnServer) error {
 		case dispatchNotifyCh <- infoToDispatchOperator:
 			succeed = true
 		case <-receiver.connectionCtx.Done():
+			logutil.Infof("[CN1-CANCEL] connectionCtx.Done() in PrepareDoneNotifyMessage select, messageId=%d, err=%v", 
+				receiver.messageId, receiver.connectionCtx.Err())
 		case <-dispatchProc.Ctx.Done():
+			logutil.Infof("[CN1-CANCEL] dispatchProc.Ctx.Done() in PrepareDoneNotifyMessage select, messageId=%d, err=%v", 
+				receiver.messageId, dispatchProc.Ctx.Err())
 		}
 		cancel()
 
@@ -165,6 +173,8 @@ func handlePipelineMessage(receiver *messageReceiverOnServer) error {
 
 		select {
 		case <-receiver.connectionCtx.Done():
+			logutil.Infof("[CN1-CANCEL] connectionCtx.Done() in PrepareDoneNotifyMessage error select, messageId=%d, err=%v, calling dispatchProc.Cancel", 
+				receiver.messageId, receiver.connectionCtx.Err())
 			dispatchProc.Cancel(err)
 
 		// there is no need to check the dispatchProc.Ctx.Done() here.
@@ -203,7 +213,40 @@ func handlePipelineMessage(receiver *messageReceiverOnServer) error {
 			MarkQueryDone(runCompile, runCompile.proc.GetTxnOperator())
 		}()
 
+		// Check ctx status before MergeRun
+		if receiver.messageCtx.Err() != nil {
+			logutil.Infof("[CN1-CANCEL] messageCtx already canceled before MergeRun, messageId=%d, err=%v", 
+				receiver.messageId, receiver.messageCtx.Err())
+		}
+		if receiver.connectionCtx.Err() != nil {
+			logutil.Infof("[CN1-CANCEL] connectionCtx already canceled before MergeRun, messageId=%d, err=%v", 
+				receiver.messageId, receiver.connectionCtx.Err())
+		}
+		if runCompile.proc.Ctx.Err() != nil {
+			logutil.Infof("[CN1-CANCEL] proc.Ctx already canceled before MergeRun, messageId=%d, err=%v", 
+				receiver.messageId, runCompile.proc.Ctx.Err())
+		}
+
 		err = s.MergeRun(runCompile)
+
+		// Check ctx status after MergeRun
+		if err == nil {
+			if receiver.messageCtx.Err() != nil {
+				logutil.Infof("[CN1-CANCEL] messageCtx canceled after MergeRun (err=nil), messageId=%d, err=%v", 
+					receiver.messageId, receiver.messageCtx.Err())
+			}
+			if receiver.connectionCtx.Err() != nil {
+				logutil.Infof("[CN1-CANCEL] connectionCtx canceled after MergeRun (err=nil), messageId=%d, err=%v", 
+					receiver.messageId, receiver.connectionCtx.Err())
+			}
+			if runCompile.proc.Ctx.Err() != nil {
+				logutil.Infof("[CN1-CANCEL] proc.Ctx canceled after MergeRun (err=nil), messageId=%d, err=%v", 
+					receiver.messageId, runCompile.proc.Ctx.Err())
+			}
+		} else {
+			logutil.Infof("[CN1-CANCEL] MergeRun returned error, messageId=%d, err=%v", 
+				receiver.messageId, err)
+		}
 
 		if err == nil {
 			runCompile.GenPhyPlan(runCompile)
@@ -213,7 +256,10 @@ func handlePipelineMessage(receiver *messageReceiverOnServer) error {
 		return err
 
 	case pipeline.Method_StopSending:
+		logutil.Infof("[CN1-CANCEL] received StopSending message, messageId=%d, session=%s", 
+			receiver.messageId, receiver.clientSession.RemoteAddress())
 		colexec.Get().CancelPipelineSending(receiver.clientSession, receiver.messageId)
+		logutil.Infof("[CN1-CANCEL] CancelPipelineSending called, messageId=%d", receiver.messageId)
 
 	default:
 		panic(fmt.Sprintf("unknown pipeline message type %d.", receiver.messageTyp))
@@ -364,6 +410,17 @@ func (receiver *messageReceiverOnServer) newCompile() (*Compile, error) {
 
 	// required deadline.
 	runningCtx := defines.AttachAccountId(receiver.messageCtx, pHelper.accountId)
+	
+	// Log ctx status when creating proc
+	if receiver.messageCtx.Err() != nil {
+		logutil.Infof("[CN1-CANCEL] messageCtx already canceled when creating proc, messageId=%d, err=%v", 
+			receiver.messageId, receiver.messageCtx.Err())
+	}
+	if receiver.connectionCtx.Err() != nil {
+		logutil.Infof("[CN1-CANCEL] connectionCtx already canceled when creating proc, messageId=%d, err=%v", 
+			receiver.messageId, receiver.connectionCtx.Err())
+	}
+	
 	proc := process.NewTopProcess(
 		runningCtx,
 		mp,
@@ -375,6 +432,9 @@ func (receiver *messageReceiverOnServer) newCompile() (*Compile, error) {
 		cnInfo.hakeeper,
 		cnInfo.udfService,
 		cnInfo.aicm)
+	
+	logutil.Infof("[CN1-CANCEL] proc created, messageId=%d, proc.Ctx.Err()=%v", 
+		receiver.messageId, proc.Ctx.Err())
 	proc.Base.UnixTime = pHelper.unixTime
 	proc.Base.Id = pHelper.id
 	proc.Base.Lim = pHelper.lim
@@ -539,6 +599,8 @@ func (receiver *messageReceiverOnServer) GetProcByUuid(uid uuid.UUID, timeout ti
 			return nil, nil, err
 
 		case <-receiver.connectionCtx.Done():
+			logutil.Infof("[CN1-CANCEL] connectionCtx.Done() in GetProcByUuid, messageId=%d, err=%v", 
+				receiver.messageId, receiver.connectionCtx.Err())
 			colexec.Get().GetProcByUuid(uid, true)
 			tcancel()
 			return nil, nil, nil
