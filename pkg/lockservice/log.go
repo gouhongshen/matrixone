@@ -911,10 +911,10 @@ func logRefWaiter(
 		return
 	}
 
-	if logger.Enabled(zap.InfoLevel) {
+	if logger.Enabled(zap.DebugLevel) {
 		logger.Log(
 			"ref waiter",
-			getLogOptions(zap.InfoLevel),
+			getLogOptions(zap.DebugLevel),
 			zap.String("txn", hex.EncodeToString(txn)),
 			zap.String("info", info),
 			zap.String("waiter", fmt.Sprintf("%p", w)),
@@ -932,10 +932,10 @@ func logCloseWaiter(
 		return
 	}
 
-	if logger.Enabled(zap.InfoLevel) {
+	if logger.Enabled(zap.DebugLevel) {
 		logger.Log(
 			"close waiter",
-			getLogOptions(zap.InfoLevel),
+			getLogOptions(zap.DebugLevel),
 			zap.String("txn", hex.EncodeToString(txn)),
 			zap.String("info", info),
 			zap.String("waiter", fmt.Sprintf("%p", w)),

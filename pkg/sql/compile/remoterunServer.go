@@ -466,11 +466,18 @@ func (receiver *messageReceiverOnServer) sendBatch(
 	b *batch.Batch) error {
 	// there's no need to send the nil batch.
 	if b == nil {
+		logutil.Infof("[CN1-SENDBATCH] sendBatch called with nil batch, messageId=%d", receiver.messageId)
 		return nil
 	}
 
+	rowCount := b.RowCount()
+	logutil.Infof("[CN1-SENDBATCH] sendBatch called, messageId=%d, rowCount=%d, Attrs=%v", 
+		receiver.messageId, rowCount, b.Attrs)
+
 	data, err := b.MarshalBinary()
 	if err != nil {
+		logutil.Errorf("[CN1-SENDBATCH] sendBatch MarshalBinary failed, messageId=%d, err=%v", 
+			receiver.messageId, err)
 		return err
 	}
 
@@ -478,17 +485,31 @@ func (receiver *messageReceiverOnServer) sendBatch(
 	if dataLen <= receiver.maxMessageSize {
 		m, errA := receiver.acquireMessage()
 		if errA != nil {
+			logutil.Errorf("[CN1-SENDBATCH] sendBatch acquireMessage failed, messageId=%d, err=%v", 
+				receiver.messageId, errA)
 			return errA
 		}
 		m.SetMessageType(pipeline.Method_BatchMessage)
 		m.SetData(data)
 		m.SetSid(pipeline.Status_Last)
-		return receiver.clientSession.Write(receiver.messageCtx, m)
+		errW := receiver.clientSession.Write(receiver.messageCtx, m)
+		if errW != nil {
+			logutil.Errorf("[CN1-SENDBATCH] sendBatch Write failed, messageId=%d, rowCount=%d, err=%v", 
+				receiver.messageId, rowCount, errW)
+		} else {
+			logutil.Infof("[CN1-SENDBATCH] sendBatch Write success, messageId=%d, rowCount=%d, dataLen=%d", 
+				receiver.messageId, rowCount, dataLen)
+		}
+		return errW
 	}
 	// if data is too large, cut and send
+	chunkCount := 0
 	for start, end := 0, 0; start < dataLen; start = end {
+		chunkCount++
 		m, errA := receiver.acquireMessage()
 		if errA != nil {
+			logutil.Errorf("[CN1-SENDBATCH] sendBatch acquireMessage failed (large data), messageId=%d, chunk=%d, err=%v", 
+				receiver.messageId, chunkCount, errA)
 			return errA
 		}
 		end = start + receiver.maxMessageSize
@@ -502,9 +523,15 @@ func (receiver *messageReceiverOnServer) sendBatch(
 		m.SetData(data[start:end])
 
 		if errW := receiver.clientSession.Write(receiver.messageCtx, m); errW != nil {
+			logutil.Errorf("[CN1-SENDBATCH] sendBatch Write failed (large data), messageId=%d, chunk=%d, rowCount=%d, err=%v", 
+				receiver.messageId, chunkCount, rowCount, errW)
 			return errW
 		}
+		logutil.Infof("[CN1-SENDBATCH] sendBatch Write success (large data), messageId=%d, chunk=%d/%d, rowCount=%d, chunkSize=%d", 
+			receiver.messageId, chunkCount, (dataLen+receiver.maxMessageSize-1)/receiver.maxMessageSize, rowCount, end-start)
 	}
+	logutil.Infof("[CN1-SENDBATCH] sendBatch completed (large data), messageId=%d, rowCount=%d, totalChunks=%d", 
+		receiver.messageId, rowCount, chunkCount)
 	return nil
 }
 
