@@ -565,3 +565,22 @@ ViewTS 只用于等待，确保远程CN的PartitionState已经包含了compile�
       }
   }
   ```
+
+**2025-12-24 21:20**: 修复 ViewTS 计算方式（第二次）
+- **问题**：`LatestLogtailAppliedTime` 是全局 logtail 时间戳，通常 <= `snapshotTS`，导致 `viewTS = snapshotTS`，等待机制不起作用
+- **解决**：使用表级别的 `lastFlushTimestamp` 替代全局 `LatestLogtailAppliedTime`
+- **修改文件**：
+  - `pkg/vm/engine/disttae/logtailreplay/partition_state.go`: 添加 `GetLastFlushTimestamp()` 方法
+  - `pkg/vm/engine/disttae/txn_table.go`: `CollectTombstones` 返回 `lastFlushTimestamp`
+  - `pkg/sql/compile/compile.go`: 使用 `lastFlushTS` 计算 ViewTS
+- **修改内容**：
+  ```go
+  // CollectTombstones 返回表级别的 lastFlushTimestamp
+  psEnd = state.GetLastFlushTimestamp()
+  
+  // generateNodes 使用 lastFlushTS
+  uncommittedTombs, lastFlushTS, err := collectTombstones(...)
+  if !lastFlushTS.IsEmpty() && lastFlushTS.GT(&snapshotTS) {
+      viewTS = lastFlushTS
+  }
+  ```

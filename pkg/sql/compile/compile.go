@@ -4363,24 +4363,22 @@ func (c *Compile) generateNodes(n *plan.Node) (engine.Nodes, error) {
 		return nodes, nil
 	}
 
-	// scan on multi CN: collect tombstones
-	uncommittedTombs, _, err := collectTombstones(c, n, rel, engine.Policy_CollectAllTombstones)
+	// scan on multi CN: collect tombstones and get lastFlushTimestamp for ViewTS
+	uncommittedTombs, lastFlushTS, err := collectTombstones(c, n, rel, engine.Policy_CollectAllTombstones)
 	if err != nil {
 		return nil, err
 	}
 
-	// calculate ViewTS using LatestLogtailAppliedTime (not PartitionState.end which may be MaxTs)
+	// calculate ViewTS = max(lastFlushTS, snapshotTS)
+	// lastFlushTS is the table-level logtail progress, not MaxTs
 	snapshotTS := types.TimestampToTS(c.proc.GetTxnOperator().SnapshotTS())
 	viewTS := snapshotTS // default to snapshotTS
-	if eng, ok := c.e.(*disttae.Engine); ok {
-		latestTS := types.TimestampToTS(eng.LatestLogtailAppliedTime())
-		if !latestTS.IsEmpty() && latestTS.GT(&snapshotTS) {
-			viewTS = latestTS
-		}
+	if !lastFlushTS.IsEmpty() && lastFlushTS.GT(&snapshotTS) {
+		viewTS = lastFlushTS
 	}
 
-	logutil.Infof("generateNodes: multi-CN, cnList=%d, snapshotTS=%s, viewTS=%s, localAddr=%s",
-		len(c.cnList), snapshotTS.ToString(), viewTS.ToString(), c.addr)
+	logutil.Infof("generateNodes: multi-CN, cnList=%d, snapshotTS=%s, lastFlushTS=%s, viewTS=%s, localAddr=%s",
+		len(c.cnList), snapshotTS.ToString(), lastFlushTS.ToString(), viewTS.ToString(), c.addr)
 
 	for i := range c.cnList {
 		node := engine.Node{

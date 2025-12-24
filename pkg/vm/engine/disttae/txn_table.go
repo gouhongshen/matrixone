@@ -602,10 +602,10 @@ func (tbl *txnTable) CollectTombstones(
 			return nil, types.TS{}, err
 		}
 
-		// get PartitionState.end for multi-CN consistency
-		psStart, psEnd := state.GetDuration()
-		logutil.Infof("CollectTombstones: table=%s, tid=%d, psStart=%s, psEnd=%s, psIsEmpty=%v",
-			tbl.tableName, tbl.tableId, psStart.ToString(), psEnd.ToString(), state.IsEmpty())
+		// get lastFlushTimestamp for multi-CN consistency (not PartitionState.end which is MaxTs)
+		psEnd = state.GetLastFlushTimestamp()
+		logutil.Infof("CollectTombstones: table=%s, tid=%d, lastFlushTS=%s, psIsEmpty=%v",
+			tbl.tableName, tbl.tableId, psEnd.ToString(), state.IsEmpty())
 
 		{
 			ts := tbl.db.op.SnapshotTS()

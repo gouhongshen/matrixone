@@ -95,6 +95,10 @@ func (p *PartitionState) GetEnd() types.TS {
 	return p.end
 }
 
+func (p *PartitionState) GetLastFlushTimestamp() types.TS {
+	return p.lastFlushTimestamp
+}
+
 func (p *PartitionState) LogEntry(entry *api.Entry, msg string) {
 	data, _ := batch.ProtoBatchToBatch(entry.Bat)
 	logutil.Info(
