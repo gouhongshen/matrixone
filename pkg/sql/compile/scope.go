@@ -28,6 +28,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/common/reuse"
 	"github.com/matrixorigin/matrixone/pkg/common/runtime"
 	commonutil "github.com/matrixorigin/matrixone/pkg/common/util"
+	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/defines"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
 	pbpipeline "github.com/matrixorigin/matrixone/pkg/pb/pipeline"
@@ -562,10 +563,58 @@ func buildScanParallelRun(s *Scope, c *Compile) (*Scope, error) {
 	return ms, nil
 }
 
+// waitLogtailSync waits for logtail to sync to viewTS for multi-CN consistency
+func waitLogtailSync(c *Compile, rel engine.Relation, viewTS types.TS) error {
+	// get TimestampWaiter via type assertion
+	eng, ok := c.e.(*disttae.Engine)
+	if !ok {
+		// non-disttae engine (e.g. memoryengine), skip waiting
+		return nil
+	}
+
+	waiter := eng.GetTimestampWaiter()
+	if waiter == nil {
+		return nil
+	}
+
+	// add timeout to prevent query hang if logtail is stuck
+	ctx, cancel := context.WithTimeout(c.proc.GetTopContext(), 30*time.Second)
+	defer cancel()
+
+	// wait for logtail to sync to viewTS
+	_, err := waiter.GetTimestamp(ctx, viewTS.ToTimestamp())
+	if err != nil {
+		return moerr.NewInternalErrorNoCtxf("wait logtail to %s failed: %v",
+			viewTS.ToString(), err)
+	}
+
+	// table-level check: ensure target table's PartitionState.end >= viewTS
+	_, psEnd, err := rel.CollectTombstones(ctx, c.TxnOffset, engine.Policy_CollectCommittedTombstones)
+	if err != nil {
+		return err
+	}
+	if !psEnd.IsEmpty() && psEnd.LT(&viewTS) {
+		return moerr.NewInternalErrorNoCtxf("partition state not ready: %s < %s",
+			psEnd.ToString(), viewTS.ToString())
+	}
+
+	return nil
+}
+
 func (s *Scope) getRelData(c *Compile, blockExprList []*plan.Expr) error {
 	rel, db, ctx, err := c.handleDbRelContext(s.DataSource.node, s.IsRemote)
 	if err != nil {
 		return err
+	}
+
+	// multi-CN: remote CN waits for logtail sync
+	if s.IsRemote && s.NodeInfo.CNCNT > 1 && s.NodeInfo.Data != nil {
+		viewTS := s.NodeInfo.Data.GetViewTS()
+		if !viewTS.IsEmpty() {
+			if err := waitLogtailSync(c, rel, viewTS); err != nil {
+				return err
+			}
+		}
 	}
 
 	if s.NodeInfo.CNCNT == 1 {
@@ -634,6 +683,8 @@ func (s *Scope) getRelData(c *Compile, blockExprList []*plan.Expr) error {
 	// 		commited.DataCnt())
 	// }
 
+	// for reporduce issue
+	time.Sleep(time.Second * 10)
 	//collect uncommited data if it's local cn
 	if !s.IsRemote {
 		s.NodeInfo.Data, err = c.expandRanges(
@@ -963,7 +1014,7 @@ func (s *Scope) aggOptimize(c *Compile, rel engine.Relation, ctx context.Context
 				return err
 			}
 
-			tombstones, err := collectTombstones(c, node, rel, engine.Policy_CollectAllTombstones)
+			tombstones, _, err := collectTombstones(c, node, rel, engine.Policy_CollectAllTombstones)
 			if err != nil {
 				return err
 			}

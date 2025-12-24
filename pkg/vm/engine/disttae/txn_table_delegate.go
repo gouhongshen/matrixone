@@ -338,14 +338,14 @@ func (tbl *txnTableDelegate) CollectTombstones(
 	ctx context.Context,
 	txnOffset int,
 	policy engine.TombstoneCollectPolicy,
-) (engine.Tombstoner, error) {
+) (engine.Tombstoner, types.TS, error) {
 	if tbl.combined.is {
 		return tbl.combined.tbl.CollectTombstones(ctx, txnOffset, policy)
 	}
 
 	is, err := tbl.isLocal()
 	if err != nil {
-		return nil, err
+		return nil, types.TS{}, err
 	}
 	if is {
 		return tbl.origin.CollectTombstones(
@@ -355,13 +355,13 @@ func (tbl *txnTableDelegate) CollectTombstones(
 		)
 	}
 
-	localTombstones, err := tbl.origin.CollectTombstones(
+	localTombstones, _, err := tbl.origin.CollectTombstones(
 		ctx,
 		txnOffset,
 		engine.Policy_CollectUncommittedTombstones,
 	)
 	if err != nil {
-		return nil, err
+		return nil, types.TS{}, err
 	}
 	var remoteTombstones engine.Tombstoner
 	err = tbl.forwardRead(
@@ -379,10 +379,11 @@ func (tbl *txnTableDelegate) CollectTombstones(
 		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, types.TS{}, err
 	}
 	localTombstones.Merge(remoteTombstones)
-	return localTombstones, nil
+	// Note: psEnd is not available in sharding mode, return empty TS
+	return localTombstones, types.TS{}, nil
 }
 
 func (tbl *txnTableDelegate) GetColumMetadataScanInfo(
@@ -552,7 +553,7 @@ func (tbl *txnTableDelegate) BuildShardingReaders(
 	//}
 
 	_, uncommittedObjNames := tbl.origin.collectUnCommittedDataObjs(txnOffset)
-	uncommittedTombstones, err := tbl.origin.CollectTombstones(
+	uncommittedTombstones, _, err := tbl.origin.CollectTombstones(
 		ctx,
 		txnOffset,
 		engine.Policy_CollectUncommittedTombstones)

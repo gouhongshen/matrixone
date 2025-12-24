@@ -817,6 +817,9 @@ const (
 	RelDataShardIDList
 	RelDataBlockList
 	RelDataObjList
+	// v2 types with ViewTS support for multi-CN consistency
+	RelDataEmptyV2
+	RelDataBlockListV2
 )
 
 type RelData interface {
@@ -832,6 +835,10 @@ type RelData interface {
 
 	BuildEmptyRelData(preAllocSize int) RelData
 	DataCnt() int
+
+	// ViewTS for multi-CN consistency
+	SetViewTS(ts types.TS)
+	GetViewTS() types.TS
 
 	// specified interface
 
@@ -999,7 +1006,7 @@ type Relation interface {
 
 	Ranges(context.Context, RangesParam) (RelData, error)
 
-	CollectTombstones(ctx context.Context, txnOffset int, policy TombstoneCollectPolicy) (Tombstoner, error)
+	CollectTombstones(ctx context.Context, txnOffset int, policy TombstoneCollectPolicy) (Tombstoner, types.TS, error)
 
 	CollectChanges(ctx context.Context, from, to types.TS, skipDeletes bool, mp *mpool.MPool) (ChangesHandle, error)
 

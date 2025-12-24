@@ -4132,10 +4132,11 @@ func collectTombstones(
 	node *plan.Node,
 	rel engine.Relation,
 	policy engine.TombstoneCollectPolicy,
-) (engine.Tombstoner, error) {
+) (engine.Tombstoner, types.TS, error) {
 	var err error
 	//var relData engine.RelData
 	var tombstone engine.Tombstoner
+	var psEnd types.TS
 
 	//-----------------------------------------------------------------------------------------------------
 	ctx := c.proc.GetTopContext()
@@ -4165,12 +4166,12 @@ func collectTombstones(
 		ctx = defines.AttachAccountId(ctx, catalog.System_Account)
 	}
 
-	tombstone, err = rel.CollectTombstones(ctx, c.TxnOffset, policy)
+	tombstone, psEnd, err = rel.CollectTombstones(ctx, c.TxnOffset, policy)
 	if err != nil {
-		return nil, err
+		return nil, types.TS{}, err
 	}
 
-	return tombstone, nil
+	return tombstone, psEnd, nil
 }
 
 func (c *Compile) expandRanges(
@@ -4362,7 +4363,19 @@ func (c *Compile) generateNodes(n *plan.Node) (engine.Nodes, error) {
 		return nodes, nil
 	}
 
-	// scan on multi CN
+	// scan on multi CN: collect tombstones and get psEnd for ViewTS
+	uncommittedTombs, psEnd, err := collectTombstones(c, n, rel, engine.Policy_CollectAllTombstones)
+	if err != nil {
+		return nil, err
+	}
+
+	// calculate ViewTS = max(psEnd, snapshotTS)
+	snapshotTS := types.TimestampToTS(c.proc.GetTxnOperator().SnapshotTS())
+	viewTS := snapshotTS // default to snapshotTS
+	if !psEnd.IsEmpty() && psEnd.GT(&snapshotTS) {
+		viewTS = psEnd
+	}
+
 	for i := range c.cnList {
 		node := engine.Node{
 			Id:    c.cnList[i].Id,
@@ -4372,12 +4385,10 @@ func (c *Compile) generateNodes(n *plan.Node) (engine.Nodes, error) {
 			CNIDX: int32(i),
 		}
 		if node.Addr != c.addr {
-			uncommittedTombs, err := collectTombstones(c, n, rel, engine.Policy_CollectAllTombstones)
-			if err != nil {
-				return nil, err
-			}
+			// remote CN: set tombstones and viewTS
 			node.Data = readutil.BuildEmptyRelData()
 			node.Data.AttachTombstones(uncommittedTombs)
+			node.Data.SetViewTS(viewTS)
 		}
 		nodes = append(nodes, node)
 	}

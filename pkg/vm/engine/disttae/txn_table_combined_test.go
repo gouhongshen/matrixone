@@ -588,13 +588,13 @@ func TestCombinedTxnTable_CollectTombstones(t *testing.T) {
 		}
 
 		mockRel1 := &mockRelation{
-			collectTombstonesFunc: func(ctx context.Context, txnOffset int, policy engine.TombstoneCollectPolicy) (engine.Tombstoner, error) {
-				return mockTombstone1, nil
+			collectTombstonesFunc: func(ctx context.Context, txnOffset int, policy engine.TombstoneCollectPolicy) (engine.Tombstoner, types.TS, error) {
+				return mockTombstone1, types.TS{}, nil
 			},
 		}
 		mockRel2 := &mockRelation{
-			collectTombstonesFunc: func(ctx context.Context, txnOffset int, policy engine.TombstoneCollectPolicy) (engine.Tombstoner, error) {
-				return mockTombstone2, nil
+			collectTombstonesFunc: func(ctx context.Context, txnOffset int, policy engine.TombstoneCollectPolicy) (engine.Tombstoner, types.TS, error) {
+				return mockTombstone2, types.TS{}, nil
 			},
 		}
 
@@ -604,7 +604,7 @@ func TestCombinedTxnTable_CollectTombstones(t *testing.T) {
 			},
 		}
 
-		result, err := table.CollectTombstones(context.Background(), 0, engine.Policy_CollectAllTombstones)
+		result, _, err := table.CollectTombstones(context.Background(), 0, engine.Policy_CollectAllTombstones)
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
 		// After merging, the first tombstone should have both properties
@@ -620,7 +620,7 @@ func TestCombinedTxnTable_CollectTombstones(t *testing.T) {
 			},
 		}
 
-		result, err := table.CollectTombstones(context.Background(), 0, engine.Policy_CollectAllTombstones)
+		result, _, err := table.CollectTombstones(context.Background(), 0, engine.Policy_CollectAllTombstones)
 		assert.Error(t, err)
 		assert.Nil(t, result)
 		assert.Equal(t, assert.AnError, err)
@@ -629,8 +629,8 @@ func TestCombinedTxnTable_CollectTombstones(t *testing.T) {
 	// Test case 3: Error from individual table's CollectTombstones
 	t.Run("Error from individual table", func(t *testing.T) {
 		mockRel := &mockRelation{
-			collectTombstonesFunc: func(ctx context.Context, txnOffset int, policy engine.TombstoneCollectPolicy) (engine.Tombstoner, error) {
-				return nil, assert.AnError
+			collectTombstonesFunc: func(ctx context.Context, txnOffset int, policy engine.TombstoneCollectPolicy) (engine.Tombstoner, types.TS, error) {
+				return nil, types.TS{}, assert.AnError
 			},
 		}
 
@@ -640,7 +640,7 @@ func TestCombinedTxnTable_CollectTombstones(t *testing.T) {
 			},
 		}
 
-		result, err := table.CollectTombstones(context.Background(), 0, engine.Policy_CollectAllTombstones)
+		result, _, err := table.CollectTombstones(context.Background(), 0, engine.Policy_CollectAllTombstones)
 		assert.Error(t, err)
 		assert.Nil(t, result)
 		assert.Equal(t, assert.AnError, err)
@@ -654,7 +654,7 @@ func TestCombinedTxnTable_CollectTombstones(t *testing.T) {
 			},
 		}
 
-		result, err := table.CollectTombstones(context.Background(), 0, engine.Policy_CollectAllTombstones)
+		result, _, err := table.CollectTombstones(context.Background(), 0, engine.Policy_CollectAllTombstones)
 		assert.NoError(t, err)
 		assert.Nil(t, result)
 	})
@@ -667,8 +667,8 @@ func TestCombinedTxnTable_CollectTombstones(t *testing.T) {
 		}
 
 		mockRel := &mockRelation{
-			collectTombstonesFunc: func(ctx context.Context, txnOffset int, policy engine.TombstoneCollectPolicy) (engine.Tombstoner, error) {
-				return mockTombstone, nil
+			collectTombstonesFunc: func(ctx context.Context, txnOffset int, policy engine.TombstoneCollectPolicy) (engine.Tombstoner, types.TS, error) {
+				return mockTombstone, types.TS{}, nil
 			},
 		}
 
@@ -678,7 +678,7 @@ func TestCombinedTxnTable_CollectTombstones(t *testing.T) {
 			},
 		}
 
-		result, err := table.CollectTombstones(context.Background(), 0, engine.Policy_CollectAllTombstones)
+		result, _, err := table.CollectTombstones(context.Background(), 0, engine.Policy_CollectAllTombstones)
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
 		assert.True(t, result.HasAnyInMemoryTombstone())
@@ -1145,7 +1145,7 @@ type mockRelation struct {
 	getColumMetadataScanInfoFunc    func(ctx context.Context, name string, visitTombstone bool) ([]*plan.MetadataScanInfo, error)
 	getNonAppendableObjectStatsFunc func(ctx context.Context) ([]objectio.ObjectStats, error)
 	approxObjectsNumFunc            func(ctx context.Context) int
-	collectTombstonesFunc           func(ctx context.Context, txnOffset int, policy engine.TombstoneCollectPolicy) (engine.Tombstoner, error)
+	collectTombstonesFunc           func(ctx context.Context, txnOffset int, policy engine.TombstoneCollectPolicy) (engine.Tombstoner, types.TS, error)
 	sizeFunc                        func(ctx context.Context, columnName string) (uint64, error)
 	rowsFunc                        func(ctx context.Context) (uint64, error)
 	buildReadersFunc                func(ctx context.Context, proc any, expr *plan.Expr, relData engine.RelData, num int, txnOffset int, orderBy bool, policy engine.TombstoneApplyPolicy, filterHint engine.FilterHint) ([]engine.Reader, error)
@@ -1185,11 +1185,11 @@ func (m *mockRelation) Size(ctx context.Context, columnName string) (uint64, err
 	return 0, nil
 }
 
-func (m *mockRelation) CollectTombstones(ctx context.Context, txnOffset int, policy engine.TombstoneCollectPolicy) (engine.Tombstoner, error) {
+func (m *mockRelation) CollectTombstones(ctx context.Context, txnOffset int, policy engine.TombstoneCollectPolicy) (engine.Tombstoner, types.TS, error) {
 	if m.collectTombstonesFunc != nil {
 		return m.collectTombstonesFunc(ctx, txnOffset, policy)
 	}
-	return nil, nil
+	return nil, types.TS{}, nil
 }
 
 func (m *mockRelation) CollectChanges(ctx context.Context, from, to types.TS, _ bool, mp *mpool.MPool) (engine.ChangesHandle, error) {
@@ -1384,3 +1384,6 @@ func (m *mockRelData) AppendBlockInfo(blk *objectio.BlockInfo) {
 
 func (m *mockRelData) AppendBlockInfoSlice(objectio.BlockInfoSlice) {
 }
+
+func (m *mockRelData) SetViewTS(ts types.TS) {}
+func (m *mockRelData) GetViewTS() types.TS   { return types.TS{} }

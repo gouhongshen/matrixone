@@ -47,7 +47,7 @@ func TestCollectTombstonesIsLocalErr(t *testing.T) {
 	runIsLocalErrTests(
 		t,
 		func(tbl *txnTableDelegate) {
-			_, err := tbl.CollectTombstones(context.Background(), 0, 0)
+			_, _, err := tbl.CollectTombstones(context.Background(), 0, 0)
 			require.Error(t, err)
 		},
 	)

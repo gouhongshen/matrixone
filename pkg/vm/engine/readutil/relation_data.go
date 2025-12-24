@@ -43,13 +43,26 @@ func UnmarshalRelationData(data []byte) (engine.RelData, error) {
 			return nil, err
 		}
 		return relData, nil
+	case engine.RelDataEmptyV2:
+		relData := BuildEmptyRelData()
+		if err := relData.UnmarshalBinary(data); err != nil {
+			return nil, err
+		}
+		return relData, nil
+	case engine.RelDataBlockListV2:
+		relData := new(BlockListRelData)
+		if err := relData.UnmarshalBinary(data); err != nil {
+			return nil, err
+		}
+		return relData, nil
 	default:
 		return nil, moerr.NewInternalErrorNoCtx("unsupported relation data type")
 	}
 }
 
 type EmptyRelationData struct {
-	tombs engine.Tombstoner
+	tombs  engine.Tombstoner
+	viewTS types.TS
 }
 
 func BuildEmptyRelData() engine.RelData {
@@ -101,13 +114,27 @@ func (rd *EmptyRelationData) AppendBlockInfoSlice(objectio.BlockInfoSlice) {
 }
 
 func (rd *EmptyRelationData) GetType() engine.RelDataType {
+	// Use v2 type when viewTS is set
+	if !rd.viewTS.IsEmpty() {
+		return engine.RelDataEmptyV2
+	}
 	return engine.RelDataEmpty
 }
+
+func (rd *EmptyRelationData) SetViewTS(ts types.TS) { rd.viewTS = ts }
+func (rd *EmptyRelationData) GetViewTS() types.TS   { return rd.viewTS }
 
 func (rd *EmptyRelationData) MarshalBinaryWithBuffer(w *bytes.Buffer) (err error) {
 	typ := uint8(rd.GetType())
 	if _, err = w.Write(types.EncodeUint8(&typ)); err != nil {
 		return
+	}
+
+	// v2: marshal viewTS (fixed 12 bytes)
+	if typ == uint8(engine.RelDataEmptyV2) {
+		if _, err = w.Write(rd.viewTS[:]); err != nil {
+			return
+		}
 	}
 
 	// marshal tombstones
@@ -137,10 +164,16 @@ func (rd *EmptyRelationData) MarshalBinary() ([]byte, error) {
 
 func (rd *EmptyRelationData) UnmarshalBinary(data []byte) (err error) {
 	typ := engine.RelDataType(types.DecodeUint8(data))
-	if typ != engine.RelDataEmpty {
+	if typ != engine.RelDataEmpty && typ != engine.RelDataEmptyV2 {
 		return moerr.NewInternalErrorNoCtxf("UnmarshalBinary empty rel data with type:%v", typ)
 	}
 	data = data[1:]
+
+	// v2: unmarshal viewTS
+	if typ == engine.RelDataEmptyV2 {
+		copy(rd.viewTS[:], data[:types.TxnTsSize])
+		data = data[types.TxnTsSize:]
+	}
 
 	tombstoneLen := types.DecodeUint32(data)
 	data = data[4:]
@@ -383,6 +416,9 @@ func (or *ObjListRelData) GetTombstones() engine.Tombstoner {
 	return or.blocklistRelData.tombstones
 }
 
+func (or *ObjListRelData) SetViewTS(ts types.TS) { or.blocklistRelData.viewTS = ts }
+func (or *ObjListRelData) GetViewTS() types.TS   { return or.blocklistRelData.viewTS }
+
 func (or *ObjListRelData) DataSlice(i, j int) engine.RelData {
 	or.expand()
 	return or.blocklistRelData.DataSlice(i, j)
@@ -399,6 +435,8 @@ type BlockListRelData struct {
 	pState any
 	// tombstones
 	tombstones engine.Tombstoner
+	// viewTS for multi-CN consistency
+	viewTS types.TS
 }
 
 func (relData *BlockListRelData) String() string {
@@ -488,10 +526,16 @@ func (relData *BlockListRelData) AppendBlockInfoSlice(slice objectio.BlockInfoSl
 
 func (relData *BlockListRelData) UnmarshalBinary(data []byte) (err error) {
 	typ := engine.RelDataType(types.DecodeUint8(data))
-	if typ != engine.RelDataBlockList {
+	if typ != engine.RelDataBlockList && typ != engine.RelDataBlockListV2 {
 		return moerr.NewInternalErrorNoCtxf("UnmarshalBinary RelDataBlockList with %v", typ)
 	}
 	data = data[1:]
+
+	// v2: unmarshal viewTS
+	if typ == engine.RelDataBlockListV2 {
+		copy(relData.viewTS[:], data[:types.TxnTsSize])
+		data = data[types.TxnTsSize:]
+	}
 
 	sizeofblks := types.DecodeUint32(data)
 	data = data[4:]
@@ -514,6 +558,13 @@ func (relData *BlockListRelData) MarshalBinaryWithBuffer(w *bytes.Buffer) (err e
 	typ := uint8(relData.GetType())
 	if _, err = w.Write(types.EncodeUint8(&typ)); err != nil {
 		return
+	}
+
+	// v2: marshal viewTS (fixed 12 bytes)
+	if typ == uint8(engine.RelDataBlockListV2) {
+		if _, err = w.Write(relData.viewTS[:]); err != nil {
+			return
+		}
 	}
 
 	// marshal blk list
@@ -544,8 +595,15 @@ func (relData *BlockListRelData) MarshalBinaryWithBuffer(w *bytes.Buffer) (err e
 }
 
 func (relData *BlockListRelData) GetType() engine.RelDataType {
+	// Use v2 type when viewTS is set
+	if !relData.viewTS.IsEmpty() {
+		return engine.RelDataBlockListV2
+	}
 	return engine.RelDataBlockList
 }
+
+func (relData *BlockListRelData) SetViewTS(ts types.TS) { relData.viewTS = ts }
+func (relData *BlockListRelData) GetViewTS() types.TS   { return relData.viewTS }
 
 func (relData *BlockListRelData) MarshalBinary() ([]byte, error) {
 	var w bytes.Buffer

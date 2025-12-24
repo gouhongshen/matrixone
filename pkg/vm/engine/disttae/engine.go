@@ -671,6 +671,12 @@ func (e *Engine) New(ctx context.Context, op client.TxnOperator) error {
 	return nil
 }
 
+// GetTimestampWaiter returns the TimestampWaiter for waiting logtail sync
+// Used for multi-CN consistency
+func (e *Engine) GetTimestampWaiter() client.TimestampWaiter {
+	return e.pClient.timestampWaiter
+}
+
 func (e *Engine) Nodes(
 	isInternal bool, tenant string, username string, cnLabel map[string]string,
 ) (engine.Nodes, error) {

@@ -541,8 +541,9 @@ func (tbl *txnTable) CollectTombstones(
 	ctx context.Context,
 	txnOffset int,
 	policy engine.TombstoneCollectPolicy,
-) (engine.Tombstoner, error) {
+) (engine.Tombstoner, types.TS, error) {
 	tombstone := readutil.NewEmptyTombstoneData()
+	var psEnd types.TS
 
 	//collect uncommitted tombstones
 
@@ -587,7 +588,7 @@ func (tbl *txnTable) CollectTombstones(
 			func(stats *objectio.ObjectStats) {
 				tombstone.AppendFiles(*stats)
 			}); err != nil {
-			return nil, err
+			return nil, types.TS{}, err
 		}
 	}
 
@@ -598,8 +599,12 @@ func (tbl *txnTable) CollectTombstones(
 		//collect committed in-memory tombstones from partition state.
 		state, err := tbl.getPartitionState(ctx)
 		if err != nil {
-			return nil, err
+			return nil, types.TS{}, err
 		}
+
+		// get PartitionState.end for multi-CN consistency
+		_, psEnd = state.GetDuration()
+
 		{
 			ts := tbl.db.op.SnapshotTS()
 			iter := state.NewRowsIter(types.TimestampToTS(ts), nil, true)
@@ -619,11 +624,11 @@ func (tbl *txnTable) CollectTombstones(
 				tombstone.AppendFiles(*stats)
 			})
 		if err != nil {
-			return nil, err
+			return nil, types.TS{}, err
 		}
 	}
 	tombstone.SortInMemory()
-	return tombstone, nil
+	return tombstone, psEnd, nil
 }
 
 // Ranges returns all unmodified blocks from the table.
@@ -1774,7 +1779,7 @@ func buildRemoteDS(
 	relData engine.RelData,
 ) (source engine.DataSource, err error) {
 
-	tombstones, err := tbl.CollectTombstones(ctx, txnOffset, engine.Policy_CollectAllTombstones)
+	tombstones, _, err := tbl.CollectTombstones(ctx, txnOffset, engine.Policy_CollectAllTombstones)
 	if err != nil {
 		return nil, err
 	}

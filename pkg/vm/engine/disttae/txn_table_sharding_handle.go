@@ -423,7 +423,7 @@ func HandleShardingReadCollectTombstones(
 		return nil, err
 	}
 
-	tombstones, err := tbl.CollectTombstones(
+	tombstones, _, err := tbl.CollectTombstones(
 		ctx,
 		0,
 		engine.TombstoneCollectPolicy(param.CollectTombstonesParam.CollectPolicy),

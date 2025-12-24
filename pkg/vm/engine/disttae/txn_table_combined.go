@@ -220,27 +220,32 @@ func (t *combinedTxnTable) CollectTombstones(
 	ctx context.Context,
 	txnOffset int,
 	policy engine.TombstoneCollectPolicy,
-) (engine.Tombstoner, error) {
+) (engine.Tombstoner, types.TS, error) {
 	tables, err := t.tablesFunc()
 	if err != nil {
-		return nil, err
+		return nil, types.TS{}, err
 	}
 
 	var tombstone engine.Tombstoner
+	var maxPsEnd types.TS
 	for _, rel := range tables {
-		t, err := rel.CollectTombstones(ctx, txnOffset, policy)
+		t, psEnd, err := rel.CollectTombstones(ctx, txnOffset, policy)
 		if err != nil {
-			return nil, err
+			return nil, types.TS{}, err
+		}
+		// track max psEnd across all tables
+		if psEnd.GT(&maxPsEnd) {
+			maxPsEnd = psEnd
 		}
 		if tombstone == nil {
 			tombstone = t
 			continue
 		}
 		if err := tombstone.Merge(t); err != nil {
-			return nil, err
+			return nil, types.TS{}, err
 		}
 	}
-	return tombstone, nil
+	return tombstone, maxPsEnd, nil
 }
 
 func (t *combinedTxnTable) CollectChanges(
@@ -571,3 +576,6 @@ func (r *CombinedRelData) AppendBlockInfoSlice(objectio.BlockInfoSlice) {
 func (r *CombinedRelData) Split(i int) []engine.RelData {
 	panic("not implemented")
 }
+
+func (r *CombinedRelData) SetViewTS(ts types.TS) {}
+func (r *CombinedRelData) GetViewTS() types.TS   { return types.TS{} }
