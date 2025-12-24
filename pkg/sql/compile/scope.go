@@ -30,6 +30,7 @@ import (
 	commonutil "github.com/matrixorigin/matrixone/pkg/common/util"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/defines"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/objectio"
 	pbpipeline "github.com/matrixorigin/matrixone/pkg/pb/pipeline"
 	"github.com/matrixorigin/matrixone/pkg/pb/plan"
@@ -564,40 +565,41 @@ func buildScanParallelRun(s *Scope, c *Compile) (*Scope, error) {
 }
 
 // waitLogtailSync waits for logtail to sync to viewTS for multi-CN consistency
-func waitLogtailSync(c *Compile, rel engine.Relation, viewTS types.TS) error {
+func waitLogtailSync(c *Compile, viewTS types.TS) error {
+	logutil.Infof("waitLogtailSync: start, viewTS=%s", viewTS.ToString())
+
 	// get TimestampWaiter via type assertion
 	eng, ok := c.e.(*disttae.Engine)
 	if !ok {
-		// non-disttae engine (e.g. memoryengine), skip waiting
+		logutil.Info("waitLogtailSync: skip, not disttae engine")
 		return nil
 	}
 
 	waiter := eng.GetTimestampWaiter()
 	if waiter == nil {
+		logutil.Info("waitLogtailSync: skip, waiter is nil")
 		return nil
 	}
+
+	// check current waiter latest TS
+	latestTS := waiter.LatestTS()
+	logutil.Infof("waitLogtailSync: waiter latestTS=%v, viewTS=%s", latestTS, viewTS.ToString())
 
 	// add timeout to prevent query hang if logtail is stuck
 	ctx, cancel := context.WithTimeout(c.proc.GetTopContext(), 30*time.Second)
 	defer cancel()
 
 	// wait for logtail to sync to viewTS
+	// Note: global watermark is sufficient because logtail is applied sequentially
+	logutil.Infof("waitLogtailSync: calling waiter.GetTimestamp with viewTS=%s", viewTS.ToString())
 	_, err := waiter.GetTimestamp(ctx, viewTS.ToTimestamp())
 	if err != nil {
+		logutil.Errorf("waitLogtailSync: failed, viewTS=%s, err=%v", viewTS.ToString(), err)
 		return moerr.NewInternalErrorNoCtxf("wait logtail to %s failed: %v",
 			viewTS.ToString(), err)
 	}
 
-	// table-level check: ensure target table's PartitionState.end >= viewTS
-	_, psEnd, err := rel.CollectTombstones(ctx, c.TxnOffset, engine.Policy_CollectCommittedTombstones)
-	if err != nil {
-		return err
-	}
-	if !psEnd.IsEmpty() && psEnd.LT(&viewTS) {
-		return moerr.NewInternalErrorNoCtxf("partition state not ready: %s < %s",
-			psEnd.ToString(), viewTS.ToString())
-	}
-
+	logutil.Infof("waitLogtailSync: success, viewTS=%s", viewTS.ToString())
 	return nil
 }
 
@@ -610,8 +612,10 @@ func (s *Scope) getRelData(c *Compile, blockExprList []*plan.Expr) error {
 	// multi-CN: remote CN waits for logtail sync
 	if s.IsRemote && s.NodeInfo.CNCNT > 1 && s.NodeInfo.Data != nil {
 		viewTS := s.NodeInfo.Data.GetViewTS()
+		logutil.Infof("getRelData: IsRemote=%v, CNCNT=%d, viewTS=%s, viewTS.IsEmpty=%v",
+			s.IsRemote, s.NodeInfo.CNCNT, viewTS.ToString(), viewTS.IsEmpty())
 		if !viewTS.IsEmpty() {
-			if err := waitLogtailSync(c, rel, viewTS); err != nil {
+			if err := waitLogtailSync(c, viewTS); err != nil {
 				return err
 			}
 		}

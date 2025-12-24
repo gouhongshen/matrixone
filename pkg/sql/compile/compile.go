@@ -4376,6 +4376,9 @@ func (c *Compile) generateNodes(n *plan.Node) (engine.Nodes, error) {
 		viewTS = psEnd
 	}
 
+	logutil.Infof("generateNodes: multi-CN, cnList=%d, psEnd=%s, snapshotTS=%s, viewTS=%s, localAddr=%s",
+		len(c.cnList), psEnd.ToString(), snapshotTS.ToString(), viewTS.ToString(), c.addr)
+
 	for i := range c.cnList {
 		node := engine.Node{
 			Id:    c.cnList[i].Id,
@@ -4389,6 +4392,7 @@ func (c *Compile) generateNodes(n *plan.Node) (engine.Nodes, error) {
 			node.Data = readutil.BuildEmptyRelData()
 			node.Data.AttachTombstones(uncommittedTombs)
 			node.Data.SetViewTS(viewTS)
+			logutil.Infof("generateNodes: set viewTS for remote CN, addr=%s, viewTS=%s", node.Addr, viewTS.ToString())
 		}
 		nodes = append(nodes, node)
 	}
