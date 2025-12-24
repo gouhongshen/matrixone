@@ -537,3 +537,31 @@ ViewTS 只用于等待，确保远程CN的PartitionState已经包含了compile�
 **2025-12-24 18:36**: 移除 `waitLogtailSync` 中的表级校验
 - 原因：表级校验调用 `CollectTombstones` 可能触发 `getPartitionState`，导致额外的等待或死锁
 - 解决：全局水位已足够保证一致性（logtail 顺序应用），移除表级校验简化逻辑
+
+**2025-12-24 20:50**: 修复 ViewTS 计算方式
+- **问题**：`PartitionState.end` 在订阅表时被设置为 `MaxTs()`（设计如此，表示可服务任何时间戳），导致远程 CN 等待 `viewTS=MaxTs()` 永远超时
+- **日志证据**：
+  ```
+  CollectTombstones: table=bmsql_order_line, tid=272547, psStart=0-0, psEnd=9223372036854775807-4294967295, psIsEmpty=false
+  generateNodes: multi-CN, cnList=2, psEnd=9223372036854775807-4294967295, snapshotTS=..., viewTS=9223372036854775807-4294967295
+  waitLogtailSync: failed, viewTS=9223372036854775807-4294967295, err=context deadline exceeded
+  ```
+- **解决**：使用 `Engine.LatestLogtailAppliedTime()` 替代 `PartitionState.end` 作为 ViewTS
+- **修改文件**：`pkg/sql/compile/compile.go` 的 `generateNodes` 函数
+- **修改内容**：
+  ```go
+  // 旧代码（错误）
+  uncommittedTombs, psEnd, err := collectTombstones(...)
+  if !psEnd.IsEmpty() && psEnd.GT(&snapshotTS) {
+      viewTS = psEnd
+  }
+  
+  // 新代码（正确）
+  uncommittedTombs, _, err := collectTombstones(...)
+  if eng, ok := c.e.(*disttae.Engine); ok {
+      latestTS := types.TimestampToTS(eng.LatestLogtailAppliedTime())
+      if !latestTS.IsEmpty() && latestTS.GT(&snapshotTS) {
+          viewTS = latestTS
+      }
+  }
+  ```
