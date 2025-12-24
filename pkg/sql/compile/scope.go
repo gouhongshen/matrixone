@@ -564,43 +564,38 @@ func buildScanParallelRun(s *Scope, c *Compile) (*Scope, error) {
 	return ms, nil
 }
 
-// waitLogtailSync waits for logtail to sync to viewTS for multi-CN consistency
-func waitLogtailSync(c *Compile, viewTS types.TS) error {
+// waitLogtailSync waits for table's lastFlushTimestamp >= viewTS for multi-CN consistency
+func waitLogtailSync(c *Compile, rel engine.Relation, viewTS types.TS) error {
 	logutil.Infof("waitLogtailSync: start, viewTS=%s", viewTS.ToString())
 
-	// get TimestampWaiter via type assertion
-	eng, ok := c.e.(*disttae.Engine)
-	if !ok {
-		logutil.Info("waitLogtailSync: skip, not disttae engine")
-		return nil
-	}
-
-	waiter := eng.GetTimestampWaiter()
-	if waiter == nil {
-		logutil.Info("waitLogtailSync: skip, waiter is nil")
-		return nil
-	}
-
-	// check current waiter latest TS
-	latestTS := waiter.LatestTS()
-	logutil.Infof("waitLogtailSync: waiter latestTS=%v, viewTS=%s", latestTS, viewTS.ToString())
-
-	// add timeout to prevent query hang if logtail is stuck
 	ctx, cancel := context.WithTimeout(c.proc.GetTopContext(), 30*time.Second)
 	defer cancel()
 
-	// wait for logtail to sync to viewTS
-	// Note: global watermark is sufficient because logtail is applied sequentially
-	logutil.Infof("waitLogtailSync: calling waiter.GetTimestamp with viewTS=%s", viewTS.ToString())
-	_, err := waiter.GetTimestamp(ctx, viewTS.ToTimestamp())
-	if err != nil {
-		logutil.Errorf("waitLogtailSync: failed, viewTS=%s, err=%v", viewTS.ToString(), err)
-		return moerr.NewInternalErrorNoCtxf("wait logtail to %s failed: %v",
-			viewTS.ToString(), err)
-	}
+	// poll until table's lastFlushTimestamp >= viewTS
+	for {
+		select {
+		case <-ctx.Done():
+			logutil.Errorf("waitLogtailSync: timeout, viewTS=%s", viewTS.ToString())
+			return moerr.NewInternalErrorNoCtxf("wait logtail to %s timeout", viewTS.ToString())
+		default:
+		}
 
-	logutil.Infof("waitLogtailSync: success, viewTS=%s", viewTS.ToString())
-	return nil
+		// get current table's lastFlushTimestamp via CollectTombstones
+		_, currentTS, err := rel.CollectTombstones(ctx, c.TxnOffset, engine.Policy_CollectCommittedTombstones)
+		if err != nil {
+			return err
+		}
+
+		logutil.Infof("waitLogtailSync: currentTS=%s, viewTS=%s", currentTS.ToString(), viewTS.ToString())
+
+		if !currentTS.IsEmpty() && currentTS.GE(&viewTS) {
+			logutil.Infof("waitLogtailSync: success, currentTS=%s >= viewTS=%s", currentTS.ToString(), viewTS.ToString())
+			return nil
+		}
+
+		// sleep a bit before retry
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func (s *Scope) getRelData(c *Compile, blockExprList []*plan.Expr) error {
@@ -609,13 +604,13 @@ func (s *Scope) getRelData(c *Compile, blockExprList []*plan.Expr) error {
 		return err
 	}
 
-	// multi-CN: remote CN waits for logtail sync
+	// multi-CN: remote CN waits for table's logtail sync
 	if s.IsRemote && s.NodeInfo.CNCNT > 1 && s.NodeInfo.Data != nil {
 		viewTS := s.NodeInfo.Data.GetViewTS()
 		logutil.Infof("getRelData: IsRemote=%v, CNCNT=%d, viewTS=%s, viewTS.IsEmpty=%v",
 			s.IsRemote, s.NodeInfo.CNCNT, viewTS.ToString(), viewTS.IsEmpty())
 		if !viewTS.IsEmpty() {
-			if err := waitLogtailSync(c, viewTS); err != nil {
+			if err := waitLogtailSync(c, rel, viewTS); err != nil {
 				return err
 			}
 		}

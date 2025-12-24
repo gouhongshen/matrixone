@@ -4369,12 +4369,13 @@ func (c *Compile) generateNodes(n *plan.Node) (engine.Nodes, error) {
 		return nil, err
 	}
 
-	// calculate ViewTS = max(lastFlushTS, snapshotTS)
-	// lastFlushTS is the table-level logtail progress, not MaxTs
+	// ViewTS = lastFlushTS (table-level logtail progress)
+	// Remote CN must wait until its lastFlushTimestamp >= ViewTS
+	// This ensures remote CN sees at least the same objects as Driver CN
 	snapshotTS := types.TimestampToTS(c.proc.GetTxnOperator().SnapshotTS())
-	viewTS := snapshotTS // default to snapshotTS
-	if !lastFlushTS.IsEmpty() && lastFlushTS.GT(&snapshotTS) {
-		viewTS = lastFlushTS
+	viewTS := lastFlushTS
+	if viewTS.IsEmpty() {
+		viewTS = snapshotTS
 	}
 
 	logutil.Infof("generateNodes: multi-CN, cnList=%d, snapshotTS=%s, lastFlushTS=%s, viewTS=%s, localAddr=%s",
