@@ -603,7 +603,9 @@ func (tbl *txnTable) CollectTombstones(
 		}
 
 		// get PartitionState.end for multi-CN consistency
-		_, psEnd = state.GetDuration()
+		psStart, psEnd := state.GetDuration()
+		logutil.Infof("CollectTombstones: table=%s, tid=%d, psStart=%s, psEnd=%s, psIsEmpty=%v",
+			tbl.tableName, tbl.tableId, psStart.ToString(), psEnd.ToString(), state.IsEmpty())
 
 		{
 			ts := tbl.db.op.SnapshotTS()
