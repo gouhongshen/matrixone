@@ -667,23 +667,9 @@ func (s *Scope) getRelData(c *Compile, blockExprList []*plan.Expr) error {
 		return err
 	}
 
-	// TODO: the below warning is not useful, we should replace it with a more useful warning.
-	//       temporarily disable it.
-	// average := float64(s.DataSource.node.Stats.BlockNum / s.NodeInfo.CNCNT)
-	// if commited.DataCnt() < int(average*0.8) ||
-	// 	commited.DataCnt() > int(average*1.2) {
-	// 	logutil.Warnf(
-	// 		"workload table %v maybe not balanced! stats blocks %v, cncnt %v cnidx %v average %v , get %v blocks",
-	// 		s.DataSource.TableDef.Name,
-	// 		s.DataSource.node.Stats.BlockNum,
-	// 		s.NodeInfo.CNCNT,
-	// 		s.NodeInfo.CNIDX,
-	// 		average,
-	// 		commited.DataCnt())
-	// }
+	logutil.Infof("getRelData: table=%s, IsRemote=%v, CNIDX=%d, CNCNT=%d, blocks=%d",
+		s.DataSource.TableDef.Name, s.IsRemote, s.NodeInfo.CNIDX, s.NodeInfo.CNCNT, commited.DataCnt())
 
-	// for reporduce issue
-	time.Sleep(time.Second * 10)
 	//collect uncommited data if it's local cn
 	if !s.IsRemote {
 		s.NodeInfo.Data, err = c.expandRanges(
