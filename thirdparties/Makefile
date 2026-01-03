@@ -23,8 +23,10 @@ SIMSIMD_DIR=SimSIMD-6.5.3
 SIMSIMD_TAR=$(SIMSIMD_DIR).tar.gz
 FP16_DIR=fp16
 FP16_TAR=$(FP16_DIR).tar.gz
+JEMALLOC_DIR=jemalloc-5.3.0
+JEMALLOC_TAR=$(JEMALLOC_DIR).tar.bz2
 
-all: init usearch
+all: init usearch jemalloc
 
 init:
 	mkdir -p install
@@ -54,11 +56,16 @@ install/include/stringzilla/stringzilla.h:
 
 USEARCH_CMAKE_FLAG := -DUSEARCH_BUILD_BENCH_CPP=OFF -DUSEARCH_BUILD_TEST_C=OFF -DUSEARCH_BUILD_TEST_CPP=OFF -DUSEARCH_BUILD_LIB_C=ON -DCMAKE_CXX_FLAGS=-I$(PWD)/install/include -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 AVX512FP16 :=
+JEMALLOC_CONFIGURE_ENV :=
 
 ifeq ($(UNAME_S),linux)
   ifeq ($(MUSL),)
 	USEARCH_CMAKE_FLAG += -DUSEARCH_USE_OPENMP=1
   endif
+endif
+
+ifeq ($(UNAME_S),darwin)
+	JEMALLOC_CONFIGURE_ENV := LDFLAGS="-Wl,-install_name,@rpath/libjemalloc.dylib"
 endif
 
 ifeq ($(MO_CL_SIMSIMD),1)
@@ -89,7 +96,15 @@ endif
 	rm -rf $(STRINGZILLA_DIR)
 	rm -rf $(USEARCH_DIR)
 
-clean:
-	rm -rf install $(USEARCH_DIR) $(STRINGZILLA_DIR) $(SIMSIMD_DIR) $(FP16_DIR)
+jemalloc: install/lib/libjemalloc.a
 
-.PHONY: usearch stringzilla fp16 simsimd init
+install/lib/libjemalloc.a:
+	rm -rf $(JEMALLOC_DIR)
+	tar xjf $(JEMALLOC_TAR)
+	(cd $(JEMALLOC_DIR) && $(JEMALLOC_CONFIGURE_ENV) ./configure --prefix=$(PWD)/install && $(MAKE) -j && $(MAKE) install_lib install_include)
+	rm -rf $(JEMALLOC_DIR)
+
+clean:
+	rm -rf install $(USEARCH_DIR) $(STRINGZILLA_DIR) $(SIMSIMD_DIR) $(FP16_DIR) $(JEMALLOC_DIR)
+
+.PHONY: usearch stringzilla fp16 simsimd init jemalloc

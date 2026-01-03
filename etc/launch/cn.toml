@@ -18,6 +18,7 @@ prefetch-on-subscribed = [
 ]
 
 [malloc]
+allocator = "c"
 check-fraction = 65536
 enable-metrics = true
 
