@@ -57,6 +57,7 @@ install/include/stringzilla/stringzilla.h:
 USEARCH_CMAKE_FLAG := -DUSEARCH_BUILD_BENCH_CPP=OFF -DUSEARCH_BUILD_TEST_C=OFF -DUSEARCH_BUILD_TEST_CPP=OFF -DUSEARCH_BUILD_LIB_C=ON -DCMAKE_CXX_FLAGS=-I$(PWD)/install/include -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 AVX512FP16 :=
 JEMALLOC_CONFIGURE_ENV :=
+JEMALLOC_CONFIGURE_FLAGS := --enable-prof
 
 ifeq ($(UNAME_S),linux)
   ifeq ($(MUSL),)
@@ -101,7 +102,7 @@ jemalloc: install/lib/libjemalloc.a
 install/lib/libjemalloc.a:
 	rm -rf $(JEMALLOC_DIR)
 	tar xjf $(JEMALLOC_TAR)
-	(cd $(JEMALLOC_DIR) && $(JEMALLOC_CONFIGURE_ENV) ./configure --prefix=$(PWD)/install && $(MAKE) -j && $(MAKE) install_lib install_include)
+	(cd $(JEMALLOC_DIR) && $(JEMALLOC_CONFIGURE_ENV) ./configure $(JEMALLOC_CONFIGURE_FLAGS) --prefix=$(PWD)/install && $(MAKE) -j && $(MAKE) install_lib install_include)
 	rm -rf $(JEMALLOC_DIR)
 
 clean:
