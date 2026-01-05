@@ -1612,6 +1612,26 @@ func (c *Compile) compileExternScan(n *plan.Node) ([]*Scope, error) {
 	}
 
 	readParallel, writeParallel := c.getReadWriteParallelFlag(param, fileList)
+	if n.ExternScan != nil && n.ExternScan.Type == int32(plan.ExternType_LOAD) {
+		format := param.Format
+		if format == "" {
+			format = "unknown"
+		}
+		readLabel := "false"
+		if readParallel {
+			readLabel = "true"
+		}
+		writeLabel := "false"
+		if writeParallel {
+			writeLabel = "true"
+		}
+		v2.LoadDataParallelStrategyCounter.WithLabelValues(format, readLabel, writeLabel).Inc()
+		if c.anal.qry.LoadTag {
+			compress := crt.GetCompressType(param.CompressType, fileList[0])
+			c.proc.Infof(ctx, "load data parallel decision: readParallel=%v writeParallel=%v format=%s local=%v compress=%s scanType=%d fileCount=%d fileSize=%d",
+				readParallel, writeParallel, format, param.Local, compress, param.ScanType, len(fileList), fileSize[0])
+		}
+	}
 
 	if readParallel && writeParallel {
 		return c.compileExternScanParallelReadWrite(n, param, fileList, fileSize, strictSqlMode)

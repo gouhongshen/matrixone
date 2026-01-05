@@ -354,6 +354,22 @@ func readFile(param *ExternalParam, proc *process.Process) (io.ReadCloser, error
 }
 
 func ReadFileOffset(param *tree.ExternParam, mcpu int, fileSize int64, visibleCols []*plan.ColDef) ([]int64, error) {
+	start := time.Now()
+	defer func() {
+		if param == nil || param.ExternType != int32(plan.ExternType_LOAD) {
+			return
+		}
+		format := param.Format
+		if format == "" {
+			format = "unknown"
+		}
+		mode := "nonstrict"
+		if param.Strict {
+			mode = "strict"
+		}
+		v2.LoadDataFileOffsetDurationHistogram.WithLabelValues(format, mode).Observe(time.Since(start).Seconds())
+	}()
+
 	arr := make([]int64, 0)
 
 	fs, readPath, err := plan2.GetForETLWithType(param, param.Filepath)
@@ -1580,6 +1596,7 @@ func getColData(bat *batch.Batch, line []csvparser.Field, rowIdx int, param *Ext
 // reported.
 
 func makeBatchRows(param *ExternalParam, proc *process.Process, bat *batch.Batch) error {
+	start := time.Now()
 	ctx := proc.Ctx
 	r := param.plh.csvReader
 	var curBatchSize uint64 = 0
@@ -1663,6 +1680,26 @@ func makeBatchRows(param *ExternalParam, proc *process.Process, bat *batch.Batch
 		}
 	}
 	bat.SetRowCount(bat.Vecs[0].Length())
+	if param != nil && param.Extern != nil && param.Extern.ExternType == int32(plan.ExternType_LOAD) {
+		format := param.Extern.Format
+		if format == "" {
+			format = "unknown"
+		}
+		parallel := "false"
+		if param.ParallelLoad {
+			parallel = "true"
+		}
+		v2.LoadDataBatchRowsHistogram.WithLabelValues(format, parallel).Observe(float64(bat.RowCount()))
+		v2.LoadDataBatchBytesEstimateHistogram.WithLabelValues(format, parallel).Observe(float64(curBatchSize))
+		v2.LoadDataBatchBytesHistogram.WithLabelValues(format, parallel).Observe(float64(bat.Size()))
+		v2.LoadDataBatchParseDurationHistogram.WithLabelValues(format, parallel).Observe(time.Since(start).Seconds())
+		if proc != nil {
+			mp := proc.GetMPool()
+			if mp != nil {
+				v2.LoadDataBatchMPoolInuseBytesGauge.WithLabelValues(format, parallel).Set(float64(mp.Stats().NumCurrBytes.Load()))
+			}
+		}
+	}
 	return nil
 }
 

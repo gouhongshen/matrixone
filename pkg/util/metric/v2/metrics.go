@@ -50,6 +50,7 @@ func init() {
 	initProxyMetrics()
 	initFrontendMetrics()
 	initPipelineMetrics()
+	initLoadMetrics()
 	initLogServiceMetrics()
 	initShardingMetrics()
 	initGCMetrics()
