@@ -24,11 +24,22 @@ SIMSIMD_TAR=$(SIMSIMD_DIR).tar.gz
 FP16_DIR=fp16
 FP16_TAR=$(FP16_DIR).tar.gz
 
-all: init usearch
+JEMALLOC_DIR=jemalloc-5.3.0
+JEMALLOC_TAR=jemalloc-5.3.0.tar.bz2
+
+all: init usearch jemalloc
 
 init:
 	mkdir -p install
 	mkdir -p install/include install/lib
+
+jemalloc: install/lib/libjemalloc.a
+
+install/lib/libjemalloc.a:
+	rm -rf $(JEMALLOC_DIR)
+	tar jxvf $(JEMALLOC_TAR)
+	(cd $(JEMALLOC_DIR) && ./configure --prefix=$(PWD)/install --enable-prof --disable-cxx --disable-shared --with-jemalloc-prefix="" && $(MAKE) && $(MAKE) install)
+	rm -rf $(JEMALLOC_DIR)
 
 usearch: stringzilla fp16 simsimd install/include/usearch.h
 
