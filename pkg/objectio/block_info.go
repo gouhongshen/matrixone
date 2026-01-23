@@ -20,8 +20,8 @@ import (
 	"runtime"
 	"unsafe"
 
-	"github.com/matrixorigin/matrixone/pkg/common/logutil"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 )
 
 type ObjectLocation [LocationLen]byte
@@ -227,17 +227,17 @@ func MakeBlockInfoSlice(cnt int) BlockInfoSlice {
 }
 
 func PreAllocBlockInfoSlice(preAllocBlocks int) (ret BlockInfoSlice) {
-	cap := preAllocBlocks * BlockInfoSize
+	capX := preAllocBlocks * BlockInfoSize
 	defer func() {
 		if r := recover(); r != nil {
 			var m runtime.MemStats
 			runtime.ReadMemStats(&m)
 			logutil.Errorf("PreAllocBlockInfoSlice panic: %v, preAllocBlocks=%d, cap=%d, BlockInfoSize=%d, Sys=%dMB, HeapAlloc=%dMB, HeapSys=%dMB",
-				r, preAllocBlocks, cap, BlockInfoSize, m.Sys/(1024*1024), m.HeapAlloc/(1024*1024), m.HeapSys/(1024*1024))
+				r, preAllocBlocks, capX, BlockInfoSize, m.Sys/(1024*1024), m.HeapAlloc/(1024*1024), m.HeapSys/(1024*1024))
 			panic(r)
 		}
 	}()
-	return make([]byte, 0, cap)
+	return make([]byte, 0, capX)
 }
 
 func MultiObjectStatsToBlockInfoSlice(objs []ObjectStats, withFirstEmpty bool) BlockInfoSlice {
