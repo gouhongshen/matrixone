@@ -17,8 +17,10 @@ package objectio
 import (
 	"bytes"
 	"fmt"
+	"runtime"
 	"unsafe"
 
+	"github.com/matrixorigin/matrixone/pkg/common/logutil"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 )
 
@@ -224,14 +226,18 @@ func MakeBlockInfoSlice(cnt int) BlockInfoSlice {
 	return make([]byte, cnt*BlockInfoSize)
 }
 
-func PreAllocBlockInfoSlice(preAllocBlocks int) BlockInfoSlice {
-	if preAllocBlocks < 0 {
-		preAllocBlocks = 0
-	}
-	if preAllocBlocks > 2000000 {
-		preAllocBlocks = 2000000
-	}
-	return make([]byte, 0, preAllocBlocks*BlockInfoSize)
+func PreAllocBlockInfoSlice(preAllocBlocks int) (ret BlockInfoSlice) {
+	cap := preAllocBlocks * BlockInfoSize
+	defer func() {
+		if r := recover(); r != nil {
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			logutil.Errorf("PreAllocBlockInfoSlice panic: %v, preAllocBlocks=%d, cap=%d, BlockInfoSize=%d, Sys=%dMB, HeapAlloc=%dMB, HeapSys=%dMB",
+				r, preAllocBlocks, cap, BlockInfoSize, m.Sys/(1024*1024), m.HeapAlloc/(1024*1024), m.HeapSys/(1024*1024))
+			panic(r)
+		}
+	}()
+	return make([]byte, 0, cap)
 }
 
 func MultiObjectStatsToBlockInfoSlice(objs []ObjectStats, withFirstEmpty bool) BlockInfoSlice {
