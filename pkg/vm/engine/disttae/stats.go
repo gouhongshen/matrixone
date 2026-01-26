@@ -245,6 +245,19 @@ func (gs *GlobalStats) Get(ctx context.Context, key pb.StatsInfoKey, sync bool) 
 
 	info, ok := gs.mu.statsInfoMap[key]
 	if ok && info != nil {
+		const abnormalBlockNumber int64 = 1000000
+		if info.BlockNumber > abnormalBlockNumber || info.BlockNumber < 0 {
+			if info.TableName != "" && key.TableName != "" && info.TableName != key.TableName {
+				logutil.Errorf(
+					"GlobalStats.Get stats table mismatch: source=cache keyTable=%s keyDb=%s keyTableId=%d keyDbId=%d statsTable=%s blockNumber=%d",
+					key.TableName, key.DbName, key.TableID, key.DatabaseID, info.TableName, info.BlockNumber,
+				)
+			}
+			logutil.Errorf(
+				"GlobalStats.Get abnormal stats: source=cache table=%s db=%s tableId=%d dbId=%d blockNumber=%d accurateObjNum=%d approxObjNum=%d",
+				key.TableName, key.DbName, key.TableID, key.DatabaseID, info.BlockNumber, info.AccurateObjectNumber, info.ApproxObjectNumber,
+			)
+		}
 		return info
 	}
 
@@ -257,22 +270,35 @@ func (gs *GlobalStats) Get(ctx context.Context, key pb.StatsInfoKey, sync bool) 
 	}
 
 	// Get stats info from remote node.
-	if gs.KeyRouter != nil {
-		client := gs.engine.qc
-		target := gs.KeyRouter.Target(key)
-		if len(target) != 0 && client != nil {
-			resp, err := client.SendMessage(ctx, target, client.NewRequest(query.CmdMethod_GetStatsInfo))
+		if gs.KeyRouter != nil {
+			client := gs.engine.qc
+			target := gs.KeyRouter.Target(key)
+			if len(target) != 0 && client != nil {
+				resp, err := client.SendMessage(ctx, target, client.NewRequest(query.CmdMethod_GetStatsInfo))
 			if err != nil || resp == nil {
 				logutil.Errorf("failed to send request to %s, err: %v, resp: %v", "", err, resp)
-			} else if resp.GetStatsInfoResponse != nil {
-				defer client.Release(resp)
+				} else if resp.GetStatsInfoResponse != nil {
+					defer client.Release(resp)
 
-				info := resp.GetStatsInfoResponse.StatsInfo
-				// If we get stats info from remote node, update local stats info.
-				gs.mu.statsInfoMap[key] = info
-				return info
+					info := resp.GetStatsInfoResponse.StatsInfo
+					const abnormalBlockNumber int64 = 1000000
+					if info != nil && (info.BlockNumber > abnormalBlockNumber || info.BlockNumber < 0) {
+						if info.TableName != "" && key.TableName != "" && info.TableName != key.TableName {
+							logutil.Errorf(
+								"GlobalStats.Get stats table mismatch: source=remote target=%s keyTable=%s keyDb=%s keyTableId=%d keyDbId=%d statsTable=%s blockNumber=%d",
+								target, key.TableName, key.DbName, key.TableID, key.DatabaseID, info.TableName, info.BlockNumber,
+							)
+						}
+						logutil.Errorf(
+							"GlobalStats.Get abnormal stats: source=remote target=%s table=%s db=%s tableId=%d dbId=%d blockNumber=%d accurateObjNum=%d approxObjNum=%d",
+							target, key.TableName, key.DbName, key.TableID, key.DatabaseID, info.BlockNumber, info.AccurateObjectNumber, info.ApproxObjectNumber,
+						)
+					}
+					// If we get stats info from remote node, update local stats info.
+					gs.mu.statsInfoMap[key] = info
+					return info
+				}
 			}
-		}
 	}
 
 	ok = false
@@ -639,6 +665,13 @@ func updateInfoFromZoneMap(
 		return fsErr
 	}
 
+	var (
+		maxBlkCnt  uint32
+		maxBlkRows uint32
+		maxBlkObj  string
+		objCnt     int64
+	)
+
 	var updateMu sync.Mutex
 	var init bool
 	onObjFn := func(obj objectio.ObjectEntry) error {
@@ -651,7 +684,14 @@ func updateInfoFromZoneMap(
 		defer updateMu.Unlock()
 		meta := objMeta.MustDataMeta()
 		info.AccurateObjectNumber++
-		info.BlockNumber += int64(obj.BlkCnt())
+		blkCnt := obj.BlkCnt()
+		info.BlockNumber += int64(blkCnt)
+		objCnt++
+		if blkCnt > maxBlkCnt {
+			maxBlkCnt = blkCnt
+			maxBlkRows = obj.Rows()
+			maxBlkObj = obj.ObjectName().String()
+		}
 		objSize := meta.BlockHeader().Rows()
 		info.TableCnt += float64(objSize)
 		if !init {
@@ -738,6 +778,29 @@ func updateInfoFromZoneMap(
 		false,
 	); err != nil {
 		return err
+	}
+
+	const abnormalBlockNumber int64 = 1000000
+	const abnormalBlkCnt uint32 = 1000000
+	if info.BlockNumber > abnormalBlockNumber || maxBlkCnt > abnormalBlkCnt {
+		tableName := ""
+		dbName := ""
+		tableID := uint64(0)
+		dbID := uint64(0)
+		approxObjNum := int64(0)
+		if req != nil && req.tableDef != nil {
+			tableName = req.tableDef.Name
+			dbName = req.tableDef.DbName
+			tableID = req.tableDef.TblId
+			dbID = req.tableDef.DbId
+		}
+		if req != nil {
+			approxObjNum = req.approxObjectNum
+		}
+		logutil.Errorf(
+			"updateInfoFromZoneMap abnormal block stats: table=%s db=%s tableId=%d dbId=%d approxObjNum=%d objCnt=%d blockNumber=%d maxBlkCnt=%d maxBlkRows=%d maxBlkObj=%s",
+			tableName, dbName, tableID, dbID, approxObjNum, objCnt, info.BlockNumber, maxBlkCnt, maxBlkRows, maxBlkObj,
+		)
 	}
 
 	return nil

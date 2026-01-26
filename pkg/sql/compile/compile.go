@@ -4167,6 +4167,15 @@ func (c *Compile) expandRanges(
 		}
 	}
 
+	defer func() {
+		if r := recover(); r != nil {
+			logutil.Errorf("PreAllocBlockInfoSlice panic: %v, preAllocBlocks=%d, stats: {%v, %v, %v, %v, %v}",
+				r, preAllocBlocks, n.Stats.TableCnt, n.Stats.BlockNum, n.Stats.Selectivity, n.Stats.Rowsize, n.Stats.Sql,
+			)
+			panic(r)
+		}
+	}()
+
 	counterSet := new(perfcounter.CounterSet)
 	newCtx := perfcounter.AttachS3RequestKey(ctx, counterSet)
 	rangesParam := engine.RangesParam{

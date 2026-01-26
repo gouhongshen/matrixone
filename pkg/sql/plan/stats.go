@@ -1562,6 +1562,17 @@ func calcScanStats(node *plan.Node, builder *QueryBuilder) *plan.Stats {
 	}
 
 	stats := new(plan.Stats)
+	tableName := ""
+	dbName := ""
+	tableID := uint64(0)
+	if node.TableDef != nil {
+		tableName = node.TableDef.Name
+		dbName = node.TableDef.DbName
+		tableID = node.TableDef.TblId
+	}
+	if dbName == "" && node.ObjRef != nil {
+		dbName = node.ObjRef.SchemaName
+	}
 	stats.TableCnt = s.TableCnt
 	var blockSel float64 = 1
 
@@ -1596,13 +1607,36 @@ func calcScanStats(node *plan.Node, builder *QueryBuilder) *plan.Stats {
 				}
 			}
 		}
+		if math.IsNaN(currentBlockSel) || math.IsInf(currentBlockSel, 0) || currentBlockSel < 0 || currentBlockSel > 1 {
+			funcName := ""
+			if node.FilterList[i].GetF() != nil {
+				funcName = node.FilterList[i].GetF().Func.ObjName
+			}
+			colName := ""
+			if col := extractColRefInFilter(node.FilterList[i]); col != nil {
+				colName = col.Name
+			}
+			logutil.Errorf(
+				"calcScanStats abnormal blockSel: table=%s db=%s tableId=%d col=%s func=%s sel=%f blockSel=%f tableCnt=%f",
+				tableName, dbName, tableID, colName, funcName, node.FilterList[i].Selectivity, currentBlockSel, s.TableCnt,
+			)
+		}
 		blockSel = andSelectivity(blockSel, currentBlockSel)
 	}
 	node.BlockFilterList = blockExprList
 	stats.Selectivity = estimateExprSelectivity(colexec.RewriteFilterExprList(node.FilterList), builder, s)
 	stats.Outcnt = stats.Selectivity * stats.TableCnt
 	stats.Cost = stats.TableCnt * blockSel
-	stats.BlockNum = int32(float64(s.BlockNumber)*blockSel) + 1
+	const maxInt32 = float64(1<<31 - 1)
+	computedBlockNum := float64(s.BlockNumber) * blockSel
+	if computedBlockNum > maxInt32 || computedBlockNum < 0 || blockSel < 0 ||
+		math.IsNaN(blockSel) || math.IsInf(blockSel, 0) {
+		logutil.Errorf(
+			"calcScanStats abnormal block stats: table=%s db=%s tableId=%d blockNumber=%d blockSel=%f computedBlockNum=%f tableCnt=%f filterCnt=%d accurateObjNum=%d approxObjNum=%d",
+			tableName, dbName, tableID, s.BlockNumber, blockSel, computedBlockNum, s.TableCnt, len(node.FilterList), s.AccurateObjectNumber, s.ApproxObjectNumber,
+		)
+	}
+	stats.BlockNum = int32(computedBlockNum) + 1
 	// estimate average row size from collected table stats: sum(SizeMap)/TableCnt
 	// SizeMap stores approximate persisted bytes per column; divide by total rows to get bytes/row
 	{
