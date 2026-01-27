@@ -225,8 +225,13 @@ func MakeBlockInfoSlice(cnt int) BlockInfoSlice {
 }
 
 func PreAllocBlockInfoSlice(preAllocBlocks int) (ret BlockInfoSlice) {
-	capX := preAllocBlocks * BlockInfoSize
-	return make([]byte, 0, capX)
+	if preAllocBlocks < 0 {
+		preAllocBlocks = 0
+	}
+	if preAllocBlocks > 2000000 {
+		preAllocBlocks = 2000000
+	}
+	return make([]byte, 0, preAllocBlocks*BlockInfoSize)
 }
 
 func MultiObjectStatsToBlockInfoSlice(objs []ObjectStats, withFirstEmpty bool) BlockInfoSlice {
