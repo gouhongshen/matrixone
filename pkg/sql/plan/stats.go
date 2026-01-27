@@ -595,6 +595,9 @@ func estimateEqualitySelectivity(expr *plan.Expr, builder *QueryBuilder, s *pb.S
 	}
 	if col.Name == catalog.CPrimaryKeyColName {
 		if s != nil {
+			if s.TableCnt == 0 {
+				logutil.Errorf("estimateEqualitySelectivity abnormal: pk tableCnt=0")
+			}
 			return 1 / s.TableCnt
 		} else {
 			return 0.0000001
@@ -903,15 +906,18 @@ func estimateExprSelectivity(expr *plan.Expr, builder *QueryBuilder, s *pb.Stats
 			ret = 1 - estimateExprSelectivity(exprImpl.F.Args[0], builder, s)
 		case "like":
 			ret = 0.2
-		case "prefix_eq":
-			if containsDynamicParam(expr) {
-				if s != nil {
-					return 100 / s.TableCnt
-				} else {
-					return 0.0000001
+	case "prefix_eq":
+		if containsDynamicParam(expr) {
+			if s != nil {
+				if s.TableCnt == 0 {
+					logutil.Errorf("estimateExprSelectivity abnormal: func=prefix_eq tableCnt=0")
 				}
+				return 100 / s.TableCnt
 			} else {
-				return 0.0001
+				return 0.0000001
+			}
+		} else {
+			return 0.0001
 			}
 		case "in", "prefix_in":
 			card := 1.0
@@ -941,6 +947,13 @@ func estimateExprSelectivity(expr *plan.Expr, builder *QueryBuilder, s *pb.Stats
 		}
 	case *plan.Expr_Lit:
 		ret = 1.0
+	}
+	if math.IsNaN(ret) || math.IsInf(ret, 0) || ret < 0 {
+		funcName := ""
+		if expr.GetF() != nil {
+			funcName = expr.GetF().Func.ObjName
+		}
+		logutil.Errorf("estimateExprSelectivity abnormal: func=%s ret=%f", funcName, ret)
 	}
 	expr.Selectivity = ret
 	return ret
@@ -1350,20 +1363,30 @@ func ReCalcNodeStats(nodeID int32, builder *QueryBuilder, recursive bool, leafNo
 
 	// if there is a limit, outcnt is limit number
 	if node.Limit != nil && node.NodeType != plan.Node_TABLE_SCAN {
+		beforeLimitCost := node.Stats.Cost
+		beforeLimitOutcnt := node.Stats.Outcnt
 		limitExpr := DeepCopyExpr(node.Limit)
 		if _, ok := limitExpr.Expr.(*plan.Expr_F); ok {
 			if !hasParam(limitExpr) {
 				limitExpr, _ = ConstantFold(batch.EmptyForConstFoldBatch, limitExpr, builder.compCtx.GetProcess(), true, true)
 			}
 		}
-		if cExpr, ok := limitExpr.Expr.(*plan.Expr_Lit); ok {
-			if c, ok := cExpr.Lit.Value.(*plan.Literal_U64Val); ok {
-				node.Stats.Outcnt = float64(c.U64Val)
-				node.Stats.Selectivity = node.Stats.Outcnt / node.Stats.Cost
+			if cExpr, ok := limitExpr.Expr.(*plan.Expr_Lit); ok {
+				if c, ok := cExpr.Lit.Value.(*plan.Literal_U64Val); ok {
+					node.Stats.Outcnt = float64(c.U64Val)
+					node.Stats.Selectivity = node.Stats.Outcnt / node.Stats.Cost
+					if node.Stats.Cost <= 0 || math.IsNaN(node.Stats.Cost) || math.IsInf(node.Stats.Cost, 0) ||
+						math.IsNaN(node.Stats.Selectivity) || math.IsInf(node.Stats.Selectivity, 0) {
+						logutil.Errorf(
+							"ReCalcNodeStats limit abnormal: nodeType=%s nodeId=%d cost=%f outcnt=%f selectivity=%f beforeCost=%f beforeOutcnt=%f limit=%d",
+							node.NodeType.String(), node.NodeId, node.Stats.Cost, node.Stats.Outcnt, node.Stats.Selectivity,
+							beforeLimitCost, beforeLimitOutcnt, c.U64Val,
+						)
+					}
+				}
 			}
 		}
 	}
-}
 
 func computeFunctionScan(name string, exprs []*Expr, nodeStat *Stats) bool {
 	if name != "generate_series" {
@@ -1503,6 +1526,12 @@ func recalcStatsByRuntimeFilter(scanNode *plan.Node, joinNode *plan.Node, builde
 		if scanNode.Stats.Outcnt > scanNode.Stats.TableCnt {
 			scanNode.Stats.Outcnt = scanNode.Stats.TableCnt
 		}
+		if math.IsNaN(scanNode.Stats.Outcnt) || math.IsInf(scanNode.Stats.Outcnt, 0) {
+			logutil.Errorf(
+				"recalcStatsByRuntimeFilter abnormal outcnt: scanNodeId=%d joinNodeId=%d joinType=%s outcnt=%f tableCnt=%f",
+				scanNode.NodeId, joinNode.NodeId, joinNode.JoinType.String(), scanNode.Stats.Outcnt, scanNode.Stats.TableCnt,
+			)
+		}
 		newBlockNum := scanNode.Stats.Outcnt
 		if newBlockNum > 64 {
 			newBlockNum = (scanNode.Stats.Outcnt / 2)
@@ -1517,9 +1546,21 @@ func recalcStatsByRuntimeFilter(scanNode *plan.Node, joinNode *plan.Node, builde
 			scanNode.Stats.Cost = scanNode.Stats.TableCnt
 		}
 		scanNode.Stats.Selectivity = scanNode.Stats.Outcnt / scanNode.Stats.TableCnt
+		if scanNode.Stats.TableCnt <= 0 || math.IsNaN(scanNode.Stats.Selectivity) || math.IsInf(scanNode.Stats.Selectivity, 0) {
+			logutil.Errorf(
+				"recalcStatsByRuntimeFilter abnormal selectivity: scanNodeId=%d joinNodeId=%d joinType=%s selectivity=%f outcnt=%f tableCnt=%f",
+				scanNode.NodeId, joinNode.NodeId, joinNode.JoinType.String(), scanNode.Stats.Selectivity, scanNode.Stats.Outcnt, scanNode.Stats.TableCnt,
+			)
+		}
 		return
 	}
 	runtimeFilterSel := builder.qry.Nodes[joinNode.Children[1]].Stats.Selectivity
+	if math.IsNaN(runtimeFilterSel) || math.IsInf(runtimeFilterSel, 0) || runtimeFilterSel < 0 {
+		logutil.Errorf(
+			"recalcStatsByRuntimeFilter abnormal runtimeFilterSel: scanNodeId=%d joinNodeId=%d joinType=%s runtimeFilterSel=%f",
+			scanNode.NodeId, joinNode.NodeId, joinNode.JoinType.String(), runtimeFilterSel,
+		)
+	}
 	scanNode.Stats.Cost *= runtimeFilterSel
 	scanNode.Stats.Outcnt *= runtimeFilterSel
 	if scanNode.Stats.Cost < 1 {
@@ -1530,6 +1571,12 @@ func recalcStatsByRuntimeFilter(scanNode *plan.Node, joinNode *plan.Node, builde
 		scanNode.Stats.BlockNum = newBlockNum
 	}
 	scanNode.Stats.Selectivity = andSelectivity(scanNode.Stats.Selectivity, runtimeFilterSel)
+	if math.IsNaN(scanNode.Stats.Selectivity) || math.IsInf(scanNode.Stats.Selectivity, 0) {
+		logutil.Errorf(
+			"recalcStatsByRuntimeFilter abnormal selectivity after merge: scanNodeId=%d joinNodeId=%d joinType=%s selectivity=%f cost=%f outcnt=%f",
+			scanNode.NodeId, joinNode.NodeId, joinNode.JoinType.String(), scanNode.Stats.Selectivity, scanNode.Stats.Cost, scanNode.Stats.Outcnt,
+		)
+	}
 }
 
 func calcScanStats(node *plan.Node, builder *QueryBuilder) *plan.Stats {
