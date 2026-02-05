@@ -17,10 +17,12 @@ package frontend
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"go.uber.org/zap"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
@@ -1627,7 +1629,17 @@ func batchDeleteMoSubs(
 func getSubscriptionMeta(ctx context.Context, dbName string, ses FeSession, txn TxnOperator, bh BackgroundExec) (*plan.SubscriptionMeta, error) {
 	dbMeta, err := getPu(ses.GetService()).StorageEngine.Database(ctx, dbName, txn)
 	if err != nil {
+		acc, err2 := defines.GetAccountId(ctx)
 		ses.Errorf(ctx, "Get Subscription database %s meta error: %s", dbName, err.Error())
+		logutil.Error("DEBUG-GetSubscriptionMeta",
+			zap.String("dbName", dbName),
+			zap.Error(err),
+			zap.Error(err2),
+			zap.String("txn", txn.Txn().DebugString()),
+			zap.Uint32("acc", acc),
+			zap.String("stack", string(debug.Stack())),
+			zap.String("sql", ses.GetSql()),
+		)
 		return nil, moerr.NewNoDB(ctx)
 	}
 
