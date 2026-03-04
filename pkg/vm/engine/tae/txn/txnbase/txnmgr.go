@@ -128,6 +128,10 @@ const (
 	txnQueueDiagSampleMask = uint64(0x3f)
 	// Emit one summary log every 1024 samples.
 	txnQueueDiagLogEverySamples = uint64(1024)
+	// Sample 1 out of 256 txns for pre-wal stage breakdown diagnostics.
+	txnPreWalDiagSampleMask = uint64(0xff)
+	// Emit one summary log every 1024 sampled txns.
+	txnPreWalDiagLogEverySamples = uint64(1024)
 )
 
 type txnQueueWaitDiag struct {
@@ -162,6 +166,56 @@ func (d *txnQueueWaitDiag) observe(wait time.Duration) {
 		zap.Uint64("samples", n),
 		zap.Duration("avg-wait", time.Duration(total/n)),
 		zap.Duration("max-wait", time.Duration(d.maxNs.Load())),
+	)
+}
+
+type txnPreWalStageDiag struct {
+	samples              atomic.Uint64
+	prePrepareTotalNs    atomic.Uint64
+	bindPrepareTSTotalNs atomic.Uint64
+	prepareTotalNs       atomic.Uint64
+	totalNs              atomic.Uint64
+	maxTotalNs           atomic.Uint64
+}
+
+func (d *txnPreWalStageDiag) observe(
+	prePrepare time.Duration,
+	bindPrepareTS time.Duration,
+	prepare time.Duration,
+	total time.Duration,
+) {
+	if prePrepare < 0 || bindPrepareTS < 0 || prepare < 0 || total <= 0 {
+		return
+	}
+	prePrepareNs := uint64(prePrepare.Nanoseconds())
+	bindPrepareTSNs := uint64(bindPrepareTS.Nanoseconds())
+	prepareNs := uint64(prepare.Nanoseconds())
+	totalNs := uint64(total.Nanoseconds())
+
+	n := d.samples.Add(1)
+	d.prePrepareTotalNs.Add(prePrepareNs)
+	d.bindPrepareTSTotalNs.Add(bindPrepareTSNs)
+	d.prepareTotalNs.Add(prepareNs)
+	d.totalNs.Add(totalNs)
+	for {
+		max := d.maxTotalNs.Load()
+		if totalNs <= max || d.maxTotalNs.CompareAndSwap(max, totalNs) {
+			break
+		}
+	}
+	if n%txnPreWalDiagLogEverySamples != 0 {
+		return
+	}
+	total := d.totalNs.Load()
+	logutil.Info(
+		"Txn-PreWal-DIAG-Summary",
+		zap.String("sample-rate", "1/256"),
+		zap.Uint64("samples", n),
+		zap.Duration("avg-on-pre-prepare", time.Duration(d.prePrepareTotalNs.Load()/n)),
+		zap.Duration("avg-on-bind-prepare-ts", time.Duration(d.bindPrepareTSTotalNs.Load()/n)),
+		zap.Duration("avg-on-prepare", time.Duration(d.prepareTotalNs.Load()/n)),
+		zap.Duration("avg-total", time.Duration(total/n)),
+		zap.Duration("max-total", time.Duration(d.maxTotalNs.Load())),
 	)
 }
 
@@ -211,6 +265,7 @@ type TxnManager struct {
 		preWalWait txnQueueWaitDiag
 		walWait    txnQueueWaitDiag
 		applyWait  txnQueueWaitDiag
+		preWalDiag txnPreWalStageDiag
 	}
 }
 
@@ -533,6 +588,9 @@ func (mgr *TxnManager) OnOpTxn(op *OpTxn) (err error) {
 			op.queueDiagSampled = true
 			op.enqueuedPreWalAt = time.Now()
 		}
+		if seq&txnPreWalDiagSampleMask == 0 {
+			op.preWalDiagSampled = true
+		}
 	}
 	_, err = mgr.preWalQueue.Enqueue(op)
 	return
@@ -706,20 +764,40 @@ func (mgr *TxnManager) preWal(op *OpTxn) bool {
 		return false
 	}
 
+	var t0, t1, t2, t3 time.Time
+	if op.preWalDiagSampled {
+		t0 = time.Now()
+	}
+
 	// Mainly do : 1. conflict check for 1PC Commit or 2PC Prepare;
 	//   		   2. push the AppendNode into the MVCCHandle of block
 	mgr.onPrePrepare(op)
+	if op.preWalDiagSampled {
+		t1 = time.Now()
+	}
 
 	//Before this moment, all mvcc nodes of a txn has been pushed into the MVCCHandle.
 	//1. Allocate a timestamp , set it to txn's prepare timestamp and commit timestamp,
 	//   which would be changed in the future if txn is 2PC.
 	//2. Set transaction's state to Preparing or Rollbacking if op.Op is OpRollback.
 	ts := mgr.onBindPrepareTimeStamp(op)
+	if op.preWalDiagSampled {
+		t2 = time.Now()
+	}
 
 	if op.Txn.Is2PC() {
 		mgr.onPrepare2PC(op, ts)
 	} else {
 		mgr.onPrepare1PC(op, ts)
+	}
+	if op.preWalDiagSampled {
+		t3 = time.Now()
+		mgr.queueDiag.preWalDiag.observe(
+			t1.Sub(t0),
+			t2.Sub(t1),
+			t3.Sub(t2),
+			t3.Sub(t0),
+		)
 	}
 	if !op.Txn.IsReplay() {
 		if !mgr.prevPrepareTSInPreparing.IsEmpty() {
