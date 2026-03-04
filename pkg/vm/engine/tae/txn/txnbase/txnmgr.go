@@ -222,6 +222,7 @@ func (d *txnPreWalStageDiag) observe(
 type TxnManager struct {
 	sm.ClosedState
 	preWalQueue     sm.Queue
+	prepareQueue    sm.Queue
 	walQueue        sm.Queue
 	applyQueue      sm.Queue
 	IdAlloc         *common.TxnIDAllocator
@@ -295,6 +296,7 @@ func NewTxnManager(
 
 	const batSize = 1000
 	mgr.preWalQueue = sm.NewSafeQueue(20*batSize, batSize, mgr.onPreWalStage)
+	mgr.prepareQueue = sm.NewSafeQueue(20*batSize, batSize, mgr.onPrepareStage)
 	mgr.walQueue = sm.NewSafeQueue(20*batSize, batSize, mgr.onWalStage)
 	mgr.applyQueue = sm.NewSafeQueue(20*batSize, batSize, mgr.onApply)
 	mgr.queueDiag.preWalWait.name = "pre-wal-queue"
@@ -764,40 +766,23 @@ func (mgr *TxnManager) preWal(op *OpTxn) bool {
 		return false
 	}
 
-	var t0, t1, t2, t3 time.Time
-	if op.preWalDiagSampled {
-		t0 = time.Now()
-	}
-
 	// Mainly do : 1. conflict check for 1PC Commit or 2PC Prepare;
 	//   		   2. push the AppendNode into the MVCCHandle of block
 	mgr.onPrePrepare(op)
-	if op.preWalDiagSampled {
-		t1 = time.Now()
-	}
+	return true
+}
 
+func (mgr *TxnManager) prepareForWal(op *OpTxn) {
 	//Before this moment, all mvcc nodes of a txn has been pushed into the MVCCHandle.
 	//1. Allocate a timestamp , set it to txn's prepare timestamp and commit timestamp,
 	//   which would be changed in the future if txn is 2PC.
 	//2. Set transaction's state to Preparing or Rollbacking if op.Op is OpRollback.
 	ts := mgr.onBindPrepareTimeStamp(op)
-	if op.preWalDiagSampled {
-		t2 = time.Now()
-	}
 
 	if op.Txn.Is2PC() {
 		mgr.onPrepare2PC(op, ts)
 	} else {
 		mgr.onPrepare1PC(op, ts)
-	}
-	if op.preWalDiagSampled {
-		t3 = time.Now()
-		mgr.queueDiag.preWalDiag.observe(
-			t1.Sub(t0),
-			t2.Sub(t1),
-			t3.Sub(t2),
-			t3.Sub(t0),
-		)
 	}
 	if !op.Txn.IsReplay() {
 		if !mgr.prevPrepareTSInPreparing.IsEmpty() {
@@ -808,8 +793,6 @@ func (mgr *TxnManager) preWal(op *OpTxn) bool {
 		}
 		mgr.prevPrepareTSInPreparing = op.Txn.GetPrepareTS()
 	}
-
-	return true
 }
 
 func (mgr *TxnManager) onWal(op *OpTxn) bool {
@@ -950,6 +933,7 @@ func (mgr *TxnManager) Start(ctx context.Context) {
 	isWriteMode := mgr.IsWriteMode()
 	mgr.applyQueue.Start()
 	mgr.walQueue.Start()
+	mgr.prepareQueue.Start()
 	mgr.preWalQueue.Start()
 	mgr.ResetHeartbeat()
 	logutil.Info(
@@ -964,6 +948,7 @@ func (mgr *TxnManager) Stop() {
 	isWriteMode := mgr.IsWriteMode()
 	mgr.StopHeartbeat()
 	mgr.preWalQueue.Stop()
+	mgr.prepareQueue.Stop()
 	mgr.walQueue.Stop()
 	mgr.applyQueue.Stop()
 	mgr.OnException(sm.ErrClose)
@@ -984,8 +969,59 @@ func (mgr *TxnManager) onPreWalStage(items ...any) {
 		}
 
 		op.Txn.GetStore().TriggerTrace(txnif.TracePreWal)
-		if !mgr.preWal(op) {
+		if op.preWalDiagSampled {
+			t0 := time.Now()
+			if !mgr.preWal(op) {
+				continue
+			}
+			op.preWalDiagPrePrepare = time.Since(t0)
+		} else if !mgr.preWal(op) {
 			continue
+		}
+
+		if _, err := mgr.prepareQueue.Enqueue(op); err != nil {
+			panic(err)
+		}
+	}
+	common.DoIfDebugEnabled(func() {
+		logutil.Debug("[onPreWalStage]",
+			common.NameSpaceField("txns"),
+			common.DurationField(time.Since(now)),
+			common.CountField(len(items)))
+	})
+}
+
+func (mgr *TxnManager) onPrepareStage(items ...any) {
+	now := time.Now()
+	for _, item := range items {
+		op := item.(*OpTxn)
+		if op.preWalDiagSampled {
+			t1 := time.Now()
+			ts := mgr.onBindPrepareTimeStamp(op)
+			t2 := time.Now()
+			if op.Txn.Is2PC() {
+				mgr.onPrepare2PC(op, ts)
+			} else {
+				mgr.onPrepare1PC(op, ts)
+			}
+			t3 := time.Now()
+			if !op.Txn.IsReplay() {
+				if !mgr.prevPrepareTSInPreparing.IsEmpty() {
+					prepareTS := op.Txn.GetPrepareTS()
+					if prepareTS.LT(&mgr.prevPrepareTSInPreparing) {
+						panic(fmt.Sprintf("timestamp rollback current %v, previous %v", op.Txn.GetPrepareTS().ToString(), mgr.prevPrepareTSInPreparing.ToString()))
+					}
+				}
+				mgr.prevPrepareTSInPreparing = op.Txn.GetPrepareTS()
+			}
+			mgr.queueDiag.preWalDiag.observe(
+				op.preWalDiagPrePrepare,
+				t2.Sub(t1),
+				t3.Sub(t2),
+				op.preWalDiagPrePrepare+t2.Sub(t1)+t3.Sub(t2),
+			)
+		} else {
+			mgr.prepareForWal(op)
 		}
 		if op.queueDiagSampled {
 			op.enqueuedWalAt = time.Now()
@@ -995,7 +1031,7 @@ func (mgr *TxnManager) onPreWalStage(items ...any) {
 		}
 	}
 	common.DoIfDebugEnabled(func() {
-		logutil.Debug("[onPreWalStage]",
+		logutil.Debug("[onPrepareStage]",
 			common.NameSpaceField("txns"),
 			common.DurationField(time.Since(now)),
 			common.CountField(len(items)))
