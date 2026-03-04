@@ -1209,31 +1209,28 @@ func (tbl *txnTable) DoPrecommitDedupByPK(
 		if tbl.dedupTS.IsEmpty() {
 			tbl.dedupTS = tbl.store.txn.GetStartTS()
 		}
+		fromTS := tbl.dedupTS.Next()
 		var rowIDs containers.Vector
-		rowIDs, err = tbl.getBaseTable(isTombstone).incrementalGetRowsByPK(tbl.store.ctx, pks, tbl.dedupTS.Next(), ts, phase == txnif.PrePreparePhase)
+		baseTable := tbl.getBaseTable(isTombstone)
+		rowIDs, err = baseTable.incrementalGetRowsByPK(tbl.store.ctx, pks, fromTS, ts, phase == txnif.PrePreparePhase)
 		if err != nil {
 			return
 		}
 		defer rowIDs.Close()
 		if !isTombstone {
-			err = tbl.findDeletes(tbl.store.ctx, rowIDs, tbl.dedupTS.Next(), now)
+			err = tbl.findDeletes(tbl.store.ctx, rowIDs, fromTS, now)
 			if err != nil {
 				return
 			}
 		}
+		colName := baseTable.schema.GetPrimaryKey().Name
 		for i := 0; i < rowIDs.Length(); i++ {
-			var colName string
-			if isTombstone {
-				colName = tbl.tombstoneTable.schema.GetPrimaryKey().Name
-			} else {
-				colName = tbl.dataTable.schema.GetPrimaryKey().Name
-			}
 			if !rowIDs.IsNull(i) {
 				logutil.Error("Duplicate",
 					zap.String("table", tbl.dataTable.schema.Name),
 					zap.Bool("is tombstone", isTombstone),
 					zap.String("phase", phase),
-					zap.String("from", tbl.dedupTS.Next().ToString()),
+					zap.String("from", fromTS.ToString()),
 					zap.String("to", ts.ToString()),
 				)
 				entry := common.TypeStringValue(*pks.GetType(), pks.Get(i), false)
