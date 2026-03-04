@@ -226,11 +226,6 @@ func (tbl *baseTable) incrementalGetRowsByPK(ctx context.Context, pks containers
 		pks.Length(),
 		common.WorkspaceAllocator,
 	)
-	pkType := pks.GetType()
-	keysZM := index.NewZM(pkType.Oid, pkType.Scale)
-	if err = index.BatchUpdateZM(keysZM, pks.GetDownstreamVector()); err != nil {
-		return
-	}
 
 	var earlybreak bool
 	for ok := objIt.Last(); ok; ok = objIt.Prev() {
@@ -260,17 +255,6 @@ func (tbl *baseTable) incrementalGetRowsByPK(ctx context.Context, pks containers
 			continue
 		}
 		objData := obj.GetObjectData()
-		if objData == nil {
-			continue
-		}
-		if obj.HasCommittedPersistedData() {
-			var skip bool
-			if skip, err = quickSkipThisObject(ctx, keysZM, obj); err != nil {
-				return
-			} else if skip {
-				continue
-			}
-		}
 		err = objData.GetDuplicatedRows(
 			ctx,
 			tbl.txnTable.store.txn,
