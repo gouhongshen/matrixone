@@ -182,15 +182,15 @@ func (d *txnPreWalStageDiag) observe(
 	prePrepare time.Duration,
 	bindPrepareTS time.Duration,
 	prepare time.Duration,
-	total time.Duration,
+	totalCost time.Duration,
 ) {
-	if prePrepare < 0 || bindPrepareTS < 0 || prepare < 0 || total <= 0 {
+	if prePrepare < 0 || bindPrepareTS < 0 || prepare < 0 || totalCost <= 0 {
 		return
 	}
 	prePrepareNs := uint64(prePrepare.Nanoseconds())
 	bindPrepareTSNs := uint64(bindPrepareTS.Nanoseconds())
 	prepareNs := uint64(prepare.Nanoseconds())
-	totalNs := uint64(total.Nanoseconds())
+	totalNs := uint64(totalCost.Nanoseconds())
 
 	n := d.samples.Add(1)
 	d.prePrepareTotalNs.Add(prePrepareNs)
@@ -206,7 +206,7 @@ func (d *txnPreWalStageDiag) observe(
 	if n%txnPreWalDiagLogEverySamples != 0 {
 		return
 	}
-	total := d.totalNs.Load()
+	totalAccumNs := d.totalNs.Load()
 	logutil.Info(
 		"Txn-PreWal-DIAG-Summary",
 		zap.String("sample-rate", "1/256"),
@@ -214,7 +214,7 @@ func (d *txnPreWalStageDiag) observe(
 		zap.Duration("avg-on-pre-prepare", time.Duration(d.prePrepareTotalNs.Load()/n)),
 		zap.Duration("avg-on-bind-prepare-ts", time.Duration(d.bindPrepareTSTotalNs.Load()/n)),
 		zap.Duration("avg-on-prepare", time.Duration(d.prepareTotalNs.Load()/n)),
-		zap.Duration("avg-total", time.Duration(total/n)),
+		zap.Duration("avg-total", time.Duration(totalAccumNs/n)),
 		zap.Duration("max-total", time.Duration(d.maxTotalNs.Load())),
 	)
 }
