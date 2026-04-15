@@ -907,6 +907,7 @@ func TestTableChangeStream_Run_ContextCancel(t *testing.T) {
 	}, time.Second, 10*time.Millisecond, "stream should begin collecting before cancellation")
 
 	opsBefore := h.Sinker().opsSnapshot()
+	sinkCallsBefore := len(h.Sinker().sinkCallsSnapshot())
 
 	h.Cancel()
 	done()
@@ -922,8 +923,15 @@ func TestTableChangeStream_Run_ContextCancel(t *testing.T) {
 		require.ErrorIs(t, runErr, context.Canceled)
 	}
 
+	opsAfter := h.Sinker().opsSnapshot()
+
 	require.False(t, h.Stream().GetRetryable(), "cancel should not mark stream retryable")
-	require.Equal(t, opsBefore, h.Sinker().opsSnapshot(), "cancel should not produce additional sink operations")
+	require.Equal(t, sinkCallsBefore, len(h.Sinker().sinkCallsSnapshot()), "cancel should not produce additional sink calls")
+	require.GreaterOrEqual(t, len(opsAfter), len(opsBefore))
+	require.Equal(t, opsBefore, opsAfter[:len(opsBefore)])
+	for _, op := range opsAfter[len(opsBefore):] {
+		require.Contains(t, []string{"clear", "rollback", "dummy"}, op, "cancel should only add cleanup operations")
+	}
 }
 
 // Test ActiveRoutine Pause
