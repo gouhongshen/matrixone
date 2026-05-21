@@ -807,87 +807,6 @@ func buildRowidColumn(
 	return
 }
 
-type commitTSFilterAction uint8
-
-const (
-	commitTSFilterNone commitTSFilterAction = iota
-	commitTSFilterAllRows
-	commitTSFilterByRow
-)
-
-func hiddenCommitTSColumn(blkMeta objectio.BlockObject) (objectio.ColumnMeta, bool) {
-	metaColCnt := blkMeta.GetMetaColumnCount()
-	if metaColCnt == 0 {
-		return nil, false
-	}
-	// CommitTS is a trailing special column; a visible user TS column must not
-	// be treated as row visibility metadata.
-	if int(metaColCnt) <= int(blkMeta.GetMaxSeqnum())+1 {
-		return nil, false
-	}
-	commitTSCol := blkMeta.ColumnMeta(metaColCnt - 1)
-	if commitTSCol.DataType() != uint8(types.T_TS) {
-		return nil, false
-	}
-	return commitTSCol, true
-}
-
-func planCommitTSFilter(blkMeta objectio.BlockObject, snapshotTS types.TS) commitTSFilterAction {
-	commitTSCol, ok := hiddenCommitTSColumn(blkMeta)
-	if !ok {
-		return commitTSFilterNone
-	}
-
-	zm := commitTSCol.ZoneMap()
-	if !zm.IsInited() || zm.GetType() != types.T_TS {
-		return commitTSFilterByRow
-	}
-	minTS := types.DecodeFixed[types.TS](zm.GetMinBuf())
-	maxTS := types.DecodeFixed[types.TS](zm.GetMaxBuf())
-	if !maxTS.GT(&snapshotTS) {
-		return commitTSFilterNone
-	}
-	if minTS.GT(&snapshotTS) {
-		return commitTSFilterAllRows
-	}
-	return commitTSFilterByRow
-}
-
-func buildFullDeleteMask(rowCount uint32) objectio.Bitmap {
-	if rowCount == 0 {
-		return objectio.NullBitmap
-	}
-	deletes := objectio.GetNoReuseBitmap()
-	deletes.Bitmap().AddRange(0, uint64(rowCount))
-	return deletes
-}
-
-func buildCommitTSDeleteMask(commits []types.TS, snapshotTS types.TS) objectio.Bitmap {
-	var deletes objectio.Bitmap
-	for i := range commits {
-		if !commits[i].GT(&snapshotTS) {
-			continue
-		}
-		if !deletes.IsValid() {
-			deletes = objectio.GetNoReuseBitmap()
-		}
-		deletes.Add(uint64(i))
-	}
-	return deletes
-}
-
-func loadObjectDataMeta(
-	ctx context.Context,
-	location objectio.Location,
-	fs fileservice.FileService,
-) (objectio.ObjectDataMeta, error) {
-	meta, err := objectio.FastLoadObjectMeta(ctx, &location, false, fs)
-	if err != nil {
-		return nil, err
-	}
-	return meta.MustGetMeta(objectio.SchemaData), nil
-}
-
 // This func load columns from storage of specified column indexes
 // No memory copy, the loaded data is directly stored in the cacheVectors
 // if `phyAddrColumnPos` >= 0, it means one of the columns is the physical address column,
@@ -921,12 +840,24 @@ func readBlockData(
 
 	idxes, typs := excludePhyAddrColumn(colIndexes, colTypes, phyAddrColumnPos)
 
-	location := info.MetaLocation()
-	dataMeta, err := loadObjectDataMeta(ctx, location, fs)
-	if err != nil {
-		return
+	blockHasCommitTS := func() (bool, error) {
+		if info.IsAppendable() {
+			return true, nil
+		}
+
+		location := info.MetaLocation()
+		meta, err2 := objectio.FastLoadObjectMeta(ctx, &location, false, fs)
+		if err2 != nil {
+			return false, err2
+		}
+		dataMeta := meta.MustGetMeta(objectio.SchemaData)
+		blkMeta := dataMeta.GetBlockMeta(uint32(info.MetaLocation().ID()))
+		metaColCnt := blkMeta.GetMetaColumnCount()
+		if metaColCnt == 0 {
+			return false, nil
+		}
+		return blkMeta.ColumnMeta(metaColCnt-1).DataType() == uint8(types.T_TS), nil
 	}
-	commitTSAction := planCommitTSFilter(dataMeta.GetBlockMeta(uint32(location.ID())), ts)
 
 	readColumns := func(
 		cols []uint16,
@@ -939,8 +870,8 @@ func readBlockData(
 			return
 		}
 
-		release2, err2 = ioutil.LoadColumnsWithMeta(
-			ctx, cols, typs2, fs, location, dataMeta, cacheVectors2, m, policy,
+		release2, err2 = ioutil.LoadColumns(
+			ctx, cols, typs2, fs, info.MetaLocation(), cacheVectors2, m, policy,
 		)
 		if err2 != nil {
 			return
@@ -960,38 +891,25 @@ func readBlockData(
 		if err2 != nil {
 			return
 		}
-		if dataRelease == nil {
-			dataRelease = func() {}
-		}
 
-		switch commitTSAction {
-		case commitTSFilterNone:
-			release = dataRelease
-			return
-		case commitTSFilterAllRows:
-			release = dataRelease
-			deletes = buildFullDeleteMask(info.MetaLocation().Rows())
-			return
-		case commitTSFilterByRow:
-		default:
+		hasCommitTS, err2 := blockHasCommitTS()
+		if err2 != nil {
 			if dataRelease != nil {
 				dataRelease()
 			}
-			err2 = moerr.NewInternalErrorNoCtxf("unknown commit ts filter action %d", commitTSAction)
+			return
+		}
+		if !hasCommitTS {
+			release = dataRelease
+			deletes = objectio.GetReusableBitmap()
 			return
 		}
 
 		commitTSVectors := containers.NewVectors(1)
-		releaseCommitTS, err2 := ioutil.LoadColumnsWithMeta(
-			ctx,
+		releaseCommitTS, err2 := readColumns(
 			[]uint16{objectio.SEQNUM_COMMITTS},
 			[]types.Type{types.T_TS.ToType()},
-			fs,
-			location,
-			dataMeta,
 			commitTSVectors,
-			m,
-			policy,
 		)
 		if err2 != nil {
 			if dataRelease != nil {
@@ -999,14 +917,25 @@ func readBlockData(
 			}
 			return
 		}
-		if releaseCommitTS != nil {
-			defer releaseCommitTS()
+
+		release = func() {
+			if releaseCommitTS != nil {
+				releaseCommitTS()
+			}
+			if dataRelease != nil {
+				dataRelease()
+			}
 		}
-		release = dataRelease
+
+		deletes = objectio.GetReusableBitmap()
 
 		t0 := time.Now()
 		commits := vector.MustFixedColWithTypeCheck[types.TS](&commitTSVectors[0])
-		deletes = buildCommitTSDeleteMask(commits, ts)
+		for i := 0; i < len(commits); i++ {
+			if commits[i].GT(&ts) {
+				deletes.Add(uint64(i))
+			}
+		}
 		logutil.Debugf(
 			"blockread %s scan filter cost %v: base %s filter out %v\n ",
 			info.BlockID.String(),
