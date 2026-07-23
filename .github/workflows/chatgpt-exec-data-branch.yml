@@ -1,4 +1,4 @@
-name: ChatGPT Execute MatrixOne Data Branch
+name: ChatGPT Execute MatrixOne Data Branch Go 1.25
 
 on:
   pull_request:
@@ -15,30 +15,43 @@ jobs:
     timeout-minutes: 35
     env:
       UPSTREAM_REPO: matrixorigin/matrixone
-      UPSTREAM_COMMIT: 90e3400436d05fc9708a1c81ffef5a59b890f8ad
+      UPSTREAM_COMMIT: 3ae121f26b7bf63122ea0fa4b4259dc95aa9114d
+      REQUIRED_GO: 1.25.4
     steps:
-      - name: Checkout upstream MatrixOne
+      - name: Checkout upstream MatrixOne Go 1.25 line
         uses: actions/checkout@v4
         with:
           repository: matrixorigin/matrixone
-          ref: 90e3400436d05fc9708a1c81ffef5a59b890f8ad
+          ref: 3ae121f26b7bf63122ea0fa4b4259dc95aa9114d
           fetch-depth: 1
 
-      - name: Set up Go
+      - name: Set up Go 1.25.4
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: 1.25.4
           cache: true
 
       - name: Record environment
         shell: bash
         run: |
+          actual_go="$(go version)"
+          grep '^go ' go.mod | tee go-mod-version.txt
+          if ! grep -q '^go 1\.25\.4$' go.mod; then
+            echo "Unexpected go.mod version" >&2
+            exit 1
+          fi
+          if [[ "$actual_go" != *"go1.25.4"* ]]; then
+            echo "Unexpected Go runtime: $actual_go" >&2
+            exit 1
+          fi
           {
             echo "executed_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "upstream_repo=${UPSTREAM_REPO}"
             echo "upstream_commit=${UPSTREAM_COMMIT}"
+            echo "required_go=${REQUIRED_GO}"
             echo "runner=$(uname -a)"
-            echo "go=$(go version)"
+            echo "go=${actual_go}"
+            echo "go_mod=$(cat go-mod-version.txt)"
           } | tee environment.txt
 
       - name: Build MatrixOne
@@ -72,6 +85,7 @@ jobs:
           statement = "data branch create x from mo_catalog;"
           commit = os.environ["UPSTREAM_COMMIT"]
           print(f"upstream_commit={commit}")
+          print(f"required_go={os.environ['REQUIRED_GO']}")
           print(f"statement={statement}")
 
           conn = None
@@ -168,7 +182,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: matrixone-data-branch-execution-${{ github.run_id }}
+          name: matrixone-go1.25-data-branch-execution-${{ github.run_id }}
           if-no-files-found: error
           retention-days: 7
           path: |
