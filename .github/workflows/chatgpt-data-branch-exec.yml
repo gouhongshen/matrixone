@@ -1,0 +1,113 @@
+name: ChatGPT data branch execution
+
+on:
+  push:
+    branches:
+      - chatgpt-run-data-branch-20260723
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  execute-data-branch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go 1.25
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.12'
+          cache: true
+
+      - name: Show execution context
+        shell: bash
+        run: |
+          set -euxo pipefail
+          go version
+          git rev-parse HEAD
+          grep '^go ' go.mod
+          uname -a
+
+      - name: Install MySQL client
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y default-mysql-client
+          mysql --version
+
+      - name: Build MatrixOne
+        shell: bash
+        run: |
+          set -euxo pipefail
+          make build
+          test -x ./mo-service
+          ./mo-service --version || true
+
+      - name: Start MatrixOne and execute SQL
+        shell: bash
+        run: |
+          set -uo pipefail
+          ulimit -n 65536 || true
+          rm -rf ./mo-data ./mo-data-local ./data
+          nohup ./mo-service -launch ./etc/launch/launch.toml > "$RUNNER_TEMP/mo-service.log" 2>&1 &
+          MO_PID=$!
+          echo "MO_PID=$MO_PID"
+
+          ready=0
+          for i in $(seq 1 180); do
+            if mysqladmin --protocol=tcp -h127.0.0.1 -P6001 -uroot -p111 --connect-timeout=2 ping >/dev/null 2>&1; then
+              ready=1
+              echo "MatrixOne is ready after ${i} checks"
+              break
+            fi
+            if ! kill -0 "$MO_PID" 2>/dev/null; then
+              echo "mo-service exited before becoming ready"
+              tail -n 300 "$RUNNER_TEMP/mo-service.log" || true
+              exit 1
+            fi
+            sleep 2
+          done
+
+          if [ "$ready" -ne 1 ]; then
+            echo "MatrixOne did not become ready"
+            tail -n 300 "$RUNNER_TEMP/mo-service.log" || true
+            exit 1
+          fi
+
+          echo '=== EXACT SQL EXECUTION ==='
+          set +e
+          mysql --protocol=tcp -h127.0.0.1 -P6001 -uroot -p111 \
+            --connect-timeout=10 --show-warnings --verbose \
+            -e 'data branch create x from mo_catalog;' 2>&1 | tee "$RUNNER_TEMP/sql-output.txt"
+          sql_rc=${PIPESTATUS[0]}
+          set -e
+          echo "SQL_EXIT_CODE=$sql_rc" | tee -a "$RUNNER_TEMP/sql-output.txt"
+
+          echo '=== VERIFY DATABASE X ==='
+          mysql --protocol=tcp -h127.0.0.1 -P6001 -uroot -p111 \
+            --connect-timeout=10 --show-warnings --verbose \
+            -e "show databases like 'x';" 2>&1 | tee "$RUNNER_TEMP/verify-output.txt" || true
+
+          echo '=== MATRIXONE LOG TAIL ==='
+          tail -n 200 "$RUNNER_TEMP/mo-service.log" || true
+
+          kill "$MO_PID" 2>/dev/null || true
+          wait "$MO_PID" 2>/dev/null || true
+
+      - name: Upload execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-branch-execution-evidence
+          path: |
+            ${{ runner.temp }}/sql-output.txt
+            ${{ runner.temp }}/verify-output.txt
+            ${{ runner.temp }}/mo-service.log
+          if-no-files-found: warn
+          retention-days: 1
