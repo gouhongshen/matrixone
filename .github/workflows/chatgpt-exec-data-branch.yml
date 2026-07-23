@@ -1,0 +1,179 @@
+name: ChatGPT Execute MatrixOne Data Branch
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    if: github.head_ref == 'chatgpt-exec-data-branch-20260723' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      UPSTREAM_REPO: matrixorigin/matrixone
+      UPSTREAM_COMMIT: 90e3400436d05fc9708a1c81ffef5a59b890f8ad
+    steps:
+      - name: Checkout upstream MatrixOne
+        uses: actions/checkout@v4
+        with:
+          repository: matrixorigin/matrixone
+          ref: 90e3400436d05fc9708a1c81ffef5a59b890f8ad
+          fetch-depth: 1
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Record environment
+        shell: bash
+        run: |
+          {
+            echo "executed_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "upstream_repo=${UPSTREAM_REPO}"
+            echo "upstream_commit=${UPSTREAM_COMMIT}"
+            echo "runner=$(uname -a)"
+            echo "go=$(go version)"
+          } | tee environment.txt
+
+      - name: Build MatrixOne
+        shell: bash
+        run: |
+          set -o pipefail
+          make config 2>&1 | tee config.log
+          make build 2>&1 | tee build.log
+          ls -lh ./mo-service | tee -a build.log
+
+      - name: Start MatrixOne
+        shell: bash
+        run: |
+          nohup ./mo-service -launch ./etc/launch/launch.toml > mo-service.log 2>&1 &
+          echo $! > mo-service.pid
+          echo "mo-service_pid=$(cat mo-service.pid)"
+
+      - name: Execute requested SQL
+        id: execute_sql
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 -m pip install --disable-pip-version-check --quiet pymysql
+          python3 - <<'PY' > execution-result.txt 2>&1
+          import os
+          import sys
+          import time
+          import traceback
+          import pymysql
+
+          statement = "data branch create x from mo_catalog;"
+          commit = os.environ["UPSTREAM_COMMIT"]
+          print(f"upstream_commit={commit}")
+          print(f"statement={statement}")
+
+          conn = None
+          last_error = None
+          for attempt in range(1, 181):
+              try:
+                  conn = pymysql.connect(
+                      host="127.0.0.1",
+                      port=6001,
+                      user="root",
+                      password="111",
+                      autocommit=True,
+                      connect_timeout=2,
+                      read_timeout=60,
+                      write_timeout=60,
+                  )
+                  print(f"connection_status=READY attempt={attempt}")
+                  break
+              except Exception as exc:
+                  last_error = exc
+                  time.sleep(1)
+
+          if conn is None:
+              print("connection_status=FAILED")
+              print(f"connection_error={type(last_error).__name__}: {last_error}")
+              sys.exit(2)
+
+          exit_code = 0
+          try:
+              with conn.cursor() as cur:
+                  cur.execute("select version()")
+                  version_row = cur.fetchone()
+                  print(f"matrixone_version={version_row[0] if version_row else None}")
+
+                  try:
+                      started = time.time()
+                      cur.execute(statement)
+                      elapsed_ms = (time.time() - started) * 1000
+                      print("statement_status=SUCCESS")
+                      print(f"statement_elapsed_ms={elapsed_ms:.3f}")
+                      print(f"statement_rowcount={cur.rowcount}")
+                      if cur.description:
+                          print("statement_columns=" + "\t".join(col[0] for col in cur.description))
+                          for row in cur.fetchall():
+                              print("statement_row=" + "\t".join("NULL" if v is None else str(v) for v in row))
+                  except Exception as exc:
+                      exit_code = 1
+                      print("statement_status=ERROR")
+                      print(f"statement_error_type={type(exc).__name__}")
+                      print(f"statement_error={exc}")
+                      if getattr(exc, "args", None):
+                          print(f"statement_error_args={exc.args!r}")
+
+                  try:
+                      cur.execute("show databases like 'x'")
+                      rows = cur.fetchall()
+                      print(f"verification_show_databases_count={len(rows)}")
+                      for row in rows:
+                          print("verification_database=" + "\t".join(str(v) for v in row))
+                  except Exception as exc:
+                      print(f"verification_error={type(exc).__name__}: {exc}")
+          except Exception:
+              traceback.print_exc()
+              exit_code = max(exit_code, 3)
+          finally:
+              conn.close()
+
+          sys.exit(exit_code)
+          PY
+          rc=$?
+          cat execution-result.txt
+          exit "$rc"
+
+      - name: Append relevant server log lines
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo
+            echo "--- server log matches for requested statement ---"
+            grep -inE "data branch create x from mo_catalog|branch create|mo_catalog" mo-service.log | tail -100 || true
+          } >> execution-result.txt
+
+      - name: Stop MatrixOne
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f mo-service.pid ]]; then
+            kill "$(cat mo-service.pid)" 2>/dev/null || true
+            sleep 3
+          fi
+
+      - name: Upload execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: matrixone-data-branch-execution-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            environment.txt
+            execution-result.txt
+            config.log
+            build.log
+            mo-service.log
